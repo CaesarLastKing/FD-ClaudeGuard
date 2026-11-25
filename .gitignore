@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+dist/
+dist-ssr/
+
+# Rust / Tauri
+src-tauri/target/
+src-tauri/gen/
+
+# Logs & OS
+*.log
+.DS_Store
+Thumbs.db
+
+# Local IDE / Env / Secrets
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.local
+.local-private/
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+vault.dat
+build-secrets.json
+
+# Internal handoff & personal raw case notes (keep local only)
+docs/handoff-20261124.md
+docs/research-source-ca8f12fa.md

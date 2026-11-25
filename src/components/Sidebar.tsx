@@ -1,0 +1,381 @@
+import { useEffect, useRef, useState } from "react";
+import { Activity, Globe, Home, Loader2, Lock, SlidersHorizontal, Wrench } from "lucide-react";
+import { ipc } from "@/lib/ipc";
+import { useGuardStore } from "@/stores/guardStore";
+import type { NavTab } from "@/types/guard";
+
+const FREE_PREVIEW_CHECK_IDS = new Set(["node_proxy", "node_tun", "sys_ipv6"]);
+
+const NAV_ITEMS: Array<{ id: NavTab; label: string; icon: React.ReactNode }> = [
+  { id: "console", label: "控制台", icon: <Home size={16} strokeWidth={1.75} /> },
+  { id: "nodes", label: "节点流量", icon: <Globe size={16} strokeWidth={1.75} /> },
+  { id: "logs", label: "日志分析", icon: <Activity size={16} strokeWidth={1.75} /> },
+  { id: "maintain", label: "环境维护", icon: <Wrench size={16} strokeWidth={1.75} /> },
+  { id: "config", label: "守卫配置", icon: <SlidersHorizontal size={16} strokeWidth={1.75} /> },
+];
+
+export function Sidebar() {
+  const activeTab = useGuardStore((s) => s.activeTab);
+  const setActiveTab = useGuardStore((s) => s.setActiveTab);
+  const preflight = useGuardStore((s) => s.preflight);
+  const snapshot = useGuardStore((s) => s.snapshot);
+  const config = useGuardStore((s) => s.config);
+  const setSnapshot = useGuardStore((s) => s.setSnapshot);
+  const pushToast = useGuardStore((s) => s.pushToast);
+  const licenseStatus = useGuardStore((s) => s.licenseStatus);
+  const setLicenseModalOpen = useGuardStore((s) => s.setLicenseModalOpen);
+  const isLicensed = !licenseStatus.commercialFeatureEnabled || licenseStatus.licensed;
+  const [busyKill, setBusyKill] = useState(false);
+
+  const holdActive = Boolean(snapshot.killHoldActive);
+  const holdSecs = snapshot.killHoldRemainingSecs ?? 0;
+  const holdBlocked = snapshot.killHoldBlockedCount ?? 0;
+  const holdTx = Boolean(snapshot.killHoldTxLocked);
+  const defaultHoldSecs = config.killHoldSeconds ?? 45;
+
+  const mustAll = preflight.items.filter((x) => x.part === "must");
+  const mustFail = isLicensed
+    ? mustAll.filter((x) => x.status !== "ok").length
+    : mustAll.filter((x) => FREE_PREVIEW_CHECK_IDS.has(x.id) && x.status !== "ok").length;
+
+  // 节点流量侧边栏角标双重兜底：同步关联 snapshot 唯一真源与控制台 node_geo 状态，确保三方 100% 联动不漏标
+  const nodeGeoItem = preflight.items.find((x) => x.id === "node_geo");
+  const hasNodeFail = Boolean(snapshot.nodeDown) || nodeGeoItem?.status === "fail";
+  const hasNodeIssue =
+    hasNodeFail || snapshot.activeFlowAnomalies > 0 || nodeGeoItem?.status === "warn";
+
+  // Clash Verge 指示灯仅纯粹反映代理内核连接本身：在线恒定绿灯，仅离线时红灯提示
+  const sideDotClass = snapshot.clashOnline ? "guard-dot" : "guard-dot danger";
+
+  // 每次拦截到 Claude 非安全启动（拦截次数递增），触发边框脉冲闪烁提醒
+  const [interceptFlash, setInterceptFlash] = useState(false);
+  const prevBlockedRef = useRef(holdBlocked);
+  useEffect(() => {
+    if (holdBlocked > prevBlockedRef.current) {
+      setInterceptFlash(true);
+      const timer = window.setTimeout(() => setInterceptFlash(false), 1500);
+      prevBlockedRef.current = holdBlocked;
+      return () => window.clearTimeout(timer);
+    }
+    prevBlockedRef.current = holdBlocked;
+  }, [holdBlocked]);
+
+  return (
+    <aside
+      style={{
+        width: 198,
+        flexShrink: 0,
+        background: "var(--bg-sidebar)",
+        borderRight: "1px solid var(--border)",
+        padding: "14px 10px 12px",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between",
+      }}
+    >
+      <nav aria-label="主导航" style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+        {NAV_ITEMS.map((item) => {
+          const isActive = activeTab === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setActiveTab(item.id)}
+              style={{
+                width: "100%",
+                border: "none",
+                background: isActive ? "var(--bg-subtle)" : "transparent",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "9px 12px",
+                borderRadius: "var(--r-btn)",
+                fontFamily: "var(--font-sans)",
+                fontSize: 14,
+                fontWeight: isActive ? 600 : 500,
+                color: isActive ? "var(--text-1)" : "var(--text-2)",
+                cursor: "pointer",
+                transition: "background-color 0.14s, color 0.14s",
+              }}
+            >
+              <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                {item.icon}
+                {item.label}
+              </span>
+              {item.id === "console" && (
+                <span
+                  className="tabular"
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    minWidth: 20,
+                    textAlign: "center",
+                    padding: "1px 6px",
+                    borderRadius: "var(--r-chip)",
+                    background: mustFail > 0 ? "var(--danger-soft)" : "var(--success-soft)",
+                    color: mustFail > 0 ? "var(--danger-bright)" : "var(--success)",
+                  }}
+                >
+                  {mustFail > 0 ? mustFail : isLicensed ? "OK" : "体验"}
+                </span>
+              )}
+              {!isLicensed && item.id !== "console" && (
+                <Lock
+                  size={12}
+                  strokeWidth={1.9}
+                  data-testid={`nav-lock-${item.id}`}
+                  style={{ color: "var(--text-3)", opacity: 0.72, flexShrink: 0 }}
+                />
+              )}
+              {isLicensed && item.id === "nodes" && hasNodeIssue && (
+                <span
+                  data-testid="nav-badge-nodes"
+                  className="tabular"
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    minWidth: 20,
+                    textAlign: "center",
+                    padding: "1px 6px",
+                    borderRadius: "var(--r-chip)",
+                    background: hasNodeFail ? "var(--danger-soft)" : "var(--warning-soft)",
+                    color: hasNodeFail ? "var(--danger-bright)" : "var(--warning)",
+                  }}
+                >
+                  {Math.max(1, snapshot.activeFlowAnomalies)}
+                </span>
+              )}
+              {isLicensed &&
+                item.id === "logs" &&
+                (() => {
+                  const hasSplit =
+                    snapshot.unreadLogCritical !== undefined ||
+                    snapshot.unreadLogWarnings !== undefined;
+                  const crit = hasSplit
+                    ? snapshot.unreadLogCritical ?? 0
+                    : snapshot.unreadLogAnomalies;
+                  const warn = hasSplit ? snapshot.unreadLogWarnings ?? 0 : 0;
+                  const total = hasSplit ? crit + warn : snapshot.unreadLogAnomalies;
+                  if (total <= 0) return null;
+                  const isCrit = crit > 0;
+                  return (
+                    <span
+                      data-testid="nav-badge-logs"
+                      title={`风险 ${warn} · 异常 ${crit}`}
+                      className="tabular"
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 600,
+                        minWidth: 20,
+                        textAlign: "center",
+                        padding: "1px 6px",
+                        borderRadius: "var(--r-chip)",
+                        background: isCrit ? "var(--danger-soft)" : "var(--warning-soft)",
+                        color: isCrit ? "var(--danger-bright)" : "var(--warning)",
+                      }}
+                    >
+                      {isCrit ? crit : warn}
+                    </span>
+                  );
+                })()}
+            </button>
+          );
+        })}
+      </nav>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {/* Claude 进程雷达 & Kill-Hold 防复活持续盯防卡（增量 17）
+            注意：绝不可混用 border 简写与 borderColor 细分属性，否则解除盯防后 React 清空 borderColor 会回落成 currentColor 纯白边！ */}
+        <div
+          data-testid="sidebar-proc-card"
+          className={interceptFlash ? "guard-intercept-flash" : undefined}
+          style={{
+            ...miniBoxStyle,
+            border: holdActive
+              ? "1px solid rgba(0, 111, 238, 0.45)"
+              : "1px solid var(--border)",
+            background: holdActive
+              ? "linear-gradient(180deg, rgba(0, 111, 238, 0.08), var(--bg-card))"
+              : "var(--bg-card)",
+          }}
+        >
+          <div style={miniHdStyle}>
+            <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span
+                className={`guard-dot ${
+                  holdActive ? "hold" : snapshot.bgClaudeProcs > 0 ? "warn" : ""
+                }`}
+              />
+              Claude 进程
+            </span>
+            <span
+              className="tabular"
+              data-testid="sidebar-proc-status"
+              style={{
+                fontSize: 11,
+                fontWeight: holdActive ? 600 : 500,
+                color: holdActive
+                  ? "var(--primary)"
+                  : snapshot.bgClaudeProcs > 0
+                  ? "var(--warning)"
+                  : "var(--success)",
+              }}
+            >
+              {holdActive
+                ? holdTx
+                  ? "事务盯防中"
+                  : `盯防 ${holdSecs}s`
+                : snapshot.bgClaudeProcs > 0
+                ? `${snapshot.bgClaudeProcs} 存活`
+                : "0 残留"}
+            </span>
+          </div>
+          <div style={{ fontSize: 11, color: "var(--text-3)" }}>
+            {holdActive
+              ? holdBlocked > 0
+                ? `已拦截 ${holdBlocked} 次 Claude 非安全启动`
+                : "250ms 防复活盯防中"
+              : snapshot.bgClaudeProcs > 0
+              ? "存在后台进程，切代理前需清空并盯防"
+              : "已彻底退出，可安全操作"}
+          </div>
+          {holdActive ? (
+            <div style={{ display: "flex", gap: 6, marginTop: 7 }}>
+              <button
+                type="button"
+                data-testid="btn-release-kill-hold"
+                disabled={busyKill}
+                className="guard-btn guard-btn-flat guard-btn-xs"
+                style={{ width: "100%", justifyContent: "center" }}
+                onClick={async () => {
+                  setBusyKill(true);
+                  try {
+                    const hs = await ipc.releaseKillHold();
+                    const latest = useGuardStore.getState().snapshot;
+                    setSnapshot({
+                      ...latest,
+                      killHoldActive: hs.active,
+                      killHoldRemainingSecs: hs.remainingSecs,
+                      killHoldBlockedCount: hs.blockedCount,
+                      killHoldTxLocked: hs.txLocked,
+                    });
+                    pushToast("已解除防复活盯防锁", "已停止 250ms 强杀盯防，现在可按需安全启动 Claude。", "info");
+                  } catch (err) {
+                    pushToast("解除盯防锁失败", String(err), "danger");
+                  } finally {
+                    setBusyKill(false);
+                  }
+                }}
+              >
+                {busyKill && <Loader2 size={11} strokeWidth={2} className="guard-spin" />}
+                <span>解除盯防</span>
+              </button>
+            </div>
+          ) : snapshot.bgClaudeProcs > 0 ? (
+            <button
+              type="button"
+              data-testid="btn-kill-and-hold"
+              disabled={busyKill}
+              className="guard-btn guard-btn-flat guard-btn-xs"
+              style={{ width: "100%", marginTop: 7 }}
+              onClick={async () => {
+                if (!isLicensed) {
+                  setLicenseModalOpen(true);
+                  return;
+                }
+                setBusyKill(true);
+                try {
+                  const rep = await ipc.killClaudeProcesses(true);
+                  const latest = useGuardStore.getState().snapshot;
+                  setSnapshot({
+                    ...latest,
+                    bgClaudeProcs: rep.afterCount,
+                    killHoldActive: rep.killHoldActive ?? true,
+                    killHoldRemainingSecs: rep.killHoldRemainingSecs ?? defaultHoldSecs,
+                  });
+                  pushToast("已强杀 Claude 并启动防复活盯防", rep.message, "ok");
+                } catch (err) {
+                  pushToast("强杀 Claude 进程失败", String(err), "danger");
+                } finally {
+                  setBusyKill(false);
+                }
+              }}
+            >
+              {busyKill && <Loader2 size={11} strokeWidth={2} className="guard-spin" />}
+              <span>{busyKill ? "正在强杀..." : `彻底退出并盯防 ${defaultHoldSecs}s`}</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              data-testid="btn-start-kill-hold"
+              disabled={busyKill}
+              className="guard-btn guard-btn-flat guard-btn-xs"
+              style={{ width: "100%", marginTop: 7, color: "var(--text-2)" }}
+              onClick={async () => {
+                if (!isLicensed) {
+                  setLicenseModalOpen(true);
+                  return;
+                }
+                setBusyKill(true);
+                try {
+                  const hs = await ipc.startKillHold(defaultHoldSecs, "手动开启防复活持续盯防锁");
+                  const latest = useGuardStore.getState().snapshot;
+                  setSnapshot({
+                    ...latest,
+                    bgClaudeProcs: 0,
+                    killHoldActive: hs.active,
+                    killHoldRemainingSecs: hs.remainingSecs,
+                    killHoldBlockedCount: hs.blockedCount,
+                    killHoldTxLocked: hs.txLocked,
+                  });
+                  pushToast(
+                    `已启用 ${hs.remainingSecs}s 防复活盯防锁`,
+                    "每 250ms 监测 Claude 关联进程树，冒头即强杀并顺延 +15s。",
+                    "ok"
+                  );
+                } catch (err) {
+                  pushToast("启用防复活盯防失败", String(err), "danger");
+                } finally {
+                  setBusyKill(false);
+                }
+              }}
+            >
+              {busyKill && <Loader2 size={11} strokeWidth={2} className="guard-spin" />}
+              <span>{`强杀防复活盯防 (${defaultHoldSecs}s)`}</span>
+            </button>
+          )}
+        </div>
+
+        {/* Clash Verge 内核连接状态卡 */}
+        <div style={miniBoxStyle}>
+          <div style={miniHdStyle}>
+            <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span className={sideDotClass} />
+              Clash Verge
+            </span>
+          </div>
+          <div className="tabular" style={{ fontSize: 11, color: "var(--text-3)" }}>
+            {snapshot.clashVersion} · {snapshot.clashPort}
+          </div>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+const miniBoxStyle: React.CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: "var(--r-btn)",
+  background: "var(--bg-card)",
+  border: "1px solid var(--border)",
+  fontSize: 12,
+  lineHeight: 1.45,
+};
+
+const miniHdStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  fontWeight: 500,
+  marginBottom: 2,
+};

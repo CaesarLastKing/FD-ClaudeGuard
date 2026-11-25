@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FD Claude 账户分析平台 · 本地只读 MVP</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <!-- 顶部栏 -->
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              <path d="M9 12l2 2 4-4" />
+            </svg>
+          </div>
+          <span class="brand-title">FD Claude 账户分析平台</span>
+          <span class="chip ch-neutral">本地只读 MVP</span>
+          <span class="brand-sub" id="bindInfoText">127.0.0.1 仅本机 · 零明文落盘</span>
+        </div>
+        <div class="topbar-actions">
+          <label class="toggle-pill" title="演示数据仅在内存展示，不会写入你的本地快照库">
+            <input type="checkbox" id="demoModeToggle" />
+            <span>演示样例</span>
+          </label>
+          <button class="btn btn-flat btn-sm" id="themeToggleBtn" type="button" title="切换深浅主题">切换浅色</button>
+        </div>
+      </header>
+
+      <div class="workspace">
+        <!-- 左侧导航栏 -->
+        <aside class="sidebar">
+          <nav class="nav-list" aria-label="主导航">
+            <button class="nav-item active" data-tab="probe" type="button">
+              <span class="nav-icon">◎</span>
+              <span>实时探测台</span>
+            </button>
+            <button class="nav-item" data-tab="timeline" type="button">
+              <span class="nav-icon">◷</span>
+              <span>账号时间线</span>
+              <span class="nav-badge" id="navAccountCount" hidden>0</span>
+            </button>
+            <button class="nav-item" data-tab="analytics" type="button">
+              <span class="nav-icon">▤</span>
+              <span>风控归因看板</span>
+            </button>
+            <button class="nav-item" data-tab="reference" type="button">
+              <span class="nav-icon">☰</span>
+              <span>字段与防封参考</span>
+            </button>
+          </nav>
+
+          <div class="sidebar-cards">
+            <div class="mini-card">
+              <div class="mini-card-hd">
+                <span class="dot dot-ok"></span>
+                <span>隐私脱敏防护</span>
+              </div>
+              <div class="mini-card-val">仅存哈希指纹 · 零外传</div>
+            </div>
+            <div class="mini-card">
+              <div class="mini-card-hd">
+                <span class="dot" id="proxyStatusDot"></span>
+                <span>本机代理通道</span>
+              </div>
+              <div class="mini-card-val" id="proxyStatusText">检测中…</div>
+            </div>
+          </div>
+        </aside>
+
+        <!-- 右侧主内容区 -->
+        <main class="main-area">
+          <!-- TAB 1: 实时探测台 -->
+          <section class="tab-panel active" id="tab-probe">
+            <div class="page-hd">
+              <div class="page-hd-left">
+                <h1 class="page-title">实时只读探测台</h1>
+                <p class="page-sub">
+                  仅发 HTTP GET 只读请求分析账号状态、套餐、用量窗口与双路 KYC；sessionKey 绝不落盘、绝不上传任何第三方。
+                </p>
+              </div>
+              <div class="hd-btns">
+                <button class="btn btn-flat" id="clearInputBtn" type="button">清空输入</button>
+                <button class="btn btn-danger-soft" id="stopProbeBtn" type="button" hidden>停止探测</button>
+                <button class="btn btn-primary" id="startProbeBtn" type="button">开始只读探测</button>
+              </div>
+            </div>
+
+            <div class="panel-body">
+              <!-- 输入与网络设置卡片 -->
+              <div class="card input-card">
+                <div class="input-top-row">
+                  <div class="field-label">
+                    <span>粘贴 sessionKey（每行一条，支持含 <code>----</code> 的混合文本，自动提取 <code>sk-ant-sid…</code>）</span>
+                  </div>
+                  <div class="parse-meta tabular" id="parseMetaText">已识别 0 条</div>
+                </div>
+                <textarea
+                  id="sessionInput"
+                  class="code-textarea"
+                  rows="3"
+                  spellcheck="false"
+                  autocomplete="off"
+                  placeholder="sk-ant-sid01-xxxx...（仅在本机内存中使用，测试完成后建议清空输入框）"
+                ></textarea>
+
+                <div class="config-grid">
+                  <label class="cfg-item">
+                    <span>传输引擎</span>
+                    <select id="transportSelect" class="ctrl">
+                      <option value="curl">Windows curl.exe (Schannel · 推荐)</option>
+                      <option value="fetch">Node 原生 fetch</option>
+                    </select>
+                  </label>
+                  <label class="cfg-item">
+                    <span>本机代理（留空直连）</span>
+                    <input id="proxyInput" class="ctrl mono" type="text" placeholder="例如 http://127.0.0.1:7890" />
+                  </label>
+                  <label class="cfg-item">
+                    <span>目标 Base URL</span>
+                    <input id="baseUrlInput" class="ctrl mono" type="text" value="https://claude.ai" />
+                  </label>
+                  <label class="cfg-item">
+                    <span>安全间隔 (ms)</span>
+                    <input id="delayInput" class="ctrl mono tabular" type="number" min="0" max="5000" step="100" value="600" />
+                  </label>
+                </div>
+
+                <div class="config-footer">
+                  <div class="cfg-checks">
+                    <label class="chk">
+                      <input type="checkbox" id="optProbesCheck" checked />
+                      <span>启用 6 维深度只读探测（含订阅/用量窗口/对话域/Portal 检查）</span>
+                    </label>
+                    <label class="chk">
+                      <input type="checkbox" id="saveSnapshotCheck" checked />
+                      <span>归档脱敏快照到本地时间线（永不存明文 key）</span>
+                    </label>
+                    <label class="chk">
+                      <input type="checkbox" id="maskEmailCheck" checked />
+                      <span>界面邮箱脱敏</span>
+                    </label>
+                  </div>
+                  <div class="detected-proxies" id="detectedProxiesBar"></div>
+                </div>
+              </div>
+
+              <!-- 实时统计条 -->
+              <div class="stats-row">
+                <div class="stat-card">
+                  <span class="stat-label">本批总计</span>
+                  <span class="stat-val tabular" id="statTotal">0</span>
+                </div>
+                <div class="stat-card">
+                  <span class="stat-label">正常存活</span>
+                  <span class="stat-val tabular val-ok" id="statAlive">0</span>
+                </div>
+                <div class="stat-card">
+                  <span class="stat-label">存活 · 受限</span>
+                  <span class="stat-val tabular val-warn" id="statRestricted">0</span>
+                </div>
+                <div class="stat-card">
+                  <span class="stat-label">失效 (403)</span>
+                  <span class="stat-val tabular val-danger" id="statInvalid">0</span>
+                </div>
+                <div class="stat-card">
+                  <span class="stat-label">错误 / CF 拦截</span>
+                  <span class="stat-val tabular" id="statError">0</span>
+                </div>
+              </div>
+
+              <!-- 黄金比例双栏：左侧结果表 + 右侧深度体检详情 -->
+              <div class="split-grid">
+                <div class="card table-card">
+                  <div class="card-hd">
+                    <span class="card-title">探测结果列表</span>
+                    <span class="muted tabular" id="probeProgressText">待命</span>
+                  </div>
+                  <div class="table-wrap">
+                    <table class="data-table">
+                      <thead>
+                        <tr>
+                          <th style="width: 42px">#</th>
+                          <th style="width: 112px">状态</th>
+                          <th>邮箱 / 指纹</th>
+                          <th style="width: 86px">套餐</th>
+                          <th style="width: 96px">KYC / Portal</th>
+                          <th style="width: 74px">年龄</th>
+                          <th style="width: 78px">耗时</th>
+                        </tr>
+                      </thead>
+                      <tbody id="probeTableBody">
+                        <tr>
+                          <td colspan="7" class="empty-cell">
+                            输入 sessionKey 点击右上角「开始只读探测」，或开启右上角「演示样例」预览完整能力。
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div class="card detail-card" id="probeDetailPanel">
+                  <div class="card-hd">
+                    <span class="card-title">账号深度体检报告</span>
+                    <button class="btn btn-flat btn-sm" id="copySanitizedBundleBtn" type="button" disabled>
+                      复制强脱敏诊断包
+                    </button>
+                  </div>
+                  <div class="detail-body" id="probeDetailBody">
+                    <div class="empty-detail">
+                      点击左侧任意一条探测记录，查看 6 维端点矩阵、用量窗口、双路 KYC 状态、风险评估与完整脱敏原始 JSON。
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- TAB 2: 账号时间线与状态变迁 -->
+          <section class="tab-panel" id="tab-timeline">
+            <div class="page-hd">
+              <div class="page-hd-left">
+                <h1 class="page-title">账号时间线与环境归因标签</h1>
+                <p class="page-sub">
+                  按不可逆指纹自动聚合历次检测快照，追踪从正常 → 受限 → 失效的字段变更 Diff，并记录环境与支付变量。
+                </p>
+              </div>
+              <div class="hd-btns">
+                <button class="btn btn-flat" id="refreshTimelineBtn" type="button">刷新列表</button>
+                <button class="btn btn-danger-soft" id="clearAllStorageBtn" type="button">清空本地快照</button>
+              </div>
+            </div>
+            <div class="panel-body">
+              <div class="split-grid">
+                <div class="card table-card">
+                  <div class="card-hd">
+                    <span class="card-title">已归档账号（零明文 key）</span>
+                    <span class="muted tabular" id="timelineCountText">0 个账号</span>
+                  </div>
+                  <div class="table-wrap">
+                    <table class="data-table">
+                      <thead>
+                        <tr>
+                          <th>脱敏邮箱 / Key 掩码</th>
+                          <th style="width: 108px">最新状态</th>
+                          <th style="width: 82px">套餐</th>
+                          <th style="width: 72px">记录数</th>
+                          <th>环境标签</th>
+                        </tr>
+                      </thead>
+                      <tbody id="timelineTableBody">
+                        <tr>
+                          <td colspan="5" class="empty-cell">暂无归档账号，执行一次探测或开启「演示样例」即可查看。</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div class="card detail-card">
+                  <div class="card-hd">
+                    <span class="card-title">状态跃迁时间线 &amp; 标签编辑</span>
+                    <button class="btn btn-danger-soft btn-sm" id="deleteAccountBtn" type="button" hidden>删除记录</button>
+                  </div>
+                  <div class="detail-body" id="timelineDetailBody">
+                    <div class="empty-detail">选择左侧账号，查看完整状态变化 Diff 并维护环境归因标签。</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- TAB 3: 封号与风控归因分析看板 -->
+          <section class="tab-panel" id="tab-analytics">
+            <div class="page-hd">
+              <div class="page-hd-left">
+                <h1 class="page-title">风控与封号归因分析看板</h1>
+                <p class="page-sub">
+                  横向对比不同收款商户、账号年龄、套餐级别、代理节点类型与客户端的受限/失效率，辅助定位高危诱因。
+                </p>
+              </div>
+              <div class="hd-btns">
+                <button class="btn btn-flat" id="refreshAnalyticsBtn" type="button">刷新统计</button>
+              </div>
+            </div>
+            <div class="panel-body" id="analyticsBody"></div>
+          </section>
+
+          <!-- TAB 4: 字段词典与防封映射参考 -->
+          <section class="tab-panel" id="tab-reference">
+            <div class="page-hd">
+              <div class="page-hd-left">
+                <h1 class="page-title">Claude 网页端状态字段与防封观测参考</h1>
+                <p class="page-sub">梳理每个只读接口字段的风控语义，以及避免“观测本身触发封号”的操作红线。</p>
+              </div>
+            </div>
+            <div class="panel-body">
+              <div class="ref-grid">
+                <div class="card ref-card">
+                  <div class="card-hd"><span class="card-title">1. 核心状态与风控信号对照</span></div>
+                  <div class="ref-content">
+                    <table class="data-table">
+                      <thead>
+                        <tr>
+                          <th style="width: 210px">字段 / 端点</th>
+                          <th style="width: 150px">正常态特征</th>
+                          <th>风险 / 受限含义</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td class="mono">HTTP 403 / 401 (非 CF)</td>
+                          <td>HTTP 200 JSON</td>
+                          <td>上游明确拒绝会话，属于凭据失效或账号已被封禁。</td>
+                        </tr>
+                        <tr>
+                          <td class="mono">cf-mitigated: challenge</td>
+                          <td>无此头</td>
+                          <td>被 Cloudflare 边缘人机校验拦截，并非账号死亡，请更换干净代理或降低频率。</td>
+                        </tr>
+                        <tr>
+                          <td class="mono">org.api_disabled_reason</td>
+                          <td class="mono">null</td>
+                          <td>主组织已被风控禁用，常见于滥用检测、支付争议或政策违规。</td>
+                        </tr>
+                        <tr>
+                          <td class="mono">org.billable_usage_paused_until</td>
+                          <td class="mono">null</td>
+                          <td>计费与付费额度被临时暂停至指定时间戳。</td>
+                        </tr>
+                        <tr>
+                          <td class="mono">kyc.status</td>
+                          <td class="mono">not_required / approved</td>
+                          <td>若为 pending / created / needs_review / expired / denied，则属于订阅侧 KYC 受限。</td>
+                        </tr>
+                        <tr>
+                          <td class="mono">portal.hold_notice</td>
+                          <td class="mono">null</td>
+                          <td>组织 Portal 侧存在挂起通知，往往先于彻底 403 封号出现，是最重要的前兆信号之一。</td>
+                        </tr>
+                        <tr>
+                          <td class="mono">chat_conversations?limit=1</td>
+                          <td>HTTP 200</td>
+                          <td>若组织接口 200 但对话域返回 403/400，说明存在局部功能封禁或对话权限受限。</td>
+                        </tr>
+                        <tr>
+                          <td class="mono">usage (five_hour / seven_day)</td>
+                          <td>低/中利用率</td>
+                          <td>高频持续满载（>85%）叠加新号/共享机房 IP，往往更容易触发风控复核。</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div class="card ref-card">
+                  <div class="card-hd"><span class="card-title">2. 避免“观测者效应”的低风控自测守则</span></div>
+                  <div class="ref-content prose-list">
+                    <div class="tip-row">
+                      <span class="chip ch-ok">守则 1</span>
+                      <div><strong>纯只读、低频单线程</strong>：本工具默认并发为 1、间隔 600ms，绝不做高频并发轮询，日常跟踪建议每天最多 1 次或仅在状态异常时手动触发。</div>
+                    </div>
+                    <div class="tip-row">
+                      <span class="chip ch-ok">守则 2</span>
+                      <div><strong>保持固定干净出口</strong>：探测账号时请使用该账号平时登录的同一地区/固定节点（如 Clash 固定单节点），避免跨洲/机房脏 IP 探测本身诱发风控。</div>
+                    </div>
+                    <div class="tip-row">
+                      <span class="chip ch-ok">守则 3</span>
+                      <div><strong>强脱敏导出再排查</strong>：若某账号返回了未知新字段需要进一步分析，请使用「复制强脱敏诊断包」功能，系统会自动清除 key、邮箱、姓名与真实 UUID 后再导出。</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <div class="toast" id="toastEl" hidden></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,88 @@
+import type { PlaybookRule } from "@/types/guard";
+
+/**
+ * Claude 账号防封安全守则知识库（v2.0：已实事求是拆清 4A 日志联动与 4B 人工支付隔离守则）
+ */
+export const PLAYBOOK_RULES: PlaybookRule[] = [
+  {
+    id: "pb_24h",
+    code: "1",
+    level: "warn",
+    tag: "高敏窗口",
+    title: "新号注册、充值与跨档升级后 24 小时冷静期",
+    desc: "开通 Pro/Max 或突然跨档升级后的 30 分钟 ~ 24 小时为支付反欺诈异步复审高峰。此期间严禁切节点、严禁换设备，建议开启「24h 冷静保护模式」。",
+    hitText: "24h 冷静保护模式运行中（严禁切节点与高并发）",
+  },
+  {
+    id: "pb_oauth",
+    code: "2",
+    level: "fail",
+    tag: "环境联动",
+    title: "严禁将 Pro/Max OAuth Token 接入第三方反代或套壳",
+    desc: "2025–2026 封号头号重灾区。个人消费级订阅 OAuth 仅限官方客户端与官方 Claude Code 使用；程序化接入必须走官方 Console 按量付费 API Key。",
+    hitText: "环境变量或日志检测到异常第三方 OAuth 转发",
+  },
+  {
+    id: "pb_rate",
+    code: "3",
+    level: "warn",
+    tag: "日志联动",
+    title: "禁止无人值守全自动循环脚本与异常高并发刷量",
+    desc: "消费级订阅（Pro/Max）要求 Human-in-the-loop（人工交互使用）；挂 24/7 定时脚本、多线程并发或频繁触发 429 限流极易触发自动化滥用封禁。",
+    hitText: "日志已命中：检测到连续 429 限流或高并发 sideSession",
+  },
+  {
+    id: "pb_pay",
+    code: "4A",
+    level: "fail",
+    tag: "日志联动",
+    title: "严禁封后秒切备用号与同机多号轮换",
+    desc: "封号后几分钟内在同一污染客户端切回备用号，新号 Cookie 会携带被封 orgId 发起 /authorize 竞态请求直接连坐备用号。换号前必须先清零进程并原子备份清理污染目录。",
+    hitText: "日志已命中 account_banned 或跨 orgId 异步竞态请求",
+  },
+  {
+    id: "pb_card",
+    code: "4B",
+    level: "neutral",
+    tag: "人工守则 · 无卡号日志",
+    title: "支付渠道绝对隔离（银行卡 / 虚拟卡 BIN / Apple ID）",
+    desc: "本地客户端日志不记录银行卡号或虚拟卡 BIN，本条作为明确的人工防线守则：请确保绝不复用曾关联被封号的卡、高危虚拟卡 BIN 或 Apple ID；若出现 App Store 挂起订阅冲突需先在苹果端取消待结周期。",
+    hitText: "请人工核验支付源隔离",
+  },
+  {
+    id: "pb_boot",
+    code: "5",
+    level: "warn",
+    tag: "启动项联动",
+    title: "开机自启顺序竞争（Claude 早于代理启动导致裸奔）",
+    desc: "若 Windows 开机启动了 Claude Desktop 但 Clash 虚拟网卡晚几秒就绪，开机头 5~15 秒会直接以真实本地 IP 联网触发 region_unavailable。我们绝不擅自删除你的启动项，建议手动关闭 Claude 自启。",
+    hitText: "系统启动项只读监测命中：Claude Desktop 已开启开机自启",
+  },
+  {
+    id: "pb_node",
+    code: "6",
+    level: "warn",
+    tag: "节点容灾",
+    title: "节点短期抖动 vs 长期失效 & 严禁跨洲瞬移",
+    desc: "< 2 分钟短期抖动建议先等待自愈；主节点确认失效时先清零进程并优先切至同地区热备节点；被迫跨国切换后建议静默间隔 15~30 分钟再启动 Claude。",
+    hitText: "检测到主节点故障、禁区漂移或频繁切节点风险",
+  },
+  {
+    id: "pb_filter",
+    code: "7",
+    level: "neutral",
+    tag: "内容红线",
+    title: "敏感内容安全过滤器误触红线 & 定期本地备份",
+    desc: "避免在消费级主力账号上传个人医疗诊断类原始隐私数据或触发涉及未成年人等高敏词过滤器，并养成定期本地导出重要 Prompt 与项目知识库的习惯。",
+    hitText: "请注意合规使用与定期导出重要资产",
+  },
+  {
+    id: "pb_exit",
+    code: "8",
+    level: "fail",
+    tag: "进程联动",
+    title: "关代理前看 0 进程雷达、官方隐私降噪与系统时钟",
+    desc: "Claude 关窗口常缩回托盘，退出最后 1~5 秒会执行 onQuitCleanup 补发遥测；同时切忌手动改错系统时钟（偏离 UTC 会导致 OAuth/JWT 异常）。",
+    hitText: "日志已命中退出刷队列暴露或残留后台进程风险",
+  },
+];

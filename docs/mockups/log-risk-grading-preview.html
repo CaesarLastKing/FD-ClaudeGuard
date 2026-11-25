@@ -1,0 +1,982 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FD Claude 安全启动器 · 日志风险分级与 OAuth v2 拆分效果图（实机同步版）</title>
+  <style>
+    :root {
+      --font-sans: "Segoe UI Variable Text", "Segoe UI Variable Display", "HarmonyOS Sans SC", "MiSans", "PingFang SC", "Microsoft YaHei UI", -apple-system, sans-serif;
+      --font-mono: "Cascadia Code", "JetBrains Mono", "Consolas", ui-monospace, monospace;
+      --r-win: 10px;
+      --r-card: 12px;
+      --r-btn: 8px;
+      --r-chip: 6px;
+      --r-hud: 14px;
+      --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+      --primary: #006fee;
+      --primary-hover: #338ef7;
+      --primary-soft: rgba(0, 111, 238, 0.14);
+      --success: #17c964;
+      --success-soft: rgba(23, 201, 100, 0.13);
+      --warning: #f5a524;
+      --warning-soft: rgba(245, 165, 36, 0.14);
+      --danger: #ef4444;
+      --danger-bright: #f87171;
+      --danger-soft: rgba(239, 68, 68, 0.14);
+
+      --bg-canvas: #09090b;
+      --bg-sidebar: #0d0d10;
+      --bg-card: #18181b;
+      --bg-subtle: #222226;
+      --hud-bg: rgba(24, 24, 27, 0.94);
+      --border: rgba(255, 255, 255, 0.08);
+      --border-strong: rgba(255, 255, 255, 0.14);
+      --text-1: #fafafa;
+      --text-2: #a1a1aa;
+      --text-3: #71717a;
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      min-height: 100vh;
+      font-family: var(--font-sans);
+      background: radial-gradient(circle at 20% 0%, #141418 0%, #070709 65%);
+      color: var(--text-1);
+      -webkit-font-smoothing: antialiased;
+    }
+    .tabular { font-variant-numeric: tabular-nums; }
+    .font-mono-code { font-family: var(--font-mono); }
+
+    /* 顶部预览控制器（仅效果图演示用，实际应用不含此栏） */
+    .preview-bar {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 10px 24px;
+      background: rgba(13, 13, 16, 0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border-strong);
+      font-size: 12.5px;
+    }
+    .preview-bar-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--text-2);
+    }
+    .preview-tag {
+      background: var(--primary-soft);
+      color: var(--primary-hover);
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 99px;
+      font-size: 11px;
+    }
+    .preview-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .mode-pill {
+      border: 1px solid var(--border-strong);
+      background: var(--bg-card);
+      color: var(--text-2);
+      padding: 5px 12px;
+      border-radius: 7px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.14s var(--ease);
+    }
+    .mode-pill:hover { color: var(--text-1); background: var(--bg-subtle); }
+    .mode-pill.active-warn {
+      border-color: rgba(245, 165, 36, 0.5);
+      background: var(--warning-soft);
+      color: var(--warning);
+      font-weight: 600;
+    }
+    .mode-pill.active-fail {
+      border-color: rgba(239, 68, 68, 0.55);
+      background: var(--danger-soft);
+      color: var(--danger-bright);
+      font-weight: 600;
+    }
+    .mode-pill.active-ok {
+      border-color: rgba(23, 201, 100, 0.45);
+      background: var(--success-soft);
+      color: var(--success);
+      font-weight: 600;
+    }
+
+    /* 桌面同屏舞台：左主窗 + 右悬浮窗 */
+    .stage {
+      max-width: 1580px;
+      margin: 24px auto 40px;
+      padding: 0 24px;
+      display: flex;
+      align-items: flex-start;
+      gap: 28px;
+    }
+
+    /* 主窗口外壳 */
+    .app-win {
+      flex: 1;
+      min-width: 900px;
+      height: 760px;
+      background: var(--bg-canvas);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--r-win);
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* 顶部标题栏 */
+    .win-chrome {
+      height: 40px;
+      padding: 0 14px;
+      background: var(--bg-sidebar);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .win-title {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .app-logo {
+      width: 18px;
+      height: 18px;
+      border-radius: 5px;
+      background: linear-gradient(135deg, #d97757, #b95333);
+      display: grid;
+      place-items: center;
+      font-size: 11px;
+      font-weight: 800;
+      color: #fff;
+    }
+    .win-sub { color: var(--text-3); font-weight: 400; font-size: 12px; }
+    .win-actions {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      color: var(--text-2);
+      font-size: 13px;
+    }
+
+    .app-body {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+    }
+
+    /* 左侧栏 */
+    .sidebar {
+      width: 198px;
+      flex-shrink: 0;
+      background: var(--bg-sidebar);
+      border-right: 1px solid var(--border);
+      padding: 14px 10px 12px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .nav-list { display: flex; flex-direction: column; gap: 3px; }
+    .nav-item {
+      width: 100%;
+      border: none;
+      background: transparent;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 9px 12px;
+      border-radius: var(--r-btn);
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-2);
+      cursor: default;
+    }
+    .nav-item.active {
+      background: var(--bg-subtle);
+      color: var(--text-1);
+      font-weight: 600;
+    }
+    .nav-badge {
+      font-size: 11px;
+      font-weight: 600;
+      min-width: 20px;
+      text-align: center;
+      padding: 1px 6px;
+      border-radius: var(--r-chip);
+    }
+    .nav-badge.ok { background: var(--success-soft); color: var(--success); }
+    .nav-badge.warn { background: var(--warning-soft); color: var(--warning); }
+    .nav-badge.fail { background: var(--danger-soft); color: var(--danger-bright); }
+
+    .mini-box {
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      border-radius: 10px;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 12px;
+    }
+    .mini-hd {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-weight: 600;
+    }
+    .mini-sub { font-size: 11px; color: var(--text-3); }
+
+    /* 状态点 */
+    .guard-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--success);
+      flex-shrink: 0;
+      display: inline-block;
+    }
+    .guard-dot.warn { background: var(--warning); }
+    .guard-dot.danger {
+      background: var(--danger);
+      box-shadow: 0 0 8px var(--danger);
+      animation: guardPulse 1.1s infinite;
+    }
+    @keyframes guardPulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.35; }
+    }
+
+    /* 芯片 & 按钮 & 卡片（完全复用实机 theme.css） */
+    .guard-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      font-weight: 500;
+      padding: 2px 8px;
+      border-radius: var(--r-chip);
+      white-space: nowrap;
+    }
+    .guard-chip-ok { background: var(--success-soft); color: var(--success); }
+    .guard-chip-fail { background: var(--danger-soft); color: var(--danger-bright); font-weight: 600; }
+    .guard-chip-warn { background: var(--warning-soft); color: var(--warning); font-weight: 600; }
+    .guard-chip-neutral { background: var(--bg-subtle); color: var(--text-2); }
+    .guard-chip-count {
+      background: rgba(245, 165, 36, 0.16);
+      color: var(--warning);
+      border: 1px solid rgba(245, 165, 36, 0.28);
+      font-family: var(--font-mono);
+      font-weight: 700;
+    }
+    .guard-chip-count.is-fail {
+      background: rgba(239, 68, 68, 0.16);
+      color: var(--danger-bright);
+      border-color: rgba(239, 68, 68, 0.32);
+    }
+
+    .guard-btn {
+      border: none;
+      border-radius: var(--r-btn);
+      padding: 6px 11px;
+      font-family: var(--font-sans);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: background-color 0.14s var(--ease);
+    }
+    .guard-btn-xs { padding: 4px 9px; font-size: 11px; border-radius: 6px; }
+    .guard-btn-primary { background: var(--primary); color: #fff; font-weight: 600; }
+    .guard-btn-primary:hover { background: var(--primary-hover); }
+    .guard-btn-flat { background: var(--bg-card); color: var(--text-1); border: 1px solid var(--border-strong); }
+    .guard-btn-flat:hover { background: var(--bg-subtle); }
+    .guard-btn-danger-soft { background: var(--danger-soft); color: var(--danger-bright); font-weight: 600; }
+    .guard-btn-danger-soft:hover { background: rgba(239, 68, 68, 0.24); }
+
+    .guard-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--r-card);
+      overflow: hidden;
+    }
+
+    /* 主内容区：日志分析页 */
+    .main-pane {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .page-hd {
+      padding: 16px 22px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+    }
+    .page-hd h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; margin: 0; }
+    .page-sub { font-size: 12px; color: var(--text-2); margin-top: 4px; }
+    .hd-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .seg-wrap {
+      display: inline-flex;
+      padding: 2px;
+      border-radius: 8px;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border);
+      gap: 2px;
+    }
+    .seg-btn {
+      border: none;
+      background: transparent;
+      color: var(--text-2);
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .seg-btn.active {
+      background: var(--bg-card);
+      color: var(--text-1);
+      font-weight: 600;
+    }
+
+    .page-body {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 16px 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    /* 4 张统计卡 */
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      flex-shrink: 0;
+    }
+    .stat-card {
+      padding: 12px 15px;
+      text-align: left;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      border-radius: var(--r-card);
+      color: var(--text-1);
+    }
+    .stat-card.selected {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 1px var(--primary);
+    }
+    .stat-hd {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      color: var(--text-2);
+    }
+    .stat-val {
+      font-size: 18px;
+      font-weight: 600;
+      margin-top: 6px;
+      line-height: 1.25;
+    }
+    .stat-unit { font-size: 12px; font-weight: 500; color: var(--text-3); margin-left: 3px; }
+
+    /* 日志列表容器 */
+    .list-banner {
+      padding: 10px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .list-banner.is-warn { background: var(--warning-soft); color: var(--warning); }
+    .list-banner.is-fail { background: var(--danger-soft); color: var(--danger-bright); }
+    .list-banner.is-ok { background: var(--bg-subtle); color: var(--text-1); }
+
+    .log-item {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: background-color 0.12s;
+    }
+    .log-item:last-child { border-bottom: none; }
+    .log-item:hover { background: rgba(255, 255, 255, 0.02); }
+    .log-row-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .log-title-line {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .log-title { font-size: 13px; font-weight: 500; color: var(--text-1); }
+    .log-cause { font-size: 12px; color: var(--text-2); margin-top: 4px; line-height: 1.55; }
+    .log-meta { text-align: right; flex-shrink: 0; }
+    .log-time { font-size: 11px; color: var(--text-3); }
+    .log-file { font-size: 11px; color: var(--text-2); margin-top: 2px; }
+    .log-detail { margin-top: 10px; }
+    .log-code {
+      background: var(--bg-subtle);
+      border: 1px solid var(--border);
+      border-radius: var(--r-btn);
+      padding: 10px 12px;
+      font-size: 11.5px;
+      color: var(--text-2);
+      word-break: break-all;
+      line-height: 1.6;
+    }
+    .log-actions {
+      margin-top: 8px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    /* 右侧：FD Guard 悬浮窗（100% 复刻 HudCard.tsx 真实样式） */
+    .hud-col {
+      width: 348px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .hud-v2 {
+      width: 348px;
+      background: var(--hud-bg);
+      backdrop-filter: blur(22px) saturate(160%);
+      border-radius: 14px;
+      border: 1px solid var(--border-strong);
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.42), 0 0 0 1px rgba(255, 255, 255, 0.03) inset;
+      overflow: hidden;
+    }
+    .hud-hd {
+      height: 42px;
+      padding: 0 12px 0 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .hud-id {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 12.5px;
+      font-weight: 600;
+    }
+    .hud-ctrls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-3);
+      font-size: 12px;
+    }
+    .hud-node {
+      padding: 12px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .hud-region-badge {
+      width: 34px;
+      height: 34px;
+      border-radius: 9px;
+      position: relative;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border);
+      display: grid;
+      place-items: center;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .hud-region-badge::after {
+      content: "";
+      position: absolute;
+      right: -2px;
+      bottom: -2px;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--success);
+      border: 2px solid var(--bg-card);
+    }
+    .sig-bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 11px; }
+    .sig-bars i { width: 2.5px; border-radius: 1px; background: var(--success); display: block; }
+    .sig-bars i:nth-child(1) { height: 4px; }
+    .sig-bars i:nth-child(2) { height: 7px; }
+    .sig-bars i:nth-child(3) { height: 11px; }
+    .hud-metrics {
+      padding: 0 12px 12px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 7px;
+    }
+    .hm-tile {
+      background: rgba(128, 128, 140, 0.055);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 8px 9px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .hm-tile.is-fail {
+      border-color: rgba(239, 68, 68, 0.32);
+      background: rgba(239, 68, 68, 0.065);
+    }
+    .hm-tile.is-warn {
+      border-color: rgba(245, 165, 36, 0.34);
+      background: rgba(245, 165, 36, 0.075);
+    }
+    .hm-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 10.5px;
+      color: var(--text-3);
+    }
+    .hm-val { font-size: 12.5px; font-weight: 600; line-height: 1.25; }
+    .hm-tile.is-fail .hm-val { color: var(--danger-bright); }
+    .hm-tile.is-warn .hm-val { color: var(--warning); }
+    .hm-tile.is-ok .hm-val { color: var(--success); }
+
+    .hud-body {
+      padding: 10px 12px 12px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      background: rgba(128, 128, 140, 0.02);
+    }
+    .hud-cta {
+      width: 100%;
+      border: none;
+      border-radius: 8px;
+      padding: 8px 12px;
+      background: var(--primary);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 600;
+      text-align: center;
+      cursor: pointer;
+    }
+
+    /* 右下角改动点说明卡 */
+    .note-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 13px 14px;
+      font-size: 12px;
+      color: var(--text-2);
+      line-height: 1.6;
+    }
+    .note-card h3 {
+      margin: 0 0 8px;
+      font-size: 12.5px;
+      color: var(--text-1);
+    }
+    .note-card ul {
+      margin: 0;
+      padding-left: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .note-card strong { color: var(--text-1); }
+  </style>
+</head>
+<body>
+  <!-- 预览状态切换栏（供你验收不同风险等级下的联动状态） -->
+  <div class="preview-bar">
+    <div class="preview-bar-left">
+      <span class="preview-tag">效果图预览 · 1:1 实机暗色主题</span>
+      <span>点击右侧按钮切换业务状态，直接体验「黄风险 vs 红异常」「折叠 ×5」「标为已读三端归零」</span>
+    </div>
+    <div class="preview-controls">
+      <button id="btn-mode-warn" class="mode-pill active-warn" onclick="setMode('warn')">状态 1：仅风险（你的截图场景）</button>
+      <button id="btn-mode-fail" class="mode-pill" onclick="setMode('fail')">状态 2：含高危异常（封号/403 泄露）</button>
+      <button id="btn-mode-ok" class="mode-pill" onclick="setMode('ok')">状态 3：全部已读 / 正常</button>
+    </div>
+  </div>
+
+  <div class="stage">
+    <!-- 左侧：主窗口 -->
+    <div class="app-win">
+      <div class="win-chrome">
+        <div class="win-title">
+          <span class="app-logo">✳</span>
+          <span>FD Claude 安全启动器</span>
+          <span class="win-sub">Fuck Dario! 1.1</span>
+        </div>
+        <div class="win-actions">
+          <span>🎧</span><span>◫</span><span>🔔</span><span>☀</span><span>─</span><span>□</span><span>✕</span>
+        </div>
+      </div>
+
+      <div class="app-body">
+        <!-- 侧边栏 -->
+        <aside class="sidebar">
+          <nav class="nav-list">
+            <div class="nav-item"><span>🏠 控制台</span><span class="nav-badge ok tabular">OK</span></div>
+            <div class="nav-item"><span>🌐 节点流量</span></div>
+            <div class="nav-item active">
+              <span>📈 日志分析</span>
+              <span id="sidebar-log-badge" class="nav-badge warn tabular">1</span>
+            </div>
+            <div class="nav-item"><span>🔧 环境维护</span></div>
+            <div class="nav-item"><span>🎚 守卫配置</span></div>
+          </nav>
+
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <div class="mini-box">
+              <div class="mini-hd">
+                <span style="display:flex;align-items:center;gap:6px;"><span class="guard-dot"></span>Claude 进程</span>
+                <span style="color:var(--success);font-size:11px;">0 残留</span>
+              </div>
+              <div class="mini-sub">已彻底退出，可安全操作</div>
+              <button class="guard-btn guard-btn-flat guard-btn-xs" style="width:100%;">强杀防复活盯防 (45s)</button>
+            </div>
+            <div class="mini-box">
+              <div class="mini-hd">
+                <span style="display:flex;align-items:center;gap:6px;"><span class="guard-dot"></span>Clash Verge</span>
+                <span style="color:var(--success);font-size:11px;">在线</span>
+              </div>
+              <div class="mini-sub tabular">Mihomo v1.19.23 · 7890</div>
+            </div>
+          </div>
+        </aside>
+
+        <!-- 主面板：日志分析 -->
+        <main class="main-pane">
+          <div class="page-hd">
+            <div>
+              <div style="display:flex;align-items:center;gap:10px;">
+                <h1>日志分析</h1>
+                <span class="guard-chip guard-chip-warn">Claude 官方：部分服务降级</span>
+              </div>
+              <div class="page-sub">24h 未读异常与风险游标 · 原始日志文件保持完整绝不删改 · 点击下方统计卡可即时筛选明细</div>
+            </div>
+            <div class="hd-tools">
+              <button id="btn-ack-all" class="guard-btn guard-btn-flat" onclick="setMode('ok')">全部标为已读</button>
+              <div class="seg-wrap">
+                <button id="seg-unread" class="seg-btn active">仅看未读异常/风险 (1)</button>
+                <button class="seg-btn">全部行为 (16)</button>
+              </div>
+              <button class="guard-btn guard-btn-flat">↻ 扫描日志</button>
+              <button class="guard-btn guard-btn-flat">+ 模拟高并发 429</button>
+            </div>
+          </div>
+
+          <div class="page-body">
+            <!-- 4 张统计卡 -->
+            <div class="stat-grid tabular">
+              <div class="stat-card selected">
+                <div class="stat-hd">
+                  <span id="stat-unread-label">24h 未读风险</span>
+                  <span class="guard-chip guard-chip-neutral">已选中</span>
+                </div>
+                <div id="stat-unread-val" class="stat-val" style="color:var(--warning);">
+                  1<span class="stat-unit">起</span>
+                </div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-hd"><span>地区 / 429 / 鉴权 / 封号</span></div>
+                <div id="stat-region-val" class="stat-val" style="color:var(--warning);">
+                  1<span class="stat-unit">次</span>
+                </div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-hd"><span>网络断连累计</span></div>
+                <div class="stat-val" style="color:var(--success);">0<span class="stat-unit">次</span></div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-hd">
+                  <span>遥测 / 设备记录</span>
+                  <span style="font-size:11px;color:var(--primary);">点击查看明细 ↗</span>
+                </div>
+                <div class="stat-val">11<span class="stat-unit">条</span></div>
+              </div>
+            </div>
+
+            <!-- 列表卡片 -->
+            <div class="guard-card">
+              <div id="list-banner" class="list-banner is-warn">
+                <span id="list-banner-title">24h 未读风险提醒与触发归因（点击条目展开原文上下文与安全守则联动）</span>
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <button class="guard-btn guard-btn-flat guard-btn-xs tabular">已过滤 3 条无关噪音 ▾</button>
+                  <span id="list-count" class="tabular" style="font-size:12px;font-weight:500;">显示 1 条记录</span>
+                </div>
+              </div>
+
+              <div id="log-list-container"></div>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <!-- 右侧：FD Guard 悬浮窗 -->
+    <div class="hud-col">
+      <div class="hud-v2">
+        <div class="hud-hd">
+          <div class="hud-id">
+            <span class="app-logo" style="width:16px;height:16px;font-size:10px;">✳</span>
+            <span class="guard-dot"></span>
+            <span>FD Guard</span>
+            <span class="guard-chip guard-chip-ok">守护正常</span>
+          </div>
+          <div class="hud-ctrls">
+            <span>⇥</span><span style="color:var(--text-1);">📌</span><span>⌄</span><span>|</span><span>⌂</span><span>✕</span>
+          </div>
+        </div>
+
+        <div class="hud-node">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div class="hud-region-badge">AU</div>
+            <div>
+              <div style="font-size:13px;font-weight:600;">AU澳大利亚|原生</div>
+              <div class="tabular" style="font-size:11px;color:var(--text-3);margin-top:1px;">172.105.xx.xx · 稳定锁定</div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span class="sig-bars"><i></i><i></i><i></i></span>
+            <span class="tabular" style="font-size:12px;font-weight:600;color:var(--success);">333 ms</span>
+          </div>
+        </div>
+
+        <div class="hud-metrics tabular">
+          <div id="hud-tile-log" class="hm-tile is-warn">
+            <div class="hm-top">
+              <span>日志</span>
+              <span id="hud-log-dot" class="guard-dot warn"></span>
+            </div>
+            <div id="hud-log-val" class="hm-val">1 风险</div>
+          </div>
+          <div class="hm-tile is-ok">
+            <div class="hm-top">
+              <span>流量</span>
+              <span class="guard-dot"></span>
+            </div>
+            <div class="hm-val">纯净</div>
+          </div>
+          <div class="hm-tile is-ok">
+            <div class="hm-top">
+              <span>进程</span>
+              <span class="guard-dot"></span>
+            </div>
+            <div class="hm-val">0 残留</div>
+          </div>
+        </div>
+
+        <div class="hud-body">
+          <button id="hud-cta" class="hud-cta">前往日志分析查看 1 条风险 →</button>
+        </div>
+      </div>
+
+      <div class="note-card">
+        <h3>本次视觉与交互改动要点</h3>
+        <ul>
+          <li><strong>独立规则：</strong><code>[oauth-v2] fresh exchange failed</code> 拆出为 <code>OAuth v2 鉴权</code>，不再套用 403 / len=164 文案，也不弹污染清理红按钮。</li>
+          <li><strong>黄风险 vs 红异常：</strong>仅 <code>warn</code> 级别时，悬浮窗（<code>1 风险</code>）、侧边栏角标、日志表头与统计数字统一用<strong>黄色</strong>；命中真正高危红线（<code>fail</code>）才飘红显示「异常」。</li>
+          <li><strong>同类刷屏折叠：</strong>60 秒内连续 5 条同错自动合并为 <code>×5</code>（展开可看行号范围 <code>main.log:72 ~ 336</code>），首屏立省 80% 空间。</li>
+          <li><strong>标为已读三端同步：</strong>点击「全部标为已读」立刻同步悬浮窗归零变绿。</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const ITEMS_WARN = [
+      {
+        level: "warn",
+        tag: "OAuth v2 鉴权",
+        count: 5,
+        title: "OAuth v2 令牌交换失败（auth_error，风险提醒 · 非 403）",
+        cause: "风险原因：桌面端在后台尝试换取/刷新 OAuth v2 令牌时返回 auth_error（非 HTTP 403，不代表永久封号）。常见原因：① 当前套餐无对应功能权限（如 Free 号后台探测 Pro/Cowork Scope）；② 本地 sessionKey 过久触发 session_stale_relogin 需重新登录；③ 默认浏览器与桌面端登录了不同账号或本地凭据失步。处理建议：若网页/日常对话正常可直接点「标为已读」；若桌面端反复提示登录，请确认浏览器与桌面端为同一账号后重新登录。",
+        time: "2026-11-25 04:47:45",
+        file: "main.log:72 ~ 336 (共 5 次)",
+        context: "2026-11-25 04:47:42 [info] [oauth-v2] fresh exchange failed for orgId=00000000-0000-4000-8000-000000000001 (auth_error)\n...（60 秒内同类重复 5 次，行号：72, 73, 334, 335, 336）",
+        showCleanBtn: false,
+        expanded: true
+      }
+    ];
+
+    const ITEMS_FAIL = [
+      {
+        level: "fail",
+        tag: "退出回传 403",
+        count: 1,
+        title: "断连瞬间退出清理触发带 Cookie 403 回传（高危）",
+        cause: "触发归因：底层代理刚发生断连（ERR_CONNECTION_RESET / 1006）15 秒内即执行退出清理（onQuitCleanup / flushEventQueue），将本地 Cookie 裸连或异常路由打到 Anthropic 触发 403。处理建议：开启「运行中自动 4 层热熔断」，严禁在断网/关代理时手动关闭 Claude 窗口。",
+        time: "2026-11-25 04:51:12",
+        file: "main.log:418",
+        context: "2026-11-25 04:51:12 [warn] [plan-usage] returned 403 (credential: cookie, withheld, 182 chars)",
+        showCleanBtn: true,
+        expanded: true
+      },
+      { ...ITEMS_WARN[0], expanded: false }
+    ];
+
+    function renderItems(items) {
+      const container = document.getElementById("log-list-container");
+      if (!items.length) {
+        container.innerHTML = `<div style="padding:20px;font-size:12.5px;color:var(--text-2);line-height:1.6;">当前无未读异常或风险记录（已推进已读游标并同步至悬浮窗；原始日志保留在「全部行为」中供随时取证）。</div>`;
+        return;
+      }
+      container.innerHTML = items.map((ev, idx) => `
+        <div class="log-item" onclick="toggleExpand(${idx})">
+          <div class="log-row-top">
+            <div>
+              <div class="log-title-line">
+                <span class="guard-chip ${ev.level === 'fail' ? 'guard-chip-fail' : 'guard-chip-warn'}">${ev.tag}</span>
+                ${ev.count > 1 ? `<span class="guard-chip guard-chip-count ${ev.level === 'fail' ? 'is-fail' : ''}">×${ev.count}</span>` : ""}
+                <span class="log-title">${ev.title}</span>
+              </div>
+              <div class="log-cause">${ev.cause}</div>
+            </div>
+            <div class="log-meta">
+              <div class="log-time tabular">${ev.time}</div>
+              <div class="log-file font-mono-code tabular">${ev.file}</div>
+            </div>
+          </div>
+          ${ev.expanded ? `
+            <div class="log-detail">
+              <div class="log-code font-mono-code tabular" style="white-space:pre-wrap;">${ev.context}</div>
+              <div class="log-actions">
+                <button class="guard-btn guard-btn-primary guard-btn-xs" onclick="event.stopPropagation()">查看联动安全守则</button>
+                ${ev.showCleanBtn ? `<button class="guard-btn guard-btn-danger-soft guard-btn-xs" onclick="event.stopPropagation()">退出登录并清理（备份）本地污染目录</button>` : ""}
+                <button class="guard-btn guard-btn-flat guard-btn-xs" onclick="event.stopPropagation(); setMode('ok')">标为已读（推进游标）</button>
+              </div>
+            </div>
+          ` : ""}
+        </div>
+      `).join("");
+    }
+
+    let currentItems = [];
+    function toggleExpand(idx) {
+      currentItems[idx].expanded = !currentItems[idx].expanded;
+      renderItems(currentItems);
+    }
+
+    function setMode(mode) {
+      document.getElementById("btn-mode-warn").className = "mode-pill" + (mode === "warn" ? " active-warn" : "");
+      document.getElementById("btn-mode-fail").className = "mode-pill" + (mode === "fail" ? " active-fail" : "");
+      document.getElementById("btn-mode-ok").className = "mode-pill" + (mode === "ok" ? " active-ok" : "");
+
+      const sidebarBadge = document.getElementById("sidebar-log-badge");
+      const btnAckAll = document.getElementById("btn-ack-all");
+      const segUnread = document.getElementById("seg-unread");
+      const statUnreadLabel = document.getElementById("stat-unread-label");
+      const statUnreadVal = document.getElementById("stat-unread-val");
+      const statRegionVal = document.getElementById("stat-region-val");
+      const listBanner = document.getElementById("list-banner");
+      const listBannerTitle = document.getElementById("list-banner-title");
+      const listCount = document.getElementById("list-count");
+      const hudTile = document.getElementById("hud-tile-log");
+      const hudDot = document.getElementById("hud-log-dot");
+      const hudVal = document.getElementById("hud-log-val");
+      const hudCta = document.getElementById("hud-cta");
+
+      if (mode === "warn") {
+        currentItems = ITEMS_WARN.map(x => ({ ...x }));
+        sidebarBadge.style.display = "inline-block";
+        sidebarBadge.className = "nav-badge warn tabular";
+        sidebarBadge.textContent = "1";
+        btnAckAll.style.display = "inline-flex";
+        segUnread.textContent = "仅看未读异常/风险 (1)";
+        statUnreadLabel.textContent = "24h 未读风险";
+        statUnreadVal.style.color = "var(--warning)";
+        statUnreadVal.innerHTML = '1<span class="stat-unit">起</span>';
+        statRegionVal.style.color = "var(--warning)";
+        statRegionVal.innerHTML = '1<span class="stat-unit">次</span>';
+        listBanner.className = "list-banner is-warn";
+        listBannerTitle.textContent = "24h 未读风险提醒与触发归因（点击条目展开原文上下文与安全守则联动）";
+        listCount.textContent = "显示 1 条记录";
+        hudTile.className = "hm-tile is-warn";
+        hudDot.className = "guard-dot warn";
+        hudVal.textContent = "1 风险";
+        hudCta.textContent = "前往日志分析查看 1 条风险 →";
+      } else if (mode === "fail") {
+        currentItems = ITEMS_FAIL.map(x => ({ ...x }));
+        sidebarBadge.style.display = "inline-block";
+        sidebarBadge.className = "nav-badge fail tabular";
+        sidebarBadge.textContent = "2";
+        btnAckAll.style.display = "inline-flex";
+        segUnread.textContent = "仅看未读异常/风险 (2)";
+        statUnreadLabel.textContent = "24h 未读异常/风险";
+        statUnreadVal.style.color = "var(--danger-bright)";
+        statUnreadVal.innerHTML = '2<span class="stat-unit">起</span>';
+        statRegionVal.style.color = "var(--danger-bright)";
+        statRegionVal.innerHTML = '2<span class="stat-unit">次</span>';
+        listBanner.className = "list-banner is-fail";
+        listBannerTitle.textContent = "24h 未读高危异常与风险归因（含 1 条高危异常 · 1 条风险提醒）";
+        listCount.textContent = "显示 2 条记录";
+        hudTile.className = "hm-tile is-fail";
+        hudDot.className = "guard-dot danger";
+        hudVal.textContent = "1 异常 · 1 风险";
+        hudCta.textContent = "前往日志分析查看 1 条异常与 1 条风险 →";
+      } else {
+        currentItems = [];
+        sidebarBadge.style.display = "none";
+        btnAckAll.style.display = "none";
+        segUnread.textContent = "仅看未读异常/风险 (0)";
+        statUnreadLabel.textContent = "24h 未读异常/风险";
+        statUnreadVal.style.color = "var(--success)";
+        statUnreadVal.innerHTML = '0<span class="stat-unit">起</span>';
+        statRegionVal.style.color = "var(--text-2)";
+        statRegionVal.innerHTML = '0<span class="stat-unit">次</span>';
+        listBanner.className = "list-banner is-ok";
+        listBannerTitle.textContent = "24h 未读异常与风险归因（当前已清零）";
+        listCount.textContent = "显示 0 条记录";
+        hudTile.className = "hm-tile is-ok";
+        hudDot.className = "guard-dot";
+        hudVal.textContent = "正常";
+        hudCta.textContent = "前往控制台安全启动 Claude →";
+      }
+      renderItems(currentItems);
+    }
+
+    setMode("warn");
+  </script>
+</body>
+</html>

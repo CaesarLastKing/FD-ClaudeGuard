@@ -1,0 +1,1888 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>FD Claude 安全启动器 (FD Claude Guard) — 终版原型 v1.4</title>
+<style>
+  :root {
+    --font-sans: "Segoe UI Variable Text", "Segoe UI Variable Display", "HarmonyOS Sans SC", "MiSans", "PingFang SC", "Microsoft YaHei UI", -apple-system, sans-serif;
+    --font-mono: "Cascadia Code", "JetBrains Mono", "Consolas", ui-monospace, monospace;
+    --r-win: 10px; --r-card: 12px; --r-btn: 8px; --r-chip: 6px; --r-hud: 14px;
+    --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+    --primary: #006fee; --primary-hover: #338ef7; --primary-soft: rgba(0, 111, 238, 0.14);
+    --success: #17c964; --success-soft: rgba(23, 201, 100, 0.13);
+    --warning: #f5a524; --warning-soft: rgba(245, 165, 36, 0.14);
+    --danger: #ef4444; --danger-bright: #f87171; --danger-soft: rgba(239, 68, 68, 0.14);
+
+    --desktop-bg: radial-gradient(70% 70% at 15% 10%, #121826 0%, #09090b 55%, #050507 100%);
+    --bg-canvas: #09090b; --bg-sidebar: #0d0d10; --bg-card: #18181b; --bg-subtle: #222226;
+    --bg-selected: rgba(255, 255, 255, 0.06); --hud-bg: rgba(24, 24, 27, 0.92);
+    --border: rgba(255, 255, 255, 0.08); --border-strong: rgba(255, 255, 255, 0.14);
+    --tile-neutral-bg: #27272a; --tile-neutral-fg: #a1a1aa;
+    --text-1: #fafafa; --text-2: #a1a1aa; --text-3: #71717a;
+    --win-shadow: 0 24px 64px rgba(0, 0, 0, 0.65); --card-shadow: none;
+  }
+  [data-theme="light"] {
+    --danger: #dc2626; --danger-bright: #dc2626; --danger-soft: rgba(220, 38, 38, 0.11);
+    --desktop-bg: radial-gradient(70% 70% at 20% 10%, #e4ecfa 0%, #f1f4f9 55%, #e8ecf4 100%);
+    --bg-canvas: #f4f4f5; --bg-sidebar: #ffffff; --bg-card: #ffffff; --bg-subtle: #f4f4f5;
+    --bg-selected: rgba(0, 0, 0, 0.045); --hud-bg: rgba(255, 255, 255, 0.94);
+    --border: rgba(0, 0, 0, 0.08); --border-strong: rgba(0, 0, 0, 0.14);
+    --tile-neutral-bg: #f4f4f5; --tile-neutral-fg: #52525b;
+    --text-1: #11181c; --text-2: #52525b; --text-3: #71717a;
+    --win-shadow: 0 20px 56px rgba(15, 23, 42, 0.12); --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.02);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--font-sans); background: var(--desktop-bg); color: var(--text-1); height: 100vh; overflow: hidden; -webkit-font-smoothing: antialiased; user-select: none; }
+  .tabular { font-variant-numeric: tabular-nums; }
+  svg.ico { width: 16px; height: 16px; stroke: currentColor; stroke-width: 1.75; fill: none; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+  svg.ico-sm { width: 14px; height: 14px; stroke-width: 1.85; }
+  svg.ico-xs { width: 12px; height: 12px; stroke-width: 2; }
+
+  .demo-bar { height: 44px; padding: 0 18px; background: var(--bg-sidebar); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--text-2); position: relative; z-index: 60; }
+  .ver-tag { background: var(--bg-subtle); color: var(--text-1); border: 1px solid var(--border); font-weight: 600; padding: 3px 8px; border-radius: 6px; font-size: 11px; }
+  .seg { display: inline-flex; padding: 2px; border-radius: 8px; background: var(--bg-subtle); border: 1px solid var(--border); gap: 2px; }
+  .seg button { border: none; background: transparent; color: var(--text-2); padding: 4px 10px; border-radius: 6px; font-family: var(--font-sans); font-size: 12px; font-weight: 500; cursor: pointer; transition: .14s; }
+  .seg button:hover { color: var(--text-1); }
+  .seg button.active { background: var(--bg-card); color: var(--text-1); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+  .seg button.active-danger { background: var(--danger-soft); color: var(--danger-bright); font-weight: 600; }
+
+  .stage { position: relative; height: calc(100vh - 88px); display: flex; align-items: center; justify-content: flex-start; padding: 14px 20px; }
+
+  .win {
+    width: calc(100vw - 418px); min-width: 860px; max-width: 1160px; height: calc(100vh - 116px); max-height: 710px;
+    background: var(--bg-canvas); border-radius: var(--r-win); border: 1px solid var(--border-strong);
+    box-shadow: var(--win-shadow); display: flex; flex-direction: column; overflow: hidden; transition: opacity .2s var(--ease), transform .2s var(--ease);
+  }
+  .win.hidden { opacity: 0; pointer-events: none; transform: scale(0.97); }
+  .win-bar { height: 38px; flex-shrink: 0; background: var(--bg-sidebar); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding-left: 16px; }
+  .win-brand { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+  .win-brand .en { color: var(--text-3); font-weight: 400; font-size: 11.5px; }
+  .win-ctrls { display: flex; align-items: center; height: 100%; }
+  .win-ico-group { display: flex; align-items: center; gap: 6px; padding: 0 10px 0 4px; }
+  .win-ico-btn {
+    position: relative; width: 32px; height: 28px; border-radius: 7px; border: none;
+    background: transparent; color: var(--text-3); opacity: 0.65; cursor: pointer;
+    display: grid; place-items: center; transition: background .14s, color .14s, opacity .14s;
+  }
+  .win-ico-btn:hover { background: var(--bg-subtle); color: var(--text-1); opacity: 1; }
+  .win-ico-btn.is-on { color: var(--text-1); opacity: 0.92; }
+  .win-ico-btn svg { width: 15px; height: 15px; stroke-width: 1.7; }
+  .win-bar-sep { width: 1px; height: 14px; background: var(--border-strong); margin: 0 6px 0 0; opacity: 0.65; }
+  .wc-btn { width: 44px; height: 100%; border: none; background: transparent; color: var(--text-2); cursor: pointer; display: grid; place-items: center; transition: .12s; }
+  .wc-btn:hover { background: var(--bg-subtle); color: var(--text-1); }
+  .wc-btn.close:hover { background: #dc2626; color: #fff; }
+
+  .win-body { flex: 1; display: flex; min-height: 0; }
+  .sidebar { width: 198px; flex-shrink: 0; background: var(--bg-sidebar); border-right: 1px solid var(--border); padding: 14px 10px 12px; display: flex; flex-direction: column; justify-content: space-between; }
+  .nav-group { display: flex; flex-direction: column; gap: 3px; }
+  .nav-btn { width: 100%; border: none; background: transparent; display: flex; align-items: center; justify-content: space-between; padding: 9px 12px; border-radius: var(--r-btn); font-family: var(--font-sans); font-size: 14px; font-weight: 500; color: var(--text-2); cursor: pointer; transition: .14s; }
+  .nav-btn .l { display: flex; align-items: center; gap: 10px; }
+  .nav-btn:hover { background: var(--bg-subtle); color: var(--text-1); }
+  .nav-btn.active { background: var(--bg-subtle); color: var(--text-1); font-weight: 600; }
+  .nav-cnt { font-size: 11px; font-weight: 600; min-width: 20px; text-align: center; padding: 1px 6px; border-radius: var(--r-chip); background: var(--danger-soft); color: var(--danger-bright); }
+  .nav-cnt.ok { background: var(--success-soft); color: var(--success); }
+
+  .side-foot { display: flex; flex-direction: column; gap: 8px; }
+  .mini-box { padding: 10px 12px; border-radius: var(--r-btn); background: var(--bg-card); border: 1px solid var(--border); font-size: 12px; line-height: 1.45; }
+  .mb-hd { display: flex; align-items: center; justify-content: space-between; font-weight: 500; margin-bottom: 2px; }
+  .mb-sub { font-size: 11px; color: var(--text-3); }
+
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); flex-shrink: 0; }
+  .dot.warn { background: var(--warning); }
+  .dot.danger { background: var(--danger); box-shadow: 0 0 8px var(--danger); animation: pulse 1.1s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+
+  .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .view { display: none; flex: 1; min-height: 0; flex-direction: column; }
+  .view.active { display: flex; }
+
+  .page-hd { padding: 16px 22px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-shrink: 0; }
+  .page-title { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.25; }
+  .page-sub { font-size: 12px; color: var(--text-2); margin-top: 4px; display: flex; align-items: center; gap: 7px; white-space: nowrap; }
+  .hd-btns { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+  .btn { border: none; border-radius: var(--r-btn); padding: 8px 14px; font-family: var(--font-sans); font-size: 13px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: .14s; white-space: nowrap; flex-shrink: 0; }
+  .btn-primary { background: var(--primary); color: #fff; font-weight: 600; }
+  .btn-primary:hover { background: var(--primary-hover); }
+  .btn-primary:disabled { background: var(--bg-subtle); color: var(--text-3); cursor: not-allowed; }
+  .btn-flat { background: var(--bg-card); color: var(--text-1); border: 1px solid var(--border-strong); }
+  .btn-flat:hover { background: var(--bg-subtle); }
+  .btn-danger-soft { background: var(--danger-soft); color: var(--danger-bright); font-weight: 600; }
+  .btn-danger-soft:hover { background: rgba(239, 68, 68, 0.24); }
+  .btn-sm { padding: 6px 11px; font-size: 12px; }
+  .btn-xs { padding: 4px 9px; font-size: 11px; border-radius: 6px; }
+
+  .chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: var(--r-chip); white-space: nowrap; }
+  .ch-ok { background: var(--success-soft); color: var(--success); }
+  .ch-fail { background: var(--danger-soft); color: var(--danger-bright); font-weight: 600; }
+  .ch-warn { background: var(--warning-soft); color: var(--warning); font-weight: 600; }
+  .ch-neutral { background: var(--bg-subtle); color: var(--text-2); }
+  .ch-mode { background: var(--bg-subtle); color: var(--text-2); border: 1px solid var(--border); font-size: 10.5px; }
+
+  /* HeroUI 精致 Toggle Switch */
+  .switch {
+    position: relative; width: 40px; height: 22px; border-radius: 999px;
+    background: var(--tile-neutral-bg); border: 1px solid var(--border-strong);
+    cursor: pointer; transition: background .18s var(--ease), border-color .18s; flex-shrink: 0;
+  }
+  .switch::after {
+    content: ""; position: absolute; top: 2px; left: 2px;
+    width: 16px; height: 16px; border-radius: 50%; background: #fff;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.35); transition: transform .18s var(--ease);
+  }
+  .switch.on { background: var(--primary); border-color: var(--primary); }
+  .switch.on::after { transform: translateX(18px); }
+
+  .split { flex: 1; min-height: 0; display: grid; grid-template-columns: 1.15fr 0.85fr; }
+  .col-l { padding: 16px 20px; overflow-y: auto; border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 18px; }
+  .col-r { padding: 16px 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+
+  .part-hd { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+  .part-title { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; white-space: nowrap; flex-shrink: 0; }
+  .part-tip { font-size: 12px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cat-block { margin-bottom: 12px; }
+  .cat-block:last-child { margin-bottom: 0; }
+  .cat-label { font-size: 12px; font-weight: 500; color: var(--text-3); margin-bottom: 6px; padding-left: 2px; }
+
+  .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r-card); box-shadow: var(--card-shadow); overflow: hidden; }
+  .card-pad { padding: 16px; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 14px; cursor: pointer; border-bottom: 1px solid var(--border); transition: background .14s; }
+  .row:last-child { border-bottom: none; }
+  .row:hover { background: var(--bg-subtle); }
+  .row.selected { background: var(--bg-selected); box-shadow: inset 2.5px 0 0 var(--text-1); }
+  .row.sub-row { background: rgba(128,128,140,0.03); }
+
+  .row-l { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .icon-box { width: 30px; height: 30px; border-radius: 8px; background: var(--tile-neutral-bg); color: var(--tile-neutral-fg); display: grid; place-items: center; flex-shrink: 0; }
+  .icon-box.is-fail { background: var(--danger-soft); color: var(--danger-bright); }
+  .icon-box.is-warn { background: var(--warning-soft); color: var(--warning); }
+
+  .row-title { font-size: 14px; font-weight: 500; color: var(--text-1); line-height: 1.3; }
+  .row-sub { font-size: 12px; color: var(--text-2); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 340px; }
+  #configPane .row-sub { white-space: normal; max-width: 600px; line-height: 1.48; }
+  code { font-family: var(--font-mono); font-size: 11px; background: var(--bg-subtle); padding: 1px 5px; border-radius: 4px; color: var(--text-1); }
+  .row-r { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+  .det-title { font-size: 16px; font-weight: 600; line-height: 1.3; }
+  .det-desc { font-size: 12px; color: var(--text-2); margin-top: 4px; line-height: 1.55; }
+  .det-lbl { font-size: 12px; font-weight: 500; color: var(--text-3); margin-bottom: 6px; }
+  .code-box { background: var(--bg-subtle); border: 1px solid var(--border); border-radius: var(--r-btn); padding: 10px 12px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.6; color: var(--text-2); white-space: pre-wrap; word-break: break-all; }
+  .hl-r { color: var(--danger-bright); font-weight: 600; }
+  .hl-a { color: var(--warning); font-weight: 600; }
+  .hl-g { color: var(--success); font-weight: 600; }
+
+  .guide-box { font-size: 12px; color: var(--text-2); line-height: 1.65; padding: 11px 13px; border-radius: var(--r-btn); background: var(--bg-subtle); border-left: 2.5px solid var(--text-3); position: relative; overflow: hidden; }
+  .guide-box.is-locked { border-left-color: var(--primary); cursor: pointer; min-height: 76px; display: flex; align-items: center; }
+  .guide-blur-txt { filter: blur(5.5px); opacity: 0.52; user-select: none; pointer-events: none; transition: filter .25s var(--ease), opacity .25s var(--ease); }
+  .guide-lock-overlay {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 12px;
+    background: repeating-linear-gradient(135deg, rgba(128,128,145,0.05) 0 6px, rgba(128,128,145,0.10) 6px 12px);
+    backdrop-filter: blur(2.5px); transition: background .15s;
+  }
+  .guide-box.is-locked:hover .guide-lock-overlay { background: rgba(0, 111, 238, 0.10); }
+  .guide-lock-pill {
+    display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px;
+    background: var(--bg-elev); border: 1px solid var(--border-strong); color: var(--text-1);
+    font-size: 11.5px; font-weight: 500; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+  }
+  .guide-lock-pill svg { color: var(--primary); }
+
+  .dot.hold { background: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); animation: pulseHold 1.4s ease-in-out infinite; }
+  @keyframes pulseHold { 0%, 100% { box-shadow: 0 0 0 2px var(--primary-soft); } 50% { box-shadow: 0 0 0 5px rgba(0, 111, 238, 0.28); } }
+  .mini-box.is-hold { border-color: rgba(0, 111, 238, 0.45); background: linear-gradient(180deg, rgba(0, 111, 238, 0.08), var(--bg-card)); }
+  .proc-actions { display: flex; gap: 6px; margin-top: 7px; }
+  .proc-actions .btn { flex: 1; justify-content: center; padding: 4px 6px; font-size: 11px; }
+
+  .plat-badges { display: inline-flex; align-items: center; gap: 5px; flex-wrap: nowrap; white-space: nowrap; }
+  .plat-badges .chip { font-size: 11px; padding: 2px 7px; }
+
+  .lic-input-row { display: flex; gap: 8px; align-items: center; }
+  .lic-input {
+    flex: 1; height: 38px; padding: 0 12px; border-radius: var(--r-btn);
+    border: 1px solid var(--border-strong); background: var(--bg-subtle); color: var(--text-1);
+    font-family: var(--font-mono); font-size: 13.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+    outline: none; transition: border-color .15s, box-shadow .15s;
+  }
+  .lic-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+  .lic-input.is-err { border-color: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
+  .lic-err { font-size: 12px; color: var(--danger-bright); min-height: 18px; line-height: 1.4; }
+  .lic-rules { display: flex; flex-direction: column; gap: 7px; padding: 11px 13px; border-radius: 10px; background: var(--bg-subtle); border: 1px solid var(--border); font-size: 12px; color: var(--text-2); line-height: 1.5; }
+  .lic-rule-item { display: flex; gap: 8px; align-items: flex-start; }
+  .lic-rule-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--primary); margin-top: 7px; flex-shrink: 0; }
+  .qq-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-radius: 12px; background: var(--bg-subtle); border: 1px solid var(--border-strong); }
+  .qq-num { font-family: var(--font-mono); font-size: 20px; font-weight: 700; letter-spacing: 0.04em; color: var(--text-1); line-height: 1.2; margin-top: 2px; }
+  .risk-divider { margin-top: 6px; padding-top: 12px; border-top: 1px dashed var(--border-strong); display: flex; flex-direction: column; gap: 6px; }
+  .risk-link { border: none; background: transparent; color: var(--text-3); font-size: 12px; text-align: left; cursor: pointer; }
+  .risk-link:hover { color: var(--danger-bright); text-decoration: underline; }
+
+  .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .stat-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r-card); padding: 14px 16px; cursor: pointer; transition: border-color .15s; }
+  .stat-card:hover { border-color: var(--border-strong); }
+  .stat-card.alert-card { border-color: rgba(239, 68, 68, 0.45); background: linear-gradient(180deg, rgba(239,68,68,0.06), var(--bg-card)); }
+  .stat-lbl { font-size: 12px; color: var(--text-2); }
+  .stat-val { font-size: 24px; font-weight: 600; margin-top: 4px; line-height: 1.2; }
+
+  .tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .tbl th { text-align: left; padding: 9px 11px; font-size: 11.5px; font-weight: 500; color: var(--text-3); border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .tbl td { padding: 10px 11px; border-bottom: 1px solid var(--border); vertical-align: middle; white-space: nowrap; }
+  .tbl tr:last-child td { border-bottom: none; }
+  .node-sub { font-size: 11px; color: var(--text-3); margin-top: 2px; font-weight: 400; }
+
+  .anom-card { background: var(--bg-card); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: var(--r-card); overflow: hidden; }
+  .anom-hd { padding: 10px 14px; background: var(--danger-soft); color: var(--danger-bright); font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: space-between; }
+  .log-row { padding: 12px 14px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background .14s; }
+  .log-row:last-child { border-bottom: none; }
+  .log-row:hover { background: var(--bg-subtle); }
+  .log-main { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .log-msg { font-size: 13px; font-weight: 500; line-height: 1.4; }
+  .log-cause { font-size: 12px; color: var(--text-2); margin-top: 3px; }
+  .log-ctx { display: none; margin-top: 10px; }
+  .log-row.open .log-ctx { display: block; }
+
+  /* 桌面悬浮动态卡片（v2.1：单坐标零偏移 + 整卡任意位置拖拽 + 20x84px 精致贴边耳标 + 三维微卡片矩阵） */
+  .hud-shell { position: fixed; top: 64px; right: 16px; width: 348px; z-index: 80; transition: opacity .16s var(--ease); }
+  .hud-shell.hidden { opacity: 0; pointer-events: none; }
+  .hud-shell.unpinned { z-index: 2; opacity: 0.88; }
+  /* 贴边收起态：严格锁定 20x84px 右边缘热区，绝不远距离误触；展开态右距 16px 与固定态像素级 0px 偏移重合 */
+  .hud-shell.docked { right: 0 !important; left: auto !important; width: 20px; height: 84px; pointer-events: none; }
+  .hud-shell.docked.docked-open { width: 364px; height: auto; pointer-events: auto; }
+
+  .hud {
+    width: 348px; background: var(--hud-bg); backdrop-filter: blur(22px) saturate(160%);
+    border-radius: 14px; border: 1px solid var(--border-strong);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.42), 0 0 0 1px rgba(255, 255, 255, 0.03) inset;
+    overflow: hidden; cursor: grab;
+    transition: transform .18s var(--ease), opacity .16s var(--ease), border-color .2s;
+  }
+  .hud.is-dragging { cursor: grabbing !important; transition: none !important; }
+  .hud.is-dragging * { cursor: grabbing !important; }
+  [data-theme="light"] .hud { box-shadow: 0 16px 40px rgba(9, 9, 11, 0.12), 0 1px 3px rgba(9, 9, 11, 0.06); }
+  .hud.danger { border-color: rgba(239, 68, 68, 0.65); box-shadow: 0 18px 46px rgba(239, 68, 68, 0.22); }
+
+  .edge-tab {
+    display: none; position: absolute; right: 0; top: 0;
+    width: 20px; height: 84px; border-radius: 10px 0 0 10px;
+    background: var(--hud-bg); backdrop-filter: blur(20px) saturate(160%);
+    border: 1px solid var(--border-strong); border-right: none;
+    box-shadow: -4px 6px 20px rgba(0, 0, 0, 0.32);
+    flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+    cursor: pointer; pointer-events: auto; transition: opacity .15s var(--ease), border-color .16s;
+  }
+  .edge-tab:hover { border-color: var(--text-3); }
+  .edge-tab.danger { border-color: rgba(239, 68, 68, 0.65); box-shadow: -4px 0 18px rgba(239, 68, 68, 0.28); }
+  .edge-grip { width: 2px; height: 22px; border-radius: 99px; background: var(--text-3); opacity: 0.45; }
+  .edge-chev { width: 10px; height: 10px; color: var(--text-3); opacity: 0.65; }
+
+  .hud-shell.docked .edge-tab { display: flex; }
+  .hud-shell.docked .hud { position: absolute; right: 16px; top: 0; opacity: 0; pointer-events: none; transform: translateX(6px); }
+  .hud-shell.docked.docked-open .edge-tab { opacity: 0; pointer-events: none; }
+  .hud-shell.docked.docked-open .hud { opacity: 1; pointer-events: auto; transform: translateX(0); }
+
+  .btn-secondary { background: var(--text-1); color: var(--bg-canvas); font-weight: 600; }
+  .btn-secondary:hover { opacity: 0.9; }
+  .text-action-link {
+    border: none; background: transparent; color: var(--text-3); font-family: var(--font-sans);
+    font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+    padding: 4px 0; transition: color .14s;
+  }
+  .text-action-link:hover { color: var(--text-1); text-decoration: underline; }
+  .recheck-meta { font-size: 11.5px; color: var(--text-3); }
+
+  /* 悬浮窗顶栏：分组克制、Lucide 精致图标、无彩色底块无丑下划线，选中态纯图标加亮/实心 */
+  .hud-hd { height: 42px; padding: 0 10px 0 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 6px; cursor: grab; }
+  .hud-hd:active { cursor: grabbing; }
+  .hud-id { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; letter-spacing: -0.01em; white-space: nowrap; }
+  .hud-ctrls { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+  .hud-sep { width: 1px; height: 12px; background: var(--border-strong); margin: 0 3px; opacity: 0.7; }
+  .h-btn {
+    width: 26px; height: 26px; border: none; border-radius: 6px; background: transparent;
+    color: var(--text-2); opacity: 0.72; cursor: pointer; display: grid; place-items: center;
+    transition: color .14s, opacity .14s, background .14s;
+  }
+  .h-btn svg { width: 14px; height: 14px; stroke-width: 1.85; transition: transform .18s var(--ease); }
+  .h-btn:hover { background: var(--bg-subtle); color: var(--text-1); opacity: 1; }
+  .h-btn.is-active { color: var(--text-1); opacity: 1; background: transparent; }
+  .h-btn.is-folded svg { transform: rotate(180deg); }
+  .h-btn.close:hover { background: rgba(239, 68, 68, 0.16); color: var(--danger-bright); opacity: 1; }
+
+  /* 第一段：出口节点 Hero 区 */
+  .hud-node {
+    padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    cursor: pointer; transition: background .14s;
+  }
+  .hud-node:hover { background: rgba(128, 128, 140, 0.04); }
+  .hud-region-badge {
+    width: 34px; height: 34px; border-radius: 9px; flex-shrink: 0; position: relative;
+    background: var(--bg-subtle); border: 1px solid var(--border);
+    display: grid; place-items: center; font-family: var(--font-mono); font-size: 12px; font-weight: 700;
+    color: var(--text-1); letter-spacing: 0.02em;
+  }
+  .hud-region-badge.is-fail { background: var(--danger-soft); border-color: rgba(239, 68, 68, 0.35); color: var(--danger-bright); }
+  .hud-region-badge::after {
+    content: ""; position: absolute; right: -2px; bottom: -2px; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--success); border: 2px solid var(--bg-card);
+  }
+  .hud-region-badge.is-fail::after { background: var(--danger); }
+  .hud-lat-wrap { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .sig-bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 11px; }
+  .sig-bars i { width: 2.5px; border-radius: 1px; background: var(--success); display: block; }
+  .sig-bars i:nth-child(1) { height: 4px; }
+  .sig-bars i:nth-child(2) { height: 7px; }
+  .sig-bars i:nth-child(3) { height: 11px; }
+  .sig-bars.is-fail i { background: var(--danger); opacity: 0.35; }
+  .sig-bars.is-fail i:nth-child(1) { opacity: 1; }
+  .hud-lat-txt { font-size: 12px; font-weight: 600; color: var(--success); }
+  .hud-lat-txt.is-fail { color: var(--danger-bright); }
+
+  /* 第二段：三维实时监测微卡片矩阵（日志 · 流量 · 进程），折叠态自动紧缩为优雅单行 */
+  .hud-metrics {
+    padding: 0 12px 12px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px;
+  }
+  .hm-tile {
+    background: rgba(128, 128, 140, 0.055); border: 1px solid var(--border); border-radius: 9px;
+    padding: 8px 9px; cursor: pointer; display: flex; flex-direction: column; gap: 3px;
+    transition: border-color .14s, background .14s, transform .12s;
+  }
+  .hm-tile:hover { border-color: var(--border-strong); background: rgba(128, 128, 140, 0.095); }
+  .hm-tile.is-fail { border-color: rgba(239, 68, 68, 0.32); background: rgba(239, 68, 68, 0.065); }
+  .hm-tile.is-warn { border-color: rgba(245, 165, 36, 0.3); background: rgba(245, 165, 36, 0.06); }
+  .hm-tile.is-hold { border-color: rgba(0, 111, 238, 0.38); background: rgba(0, 111, 238, 0.09); }
+  .hm-top { display: flex; align-items: center; justify-content: space-between; font-size: 10.5px; color: var(--text-3); }
+  .hm-val { font-size: 12.5px; font-weight: 600; color: var(--text-1); line-height: 1.25; }
+  .hm-tile.is-fail .hm-val { color: var(--danger-bright); }
+  .hm-tile.is-warn .hm-val { color: var(--warning); }
+  .hm-tile.is-hold .hm-val { color: var(--primary); }
+  .hm-tile.is-ok .hm-val { color: var(--success); }
+  .hm-sub { font-size: 10.5px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* 折叠态：隐藏微卡片第三行副注，紧凑呈现核心指标，总高约 130px */
+  .hud.is-folded .hud-node { padding: 10px 14px 9px; }
+  .hud.is-folded .hud-metrics { padding: 0 12px 11px; gap: 6px; }
+  .hud.is-folded .hm-tile { padding: 6px 8px; gap: 2px; }
+  .hud.is-folded .hm-sub { display: none; }
+
+  /* 第三段：最新实时动态 & 克制底部行动栏（仅展开态显示） */
+  .hud-body { padding: 10px 12px 12px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 10px; background: rgba(128, 128, 140, 0.02); }
+  .hud-body.collapsed { display: none; }
+  .hud-feed { display: flex; flex-direction: column; gap: 5px; }
+  .hud-ev {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    font-size: 11.5px; color: var(--text-2); padding: 4px 6px; border-radius: 6px;
+    cursor: pointer; transition: background .12s;
+  }
+  .hud-ev:hover { background: var(--bg-subtle); }
+  .hud-ev-l { display: flex; align-items: center; gap: 7px; min-width: 0; }
+  .hud-ev-bar { width: 2.5px; height: 12px; border-radius: 99px; background: var(--success); flex-shrink: 0; }
+  .hud-ev.danger .hud-ev-bar { background: var(--danger); }
+  .hud-ev.warn .hud-ev-bar { background: var(--warning); }
+  .hud-ev .em { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-2); }
+  .hud-ev.danger .em { color: var(--text-1); font-weight: 500; }
+  .hud-ev.warn .em { color: var(--text-1); }
+  .hud-cta {
+    width: 100%; height: 34px; border-radius: 9px; border: 1px solid transparent;
+    background: var(--primary); color: #fff; font-family: var(--font-sans);
+    font-size: 12.5px; font-weight: 600; cursor: pointer; display: inline-flex;
+    align-items: center; justify-content: center; gap: 6px; transition: opacity .15s, background .15s, border-color .15s;
+  }
+  .hud-cta:hover { background: var(--primary-hover); }
+  .hud-cta.is-danger { background: var(--danger-soft); border-color: rgba(239, 68, 68, 0.45); color: var(--danger-bright); }
+  .hud-cta.is-danger:hover { background: rgba(239, 68, 68, 0.22); }
+  .hud-cta.is-ok { background: var(--primary); border-color: transparent; color: #fff; }
+  .hud-cta.is-ok:hover { background: var(--primary-hover); }
+
+  /* 事件驱动即时脉冲闪动与任务栏警报态 */
+  @keyframes hudAlertFlash {
+    0%, 100% { box-shadow: 0 20px 50px rgba(0,0,0,0.42); }
+    50% { box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.55), 0 18px 46px rgba(239, 68, 68, 0.35); }
+  }
+  @keyframes tileFlash {
+    0%, 100% { transform: scale(1); }
+    40% { transform: scale(1.03); border-color: var(--danger-bright); box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.28); }
+  }
+  .hud.alert-flash { animation: hudAlertFlash .65s ease-in-out 2; }
+  .hm-tile.tile-flash { animation: tileFlash .55s ease-in-out 2; }
+  .tray-btn.tray-alert { border-color: rgba(239, 68, 68, 0.6); background: rgba(239, 68, 68, 0.14); color: var(--danger-bright); }
+
+  /* 联动式安全守则抽屉 */
+  .drawer-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.52); backdrop-filter: blur(3px); z-index: 140; display: none; justify-content: flex-end; }
+  .drawer-mask.show { display: flex; }
+  .drawer { width: 500px; max-width: 94vw; height: 100%; background: var(--bg-canvas); border-left: 1px solid var(--border-strong); padding: 20px 22px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; box-shadow: -16px 0 48px rgba(0,0,0,0.5); }
+  .pb-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r-card); padding: 13px 15px; transition: box-shadow .25s, border-color .25s; }
+  .pb-card.triggered { border-color: rgba(239, 68, 68, 0.5); background: linear-gradient(180deg, rgba(239,68,68,0.06), var(--bg-card)); }
+  .pb-card.triggered-warn { border-color: rgba(245, 165, 36, 0.45); background: linear-gradient(180deg, rgba(245,165,36,0.06), var(--bg-card)); }
+  .pb-card.flash-focus { animation: pbFlash 1.2s ease-in-out 2; }
+  @keyframes pbFlash {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(0, 111, 238, 0); border-color: var(--primary); }
+    50% { box-shadow: 0 0 0 3px rgba(0, 111, 238, 0.45), 0 0 22px rgba(0, 111, 238, 0.35); border-color: var(--primary-hover); }
+  }
+  .pb-card h3 { font-size: 13.5px; font-weight: 600; margin-bottom: 5px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .pb-card p { font-size: 12px; color: var(--text-2); line-height: 1.62; }
+
+  /* 现代三段式对话框（HeroUI / Linear 工业级审美） */
+  .modal-mask { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.62); backdrop-filter: blur(5px); z-index: 150; display: none; align-items: center; justify-content: center; padding: 20px; }
+  .modal-mask.show { display: flex; animation: modalFade .16s var(--ease); }
+  @keyframes modalFade { from { opacity: 0; } to { opacity: 1; } }
+  .modal-box {
+    width: 496px; max-width: 96vw; background: var(--bg-card); border: 1px solid var(--border-strong);
+    border-radius: 14px; box-shadow: 0 28px 72px rgba(0,0,0,0.68), 0 0 0 1px rgba(255,255,255,0.03) inset;
+    display: flex; flex-direction: column; overflow: hidden; animation: modalPop .18s var(--ease);
+  }
+  @keyframes modalPop { from { opacity: 0; transform: scale(0.97) translateY(6px); } to { opacity: 1; transform: none; } }
+  .modal-hd { padding: 18px 20px 14px; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .modal-hd-l { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
+  .modal-ico { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; flex-shrink: 0; background: var(--warning-soft); color: var(--warning); }
+  .modal-ico.is-danger { background: var(--danger-soft); color: var(--danger-bright); }
+  .modal-ico.is-ok { background: var(--success-soft); color: var(--success); }
+  .modal-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .modal-title { font-size: 15.5px; font-weight: 600; color: var(--text-1); letter-spacing: -0.01em; }
+  .modal-sub { font-size: 12px; color: var(--text-2); margin-top: 3px; line-height: 1.45; }
+  .modal-close { width: 28px; height: 28px; border-radius: 7px; border: none; background: transparent; color: var(--text-3); cursor: pointer; display: grid; place-items: center; flex-shrink: 0; transition: background .14s, color .14s; }
+  .modal-close:hover { background: var(--bg-subtle); color: var(--text-1); }
+
+  .modal-body { padding: 0 20px 18px; display: flex; flex-direction: column; gap: 12px; }
+  .route-strip {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 11px 14px; border-radius: 10px; background: var(--bg-subtle); border: 1px solid var(--border);
+  }
+  .route-end { display: flex; align-items: center; gap: 9px; min-width: 0; }
+  .route-code { width: 28px; height: 28px; border-radius: 7px; background: var(--bg-card); border: 1px solid var(--border-strong); display: grid; place-items: center; font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--text-1); flex-shrink: 0; }
+  .route-code.is-danger { background: var(--danger-soft); border-color: rgba(239,68,68,0.4); color: var(--danger-bright); }
+  .route-name { font-size: 13px; font-weight: 600; color: var(--text-1); white-space: nowrap; }
+  .route-role { font-size: 11px; color: var(--text-3); margin-top: 1px; }
+  .route-arrow { color: var(--text-3); display: flex; align-items: center; flex-shrink: 0; }
+
+  .kv-card { border-radius: 10px; border: 1px solid var(--border); background: rgba(128,128,140,0.03); overflow: hidden; }
+  .kv-row { display: grid; grid-template-columns: 74px 1fr; gap: 12px; padding: 10px 14px; font-size: 12.5px; border-bottom: 1px solid var(--border); align-items: baseline; }
+  .kv-row:last-child { border-bottom: none; }
+  .kv-k { color: var(--text-3); font-size: 12px; }
+  .kv-v { color: var(--text-1); line-height: 1.5; }
+
+  .modal-ft { padding: 12px 20px; border-top: 1px solid var(--border); background: rgba(128,128,140,0.03); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .modal-ft-tip { font-size: 11.5px; color: var(--text-3); }
+  .modal-ft-btns { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+  .toast-wrap { position: fixed; right: 20px; bottom: 56px; z-index: 120; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+  .toast { width: 350px; pointer-events: auto; background: var(--bg-card); border: 1px solid var(--border-strong); border-radius: var(--r-card); padding: 12px 14px; box-shadow: 0 14px 36px rgba(0,0,0,0.45); display: flex; align-items: flex-start; gap: 10px; animation: slideIn .18s var(--ease); }
+  .toast.danger { border-color: var(--danger); }
+  @keyframes slideIn { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
+
+  .taskbar { position: fixed; bottom: 0; left: 0; right: 0; height: 44px; background: var(--bg-sidebar); border-top: 1px solid var(--border); padding: 0 18px; display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--text-3); z-index: 90; }
+  .tray-btn { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border-radius: var(--r-btn); background: var(--bg-card); border: 1px solid var(--border); color: var(--text-1); cursor: pointer; font-size: 12px; }
+  .tray-btn:hover { background: var(--bg-subtle); }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-thumb { background: rgba(161, 161, 170, 0.25); border-radius: 99px; }
+</style>
+</head>
+<body>
+
+<div class="demo-bar">
+  <div style="display:flex;align-items:center;gap:10px;">
+    <span class="ver-tag">FD Claude Guard 交互原型</span>
+    <span>支持顶部场景切换与深浅主题预览 · 悬浮窗支持任意位置拖拽与靠右贴边</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;">
+    <div class="seg">
+      <button class="active" id="licFree" onclick="setLicensed(false)">未激活（体验）</button>
+      <button id="licPro" onclick="setLicensed(true)">已激活</button>
+    </div>
+    <div class="seg">
+      <button class="active" id="pFirst" onclick="loadPreset('first_time')">首次使用</button>
+      <button id="pNodeDown" onclick="loadPreset('node_down')">主节点失效</button>
+      <button id="pDrift" onclick="loadPreset('drift')">漂移 HK 熔断</button>
+      <button id="pOk" onclick="loadPreset('allok')">全绿就绪</button>
+    </div>
+    <div class="seg">
+      <button class="active" id="tDark" onclick="setTheme('dark')">深色</button>
+      <button id="tLight" onclick="setTheme('light')">浅色</button>
+    </div>
+  </div>
+</div>
+
+<div class="stage">
+  <div class="win" id="mainWin">
+    <div class="win-bar">
+      <div class="win-brand">
+        <svg viewBox="0 0 24 24" class="ico"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+        FD Claude 安全启动器 <span class="en">Fuck Dario！！！</span>
+      </div>
+      <div class="win-ctrls">
+        <div class="win-ico-group">
+          <button class="win-ico-btn is-on" id="btnSupportMain" title="售后与激活支持（QQ: 2568515327）" onclick="openSupportModal()">
+            <svg viewBox="0 0 24 24" class="ico"><path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/></svg>
+          </button>
+          <button class="win-ico-btn is-on" id="btnToggleHudMain" title="桌面悬浮窗已开启（点击隐藏）" onclick="toggleHud()">
+            <svg viewBox="0 0 24 24" class="ico" id="mainHudSvg"></svg>
+          </button>
+          <button class="win-ico-btn is-on" id="btnToggleNotify" title="桌面预警消息提醒已开启（点击静音普通预警）" onclick="toggleNotify()">
+            <svg viewBox="0 0 24 24" class="ico" id="mainNotifySvg"></svg>
+          </button>
+        </div>
+        <span class="win-bar-sep"></span>
+        <button class="wc-btn" title="最小化" onclick="toggleMain(false)"><svg viewBox="0 0 24 24" class="ico-sm ico"><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+        <button class="wc-btn" title="最大化"><svg viewBox="0 0 24 24" class="ico-xs ico"><rect x="4" y="4" width="16" height="16" rx="1.5"/></svg></button>
+        <button class="wc-btn close" title="隐藏到托盘（后台继续守卫）" onclick="toggleMain(false)"><svg viewBox="0 0 24 24" class="ico-sm ico"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      </div>
+    </div>
+
+    <div class="win-body">
+      <aside class="sidebar">
+        <nav class="nav-group">
+          <button class="nav-btn active" id="nav-console" onclick="switchTab('console', this)">
+            <span class="l"><svg viewBox="0 0 24 24" class="ico"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9.5"/><path d="M9.5 21v-6.5h5V21"/></svg>控制台</span>
+            <span class="nav-cnt" id="navMustBadge">4</span>
+          </button>
+          <button class="nav-btn" id="nav-nodes" onclick="switchTab('nodes', this)">
+            <span class="l"><svg viewBox="0 0 24 24" class="ico"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14.5 14.5 0 0 1 0 18"/><path d="M12 3a14.5 14.5 0 0 0 0 18"/></svg>节点流量</span>
+            <span class="nav-cnt" id="navFlowBadge" style="display:none">1</span>
+          </button>
+          <button class="nav-btn" id="nav-logs" onclick="switchTab('logs', this)">
+            <span class="l"><svg viewBox="0 0 24 24" class="ico"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>日志分析</span>
+            <span class="nav-cnt" id="navLogBadge">3</span>
+          </button>
+          <button class="nav-btn" id="nav-maintain" onclick="switchTab('maintain', this)">
+            <span class="l"><svg viewBox="0 0 24 24" class="ico"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>环境维护</span>
+          </button>
+          <button class="nav-btn" id="nav-config" onclick="switchTab('config', this)">
+            <span class="l"><svg viewBox="0 0 24 24" class="ico"><line x1="21" y1="4" x2="14" y2="4"/><line x1="10" y1="4" x2="3" y2="4"/><line x1="21" y1="12" x2="12" y2="12"/><line x1="8" y1="12" x2="3" y2="12"/><line x1="21" y1="20" x2="16" y2="20"/><line x1="12" y1="20" x2="3" y2="20"/><circle cx="12" cy="4" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="14" cy="20" r="2"/></svg>守卫配置</span>
+          </button>
+        </nav>
+
+        <div class="side-foot">
+          <div class="mini-box" id="procCard">
+            <div class="mb-hd"><span style="display:flex;align-items:center;gap:6px;"><span class="dot" id="procDot"></span>Claude 进程</span><span class="tabular" id="procTxt" style="font-size:11px;">0 残留</span></div>
+            <div class="mb-sub" id="procSub">已彻底退出，可安全操作</div>
+            <button class="btn btn-flat btn-xs" id="btnKillBg" style="width:100%;justify-content:center;margin-top:7px;" onclick="killBgProcs()">彻底退出并盯防 45s</button>
+            <div class="proc-actions" id="procHoldRow" style="display:none;">
+              <button class="btn btn-flat btn-xs" title="模拟 Claude 后台进程复活并触发 +15s 顺延" onclick="simulateRespawn()">模拟复活 +15s</button>
+              <button class="btn btn-flat btn-xs" style="flex:0 0 auto;padding:4px 9px;" onclick="releaseKillHold()">解除</button>
+            </div>
+            <button class="btn btn-flat btn-xs" id="btnTestHold" style="width:100%;justify-content:center;margin-top:7px;color:var(--text-2);" onclick="startKillHold(45,'已触发强杀后 45 秒防复活盯防')">强杀防复活盯防 (45s)</button>
+          </div>
+          <div class="mini-box">
+            <div class="mb-hd"><span style="display:flex;align-items:center;gap:6px;"><span class="dot" id="sideDot"></span>Clash Verge</span></div>
+            <div class="mb-sub tabular">Mihomo v1.19.33 · 7890</div>
+          </div>
+        </div>
+      </aside>
+
+      <div class="main">
+        <!-- 1. 控制台 -->
+        <section class="view active" id="view-console">
+          <div class="page-hd">
+            <div style="min-width:0;">
+              <h1 class="page-title" style="display:flex;align-items:center;gap:8px;">控制台 <span class="chip ch-mode" id="consoleLicChip" style="cursor:pointer;font-weight:500;" onclick="openLicenseModal()">未激活 · 点击激活</span></h1>
+              <div class="page-sub tabular" id="consoleSub"></div>
+            </div>
+            <div class="hd-btns">
+              <button class="btn btn-flat btn-sm" onclick="togglePlaybook(true)">
+                <svg viewBox="0 0 24 24" class="ico-sm ico"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                安全守则 <span class="chip ch-fail" id="pbBadge" style="padding:0 5px;font-size:10px;">3 命中</span>
+              </button>
+              <button class="btn btn-flat btn-sm" title="点击立即重跑全部真实探针，并重置 15 分钟巡检倒计时" onclick="manualRecheck()">
+                <svg viewBox="0 0 24 24" class="ico-sm ico"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>
+                重新实测
+              </button>
+              <button class="btn btn-primary" id="btnOneClickFix" onclick="oneClickFixAll()" style="display:none">一键处理全部问题</button>
+              <button class="btn btn-primary" id="btnLaunch" onclick="safeLaunch()">
+                <svg viewBox="0 0 24 24" class="ico-sm ico" id="launchIco"></svg>
+                <span id="launchTxt">安全启动 Claude</span>
+              </button>
+            </div>
+          </div>
+          <div class="split">
+            <div class="col-l" id="checkCol"></div>
+            <div class="col-r" id="detailCol"></div>
+          </div>
+        </section>
+
+        <!-- 2. 节点流量 -->
+        <section class="view" id="view-nodes">
+          <div class="page-hd">
+            <div><h1 class="page-title">节点流量</h1><div class="page-sub">主备同区容灾 · 节点质量评估 · 实时连接监控</div></div>
+            <div class="hd-btns">
+              <div class="seg"><button class="active" id="ntQuality" onclick="setNodeTab('quality')">节点质量与容灾</button><button id="ntTraffic" onclick="setNodeTab('traffic')">实时流量分析</button></div>
+            </div>
+          </div>
+          <div id="nodeSub-quality" style="padding:16px 22px;overflow-y:auto;display:flex;flex-direction:column;gap:16px;">
+            <div class="stat-grid tabular">
+              <div class="stat-card"><div class="stat-lbl">当前主锁定节点</div><div class="stat-val" style="font-size:14.5px;margin-top:8px;white-space:nowrap;" id="ndCur">US-LA-Static-01</div></div>
+              <div class="stat-card"><div class="stat-lbl">同地区热备节点</div><div class="stat-val" style="font-size:14.5px;margin-top:8px;color:var(--text-2);white-space:nowrap;">US-LA-Static-02</div></div>
+              <div class="stat-card"><div class="stat-lbl">近 7 天主动切换</div><div class="stat-val" style="font-size:20px;margin-top:6px;" id="ndSwitchCnt">1 次</div></div>
+              <div class="stat-card"><div class="stat-lbl">Mihomo 连接状态</div><div class="stat-val" style="font-size:14.5px;margin-top:6px;line-height:1.3;" id="ndHealth">管道已连接<div style="font-size:11px;font-weight:500;color:var(--text-3);margin-top:1px;">Claude-Fixed</div></div></div>
+            </div>
+            <div>
+              <div class="part-hd"><div class="part-title">受支持地区节点评估</div><span class="part-tip">已过滤禁区 · 双平台实测（Gemini 不支持不阻断 Claude）</span></div>
+              <div class="card"><table class="tbl"><thead><tr><th>节点 / 地区</th><th>平台支持 / 纯净度</th><th>延迟 / 断连</th><th>质量评分</th><th style="text-align:right;">操作</th></tr></thead><tbody id="nodeTableBody"></tbody></table></div>
+            </div>
+          </div>
+          <div id="nodeSub-traffic" style="padding:16px 22px;overflow-y:auto;display:none;flex-direction:column;gap:16px;">
+            <div class="stat-grid tabular" id="flowStatsGrid"></div>
+            <div class="anom-card">
+              <div class="anom-hd">
+                <span>Claude 实时连接监控（滚动 12 小时拦截窗口）</span>
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <button class="btn btn-flat btn-xs" id="btnAckFlows" onclick="ackAllFlows()">全部标为已处理</button>
+                  <div class="seg"><button class="active" id="ffAnom" onclick="setFlowFilter('anomaly')">仅看异常流量</button><button id="ffAll" onclick="setFlowFilter('all')">全部实时连接</button></div>
+                </div>
+              </div>
+              <div id="flowListBody"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 3. 日志分析 -->
+        <section class="view" id="view-logs">
+          <div class="page-hd">
+            <div><h1 class="page-title">日志分析</h1><div class="page-sub">近 24 小时增量监听 · 异常归因置顶 · 标为已读推进游标（不删除原始日志）</div></div>
+            <div class="hd-btns">
+              <div class="seg"><button class="active" id="fltAnom" onclick="setLogFilter('anomaly')">仅看未读异常 (3)</button><button id="fltAll" onclick="setLogFilter('all')">全部行为 (6)</button></div>
+              <button class="btn btn-flat btn-sm" id="btnAckLogs" onclick="ackAllLogs()">全部标为已读</button>
+              <button class="btn btn-flat btn-sm" onclick="simulateAnomaly()">+ 模拟高并发 429</button>
+            </div>
+          </div>
+          <div style="padding:16px 22px;overflow-y:auto;display:flex;flex-direction:column;gap:16px;">
+            <div class="stat-grid tabular" id="logStatsGrid"></div>
+            <div class="anom-card">
+              <div class="anom-hd"><span>异常事件分析与触发归因（点击展开上下文并可跳转关联安全守则）</span><span id="logListCount" style="font-size:12px;font-weight:500;"></span></div>
+              <div id="logListBody"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 4. 环境维护 -->
+        <section class="view" id="view-maintain">
+          <div class="page-hd">
+            <div><h1 class="page-title">环境维护</h1><div class="page-sub">进程强杀清队列 · 备份快照还原 · 脱敏诊断包导出</div></div>
+            <button class="btn btn-flat btn-sm" onclick="toast('已导出脱敏诊断包','已生成 ~/Desktop/FDClaudeGuard-diag.zip（自动打码敏感信息）。','ok')">导出脱敏诊断包</button>
+          </div>
+          <div style="padding:16px 22px;overflow-y:auto;display:flex;flex-direction:column;gap:14px;">
+            <div class="card card-pad" style="display:flex;align-items:center;justify-content:space-between;gap:16px;">
+              <div>
+                <div style="font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px;">强制退出 Claude 并清理待上传遥测缓存 <span class="chip ch-warn">仅应急使用</span></div>
+                <div style="font-size:12px;color:var(--text-2);margin-top:4px;line-height:1.55;">平时正常无需手动点（触发熔断时系统会自动执行）。仅在代理突然断网/节点漂移等紧急时刻，强制终止进程丢弃内存中尚未发出的遥测，并清空 <code>~/.claude/telemetry/</code>。<br/><span style="color:var(--text-3)">风险提示：会中断正在生成中的当前对话，不影响你的项目代码与云端历史记录。</span></div>
+              </div>
+              <button class="btn btn-flat btn-sm" style="flex-shrink:0" onclick="startKillHold(45,'已强制退出 Claude、清空离线遥测缓存，并进入 45s 防复活盯防（复活自动 +15s）。')">应急清理缓存</button>
+            </div>
+            <div class="card card-pad" style="display:flex;align-items:center;justify-content:space-between;gap:16px;">
+              <div><div style="font-size:14px;font-weight:600;">纯净重置本地污染目录（先自动 ZIP 备份）</div><div style="font-size:12px;color:var(--text-2);margin-top:4px;">不碰代码与云端对话；自动备份后清理 <code>%APPDATA%\Claude</code> 与 <code>%LOCALAPPDATA%\Claude</code>。</div></div>
+              <button class="btn btn-primary btn-sm" style="flex-shrink:0" onclick="fixItem('claude_ban')">一键备份并清理</button>
+            </div>
+            <div class="card card-pad" style="display:flex;align-items:center;justify-content:space-between;gap:16px;">
+              <div>
+                <div style="font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px;">清除本工具全部防火墙规则 <span class="chip ch-neutral">防自锁救援</span></div>
+                <div style="font-size:12px;color:var(--text-2);margin-top:4px;line-height:1.5;">所有出站阻断规则统一带 <code>FDClaudeGuard_KillSwitch_*</code> 前缀，软件卸载时自动清空；如遇异常残留导致 Claude 无法联网，可一键清空全部守护规则恢复默认网络。</div>
+              </div>
+              <button class="btn btn-flat btn-sm" style="flex-shrink:0" onclick="killActive=false;render();toast('已清空全部 FDClaudeGuard 防火墙规则','已移除所有 FDClaudeGuard_KillSwitch_* 出站规则，默认网络权限已恢复。','ok')">清除防火墙规则</button>
+            </div>
+            <div>
+              <div class="part-hd"><div class="part-title">历史备份快照管理</div><span class="part-tip">存放于 ~/FDtools-Backups/ · 还原前自动创建安全点</span></div>
+              <div class="card"><table class="tbl"><thead><tr><th>备份文件</th><th>时间</th><th>体积</th><th>操作</th></tr></thead><tbody id="backupTableBody"></tbody></table></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 5. 守卫配置（全部为可手动开关的 Toggle + 开机启动项风险只读监测） -->
+        <section class="view" id="view-config">
+          <div class="page-hd">
+            <div><h1 class="page-title">守卫配置</h1><div class="page-sub">所有自动防护策略默认开启，均可按需手动开关 · 含开机启动项风险监测</div></div>
+          </div>
+          <div style="padding:16px 22px;overflow-y:auto;display:flex;flex-direction:column;gap:16px;" id="configPane"></div>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 桌面悬浮动态卡片外壳（v2.0：单坐标零偏移 + 20x84px 精致贴边耳标 + 三维微卡片矩阵） -->
+<div class="hud-shell" id="hudShell">
+  <div class="edge-tab" id="edgeTab" title="鼠标悬浮展开 FD Claude Guard">
+    <span class="dot" id="edgeDot"></span>
+    <span class="edge-grip"></span>
+    <svg viewBox="0 0 24 24" class="ico edge-chev"><path d="m15 18-6-6 6-6"/></svg>
+  </div>
+  <div class="hud" id="hudCard">
+    <div class="hud-hd" id="hudDrag">
+      <div class="hud-id">
+        <span class="dot" id="hudDot"></span>
+        <span>FD Guard</span>
+        <span class="chip ch-ok" id="hudChip">守护正常</span>
+      </div>
+      <div class="hud-ctrls">
+        <button class="h-btn" id="btnEdge" title="靠右贴边自动隐藏（点击切换）" onclick="toggleEdgeDock()"><svg viewBox="0 0 24 24" class="ico" id="edgeSvg"></svg></button>
+        <button class="h-btn is-active" id="btnPin" title="已固定置顶（点击切换）" onclick="togglePin()"><svg viewBox="0 0 24 24" class="ico" id="pinSvg"></svg></button>
+        <button class="h-btn" id="btnFold" title="折叠 / 展开动态" onclick="toggleFold()"><svg viewBox="0 0 24 24" class="ico"><path d="m18 15-6-6-6 6"/></svg></button>
+        <span class="hud-sep"></span>
+        <button class="h-btn" title="返回控制台" onclick="goConsole()"><svg viewBox="0 0 24 24" class="ico"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></button>
+        <button class="h-btn close" title="隐藏到托盘" onclick="toggleHud(false)"><svg viewBox="0 0 24 24" class="ico"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+      </div>
+    </div>
+
+    <!-- 第一段：出口节点 Hero 区（点击直达节点流量） -->
+    <div class="hud-node" title="点击前往控制台查看节点质量与容灾" onclick="toggleMain(true);switchTab('nodes',document.getElementById('nav-nodes'));setNodeTab('quality')">
+      <div style="display:flex;align-items:center;gap:10px;min-width:0">
+        <div class="hud-region-badge" id="hudRegionBadge">US</div>
+        <div style="min-width:0">
+          <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" id="hudNodeName">US-LA-Static-01</div>
+          <div style="font-size:11px;color:var(--text-3);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" class="tabular" id="hudNodeMeta">104.28.xx.xx · 稳定锁定</div>
+        </div>
+      </div>
+      <div class="hud-lat-wrap">
+        <span class="sig-bars" id="hudSigBars"><i></i><i></i><i></i></span>
+        <span class="hud-lat-txt tabular" id="hudLat">42 ms</span>
+      </div>
+    </div>
+
+    <!-- 第二段：三维实时监测微卡片矩阵（日志 · 流量 · 进程，折叠态自动紧缩常驻） -->
+    <div class="hud-metrics tabular" id="hudMetrics"></div>
+
+    <!-- 第三段：最新实时动态 & 克制底部行动栏（仅展开态显示） -->
+    <div class="hud-body" id="hudBody">
+      <div class="hud-feed" id="hudEvents"></div>
+      <button class="hud-cta" id="hudGotoConsoleBtn" onclick="goConsoleAndFocusFirstFail()">前往控制台处理 →</button>
+    </div>
+  </div>
+</div>
+
+<!-- 右侧滑出：日志联动式「8 大安全守则」抽屉 -->
+<div class="drawer-mask" id="playbookMask" onclick="if(event.target===this)togglePlaybook(false)">
+  <div class="drawer">
+    <div style="display:flex;align-items:center;justify-content:space-between;">
+      <div><h2 style="font-size:18px;font-weight:600;">Claude 账号安全守则（实时联动）</h2><div style="font-size:12px;color:var(--text-2);margin-top:2px;">结合本机实时日志与环境状态自动预警，已命中条目置顶高亮</div></div>
+      <button class="btn btn-flat btn-xs" onclick="togglePlaybook(false)">关闭</button>
+    </div>
+    <div id="playbookList" style="display:flex;flex-direction:column;gap:10px;"></div>
+  </div>
+</div>
+
+<div class="modal-mask" id="guardModal" onclick="if(event.target===this)closeModal()">
+  <div class="modal-box">
+    <div class="modal-hd">
+      <div class="modal-hd-l">
+        <div class="modal-ico" id="gmIco"></div>
+        <div style="min-width:0">
+          <div class="modal-title-row">
+            <h3 class="modal-title" id="gmTitle"></h3>
+            <span class="chip ch-warn" id="gmBadge"></span>
+          </div>
+          <div class="modal-sub" id="gmSub"></div>
+        </div>
+      </div>
+      <button class="modal-close" title="关闭" onclick="closeModal()"><svg viewBox="0 0 24 24" class="ico ico-sm"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+    </div>
+    <div class="modal-body" id="gmBody"></div>
+    <div class="modal-ft">
+      <span class="modal-ft-tip" id="gmFootTip"></span>
+      <div class="modal-ft-btns" id="gmActions"></div>
+    </div>
+  </div>
+</div>
+<div class="toast-wrap" id="toastWrap"></div>
+
+<div class="taskbar">
+  <span>Windows 11 任务栏模拟 · 默认开机仅驻留悬浮窗不弹控制台（可在「守卫配置」自由开关）</span>
+  <div style="display:flex;gap:8px;">
+    <button class="tray-btn" id="trayHudBtn" onclick="toggleHud()"><span class="dot" id="trayDot"></span>FD Claude Guard</button>
+    <button class="tray-btn" onclick="goConsole()">控制台</button>
+  </div>
+</div>
+
+<script>
+  const SVG = {
+    proxy: `<svg viewBox="0 0 24 24" class="ico"><rect x="2" y="4" width="20" height="6" rx="2"/><rect x="2" y="14" width="20" height="6" rx="2"/><line x1="6" y1="7" x2="6.01" y2="7"/><line x1="6" y1="17" x2="6.01" y2="17"/><path d="M14 7h4"/><path d="M14 17h4"/></svg>`,
+    group: `<svg viewBox="0 0 24 24" class="ico"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/><circle cx="12" cy="16" r="1"/></svg>`,
+    geo: `<svg viewBox="0 0 24 24" class="ico"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14.5 14.5 0 0 1 0 18"/><path d="M12 3a14.5 14.5 0 0 0 0 18"/></svg>`,
+    ipv6: `<svg viewBox="0 0 24 24" class="ico"><circle cx="12" cy="12" r="9"/><line x1="4.9" y1="4.9" x2="19.1" y2="19.1"/></svg>`,
+    dns: `<svg viewBox="0 0 24 24" class="ico"><path d="M4 14.9A7 7 0 1 1 15.7 8h1.8a4.5 4.5 0 0 1 2.5 8.2"/><path d="M12 12v9"/><path d="m8 17 4-5 4 5"/></svg>`,
+    ban: `<svg viewBox="0 0 24 24" class="ico"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`,
+    userLock: `<svg viewBox="0 0 24 24" class="ico"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><rect x="15" y="12" width="7" height="5" rx="1.2"/><path d="M16.5 12v-1.5a2 2 0 0 1 4 0V12"/></svg>`,
+    privacy: `<svg viewBox="0 0 24 24" class="ico"><path d="M17.9 17.9A10 10 0 0 1 12 20c-7 0-11-8-11-8a18.4 18.4 0 0 1 5.1-5.9"/><path d="M9.9 4.2A9.1 9.1 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.2 3.2"/><line x1="2" y1="2" x2="22" y2="22"/></svg>`,
+    startup: `<svg viewBox="0 0 24 24" class="ico"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>`,
+    hudIcon: `<svg viewBox="0 0 24 24" class="ico"><rect x="3" y="4" width="18" height="16" rx="2.5"/><rect x="11" y="8" width="7" height="5" rx="1"/><line x1="3" y1="9" x2="8" y2="9"/></svg>`,
+    clock: `<svg viewBox="0 0 24 24" class="ico"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>`,
+    fw: `<svg viewBox="0 0 24 24" class="ico"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="4" x2="9" y2="10"/><line x1="15" y1="10" x2="15" y2="15"/></svg>`,
+    chev: `<svg viewBox="0 0 24 24" class="ico-xs ico" style="color:var(--text-3)"><polyline points="9 18 15 12 9 6"/></svg>`,
+    lock: `<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>`,
+    play: `<polygon points="6 4 20 12 6 20 6 4"/>`,
+    pinSolid: `<path fill="currentColor" stroke="currentColor" d="M12 17v5"/><path fill="currentColor" stroke="currentColor" d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16h14v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>`,
+    pinOutline: `<path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16h14v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>`,
+    dockToEdge: `<path d="M17 12H3"/><path d="m11 18 6-6-6-6"/><path d="M21 5v14"/>`,
+    undockEdge: `<path d="m9 6-6 6 6 6"/><path d="M3 12h14"/><path d="M21 19V5"/>`,
+    bell: `<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>`,
+    bellOff: `<path d="M8.7 3A6 6 0 0 1 18 8a21.3 21.3 0 0 0 .6 5"/><path d="M17 17H3s3-2 3-9a4.67 4.67 0 0 1 .3-1.7"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/><path d="m2 2 20 20"/>`,
+    hudOn: `<rect x="3" y="4" width="18" height="16" rx="3"/><rect x="11" y="7.5" width="7" height="5.5" rx="1.4" fill="currentColor" stroke="none"/>`,
+    hudOff: `<rect x="3" y="4" width="18" height="16" rx="3"/><rect x="11.5" y="8" width="6" height="4.5" rx="1"/>`,
+    key: `<svg viewBox="0 0 24 24" class="ico"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg>`,
+    support: `<svg viewBox="0 0 24 24" class="ico"><path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/></svg>`
+  };
+
+  // 所有守卫配置开关（默认安全开启，但全部可手动点击切换！）
+  const cfg = {
+    showHud: true,             // 显示桌面悬浮状态窗（与主界面顶栏开关双向同步）
+    notifyEnabled: true,       // 桌面预警消息提醒开关（与主界面顶栏铃铛双向同步；危急熔断不可静音）
+    bootStart: true,           // 开机自启（默认开）
+    bootHudOnly: true,         // 开机仅显示悬浮窗，不弹出主控制台（默认开）
+    wakeSafeWindow: true,      // 休眠唤醒 / 切网 5 秒预阻断安全窗（默认开）
+    antiNakedGuard: true,      // 防裸奔自动接管（默认开）
+    autoKillSwitch: true,      // 紧急自动断流：Clash 掐流 + 防火墙阻断（默认开）
+    antiUploadFlush: true,     // 熔断恢复前强杀跳过 onQuitCleanup + 清离线遥测缓存（默认开）
+    safeExitPrompt: true,      // 退出守卫前检测 Claude 进程提醒（默认开）
+    calm24h: false             // 新号/付费 24h 冷静保护（默认关，可手动开）
+  };
+
+  let backups = [
+    { file: 'claude-backup-20261123-1305.zip', time: '2026-11-23 13:05', size: '34.2 MB' }
+  ];
+
+  let items = [], selectedId = 'node_group', killActive = false, nodeDown = false, bgProcs = 0;
+  let pinned = true, folded = false, logFilter = 'anomaly', flowFilter = 'anomaly';
+  let currentNode = 'US-LA-Static-01', weeklySwitchCount = 1;
+  // 商业授权状态（默认未激活体验态，展示毛玻璃马赛克遮罩与一次性密钥核销流程）
+  let licensed = false;
+  const usedKeys = new Set();
+  const DEMO_KEYS = ['FDG-9X4K-2M8P-7Q1R', 'FDG-7K2M-5V9A-3N6W', 'FDG-4C8T-6R1Y-9D5B'];
+  // 防复活持续盯防锁状态（Kill-Hold：默认 45s，每次拦截复活顺延 +15s）
+  let killHoldSec = 0, respawnBlocked = 0;
+
+  const nodesData = [
+    { name: 'US-LA-Static-01', region: '美国洛杉矶 · 主节点', claude: { txt: 'Claude ✓', cls: 'ch-ok' }, gemini: { txt: 'Gemini ✓', cls: 'ch-ok' }, asn: { txt: 'ISP', cls: 'ch-neutral' }, lat: '42 ms / 0.0%', score: 96, rec: '双 AI 推荐', blocked: false },
+    { name: 'US-LA-Static-02', region: '美国洛杉矶 · 同区热备', claude: { txt: 'Claude ✓', cls: 'ch-ok' }, gemini: { txt: 'Gemini ✓', cls: 'ch-ok' }, asn: { txt: 'ISP', cls: 'ch-neutral' }, lat: '46 ms / 0.1%', score: 94, rec: '同区热备', blocked: false },
+    { name: 'JP-Tokyo-02', region: '日本东京 · 跨国次选', claude: { txt: 'Claude ✓', cls: 'ch-ok' }, gemini: { txt: 'Gemini ✗', cls: 'ch-warn' }, asn: { txt: '机房', cls: 'ch-neutral' }, lat: '58 ms / 0.2%', score: 84, rec: '仅 Claude', blocked: false },
+    { name: 'TW-Taipei-04', region: '中国台湾 · 备选', claude: { txt: 'Claude ✓', cls: 'ch-ok' }, gemini: { txt: 'Gemini 送中', cls: 'ch-warn' }, asn: { txt: '机房', cls: 'ch-neutral' }, lat: '72 ms / 0.3%', score: 78, rec: '仅 Claude', blocked: false },
+    { name: 'SG-Shared-09', region: '新加坡 · 共享节点', claude: { txt: 'CF 403', cls: 'ch-fail' }, gemini: { txt: 'Gemini ✗', cls: 'ch-fail' }, asn: { txt: '拉黑', cls: 'ch-fail' }, lat: '215 ms / 6.8%', score: 28, rec: '不可用', blocked: true }
+  ];
+
+  let flowEvents = [
+    { anomaly: true, proc: 'Claude.exe', host: 'api.anthropic.com:443', rule: 'MATCH (漏规则)', chain: 'HK-Edge-03 → 已自动掐断', action: '已调用 DELETE /connections 强掐并激活防火墙', time: '20:54:02', bytes: '0 B (已阻断)' },
+    { anomaly: false, proc: 'Claude.exe', host: 'api.anthropic.com:443', rule: 'DOMAIN-SUFFIX', chain: 'Claude-Fixed → US-LA-Static-01', action: '正常放行', time: '20:52:18', bytes: '1.42 MB' },
+    { anomaly: false, proc: 'Claude.exe', host: 'claude.ai:443', rule: 'DOMAIN-SUFFIX', chain: 'Claude-Fixed → US-LA-Static-01', action: '正常放行', time: '20:51:45', bytes: '642 KB' }
+  ];
+
+  let logEvents = [
+    { id: 'e1', ruleId: 'pb_exit', anomaly: true, level: 'fail', tag: '地区封锁', time: '2026-11-22 00:55:00', file: 'main.log:44299', title: '触发 region_unavailable（服务端判定非支持地区）', cause: '触发归因：退出 Claude 时执行 onQuitCleanup 刷新 EventLogging，此时代理已断开导致真实 IP 暴露。', ctx: `44297 [info] [onQuitCleanup] flushing EventLogging queue\n<span class="hl-r">44299 [error] {"error_code":"region_unavailable"}</span>` },
+    { id: 'e2', ruleId: 'pb_pay', anomaly: true, level: 'fail', tag: '账号连坐', time: '2026-11-23 13:00:24', file: 'main.log:57151', title: '跨账号 Org 异步竞态请求（触发 Ban Evasion 高危特征）', cause: '触发归因：封号后 5 分钟在同一污染客户端切回旧号，新号 Cookie 携带被封 orgId 发起 /authorize。', ctx: `<span class="hl-r">57151 [warn] [oauth] sessionKey names a different account than flow orgId=7aacf131 (404)</span>` },
+    { id: 'e3', ruleId: 'pb_node', anomaly: true, level: 'warn', tag: '断连爆发', time: '2026-11-23 11:42:18', file: 'main.log:55910', title: '5 分钟内连续发生 7 次网络断连（ECONNRESET）', cause: '触发归因：节点高抖动或 7890 / 12334 双代理并存造成链路重置。', ctx: `<span class="hl-a">55910 [error] [RemotePluginManager] Sync failed: net::ERR_CONNECTION_CLOSED (x7)</span>` },
+    { id: 'e4', ruleId: null, anomaly: false, level: 'ok', tag: '遥测', time: '2026-11-23 19:50:12', file: 'main.log:57410', title: '后台刷新 EventLogging 队列（已走锁定节点安全发出）', cause: '正常行为。', ctx: `57410 [info] [EventLogging] flushEventQueue completed` },
+    { id: 'e5', ruleId: null, anomaly: false, level: 'ok', tag: '鉴权', time: '2026-11-23 19:45:02', file: 'main.log:57380', title: 'OAuth 令牌自动续期成功（主号 078cfdb1）', cause: '正常行为。', ctx: `57380 [info] [oauth-v2] token renewal ok` },
+    { id: 'e6', ruleId: null, anomaly: false, level: 'ok', tag: '设备采集', time: '2026-11-23 19:31:05', file: 'main.log:57322', title: '响应 1 次设备信息采集（get_device_info）', cause: '正常行为，已计入累计统计。', ctx: `57322 [info] [remote-tools-device] responded to get_device_info` }
+  ];
+
+  // 8 大安全守则（自动与日志 / 启动项 / 并发实时联动）
+  const playbooks = [
+    { id: 'pb_boot', level: 'warn', tag: '启动项联动', title: '开机自启顺序竞争（Claude 早于代理启动）', desc: '检测到 Windows 存在 Claude 开机自启项，极易在 Clash 虚拟网卡就绪前裸奔发包。我们不擅自删除你的启动项，建议手动关闭 Claude 自启或保持本工具开机驻留。', checkTriggered: () => true, hitText: '系统启动项检测已命中：Claude 已设自启' },
+    { id: 'pb_pay', level: 'fail', tag: '日志已命中', title: '严禁封后秒切备用号与同机多号轮换', desc: '封号后几分钟内在同一客户端切回备用号会触发跨 orgId 竞态请求，直接连坐备用号。换号前必须先清进程并备份清理污染目录。', checkTriggered: () => logEvents.some(e => e.ruleId === 'pb_pay'), hitText: '日志已命中 main.log:57151 跨 orgId 竞态' },
+    { id: 'pb_card', level: 'neutral', tag: '人工守则（无卡号日志）', title: '支付渠道绝对隔离（银行卡 / Apple ID）', desc: '本地日志不记录银行卡号，请人工确保绝不复用曾关联被封账号的卡/虚拟卡 BIN/Apple ID；若出现 App Store 挂起订阅报错，需先在苹果端取消待结周期。', checkTriggered: () => false },
+    { id: 'pb_exit', level: 'fail', tag: '日志已命中', title: '关代理前看 0 进程雷达 & 退出刷队列防漏', desc: 'Claude 关窗口常缩回托盘，且退出最后 1~5 秒会刷 EventLogging 队列。务必保持 4 层紧急防回传与安全退出防呆开启。', checkTriggered: () => logEvents.some(e => e.ruleId === 'pb_exit'), hitText: '日志已命中 main.log:44299 退出刷队列暴露' },
+    { id: 'pb_rate', level: 'warn', tag: '日志联动', title: '禁止无人值守全自动循环脚本与异常高并发', desc: '消费级订阅（Pro/Max）要求人工交互使用；挂定时脚本、多线程并发或频繁触发 429 限流极易被自动封号。', checkTriggered: () => logEvents.some(e => e.ruleId === 'pb_rate'), hitText: '日志已命中：检测到连续 429 / 高并发会话' },
+    { id: 'pb_oauth', level: 'fail', tag: '环境联动', title: '严禁将 Pro/Max OAuth Token 喂给第三方反代/套壳', desc: '2025–2026 封号重灾区。个人订阅 OAuth 仅限官方客户端与官方 Claude Code 使用；程序化接入请走官方按量付费 Console API Key。', checkTriggered: () => false },
+    { id: 'pb_24h', level: 'warn', tag: '高敏窗口', title: '新号注册、充值与跨档升级后 24 小时冷静期', desc: '开通 Pro/Max 或突然跳档后 30 分钟 ~ 24 小时为支付异步复审高峰。此期间严禁切节点/换设备，建议开启「24h 冷静保护模式」。', checkTriggered: () => cfg.calm24h, hitText: '24h 冷静保护模式运行中' },
+    { id: 'pb_node', level: 'warn', tag: '节点容灾', title: '节点短期抖动 vs 长期失效 & 严禁跨洲瞬移', desc: '<2 分钟抖动先等待自愈；主节点确认失效先清进程切同区热备；被迫跨国切换后建议静默间隔 15~30 分钟再启 Claude。', checkTriggered: () => nodeDown || killActive, hitText: nodeDown ? '主节点失效，已解锁同区热备' : '已触发节点异常熔断' },
+    { id: 'pb_filter', level: 'neutral', tag: '内容红线', title: '规避敏感安全过滤器误触 & 定期本地备份', desc: '避免上传医疗诊断类原始数据或触发涉及未成年人等高敏词过滤器（误封几乎无人工缓冲），定期导出重要 Prompt 与知识库。', checkTriggered: () => false }
+  ];
+
+  function buildItems(preset) {
+    const isFirst = preset === 'first_time', isDown = preset === 'node_down', isDrift = preset === 'drift';
+    return [
+      // 1. 代理与节点（仅操作 Clash Verge / 节点，不动 Windows 系统与 Claude 目录）
+      { id: 'node_proxy', part: 'must', cat: '1. 代理与节点（改 Clash 配置）', icon: 'proxy', mode: '自动一键', title: '代理引擎在线与端口独占', status: 'ok', summary: 'Clash Verge (7890) 在线，未发现 12334 / 10808 冲突代理', evidence: `Named Pipe: \\\\.\\pipe\\verge-mihomo-production-66b6...\nPort 7890: Online | Conflict Ports: <span class="hl-g">0</span>`, guide: '仅检测 Mihomo 命名管道存活与代理端口独占；若离线将拉起 Clash Verge 或提示关闭冲突代理。', fixLabel: null },
+      { id: 'node_group', part: 'must', cat: '1. 代理与节点（改 Clash 配置）', icon: 'group', mode: isFirst ? '向导 + 实测验收' : '自动一键', title: '策略组与全家桶规则锁死', status: (isFirst || isDrift) ? 'fail' : 'ok', summary: isFirst ? '尚未创建 Claude-Fixed 策略组（仅写入 Script.js 规则并重载验收）' : (isDrift ? '节点漂移至禁区 HK-Edge-03，已自动熔断！' : 'select 模式已锁死 · 全家桶域名、进程与 ipv6:false 生效'), evidence: isFirst ? `Mihomo GET /proxies: <span class="hl-r">未找到 Claude-Fixed</span>\nMihomo ipv6: <span class="hl-r">true</span>` : (isDrift ? `Group: Claude-Fixed → <span class="hl-r">HK-Edge-03 [禁区]</span>` : `Group: Claude-Fixed (select) → <span class="hl-g">${currentNode}</span> | Mihomo ipv6: <span class="hl-g">false</span>`), guide: isFirst ? '仅备份并写入 <code>profiles\\Script.js</code> 策略组与规则（不碰系统与其他配置），在 Clash Verge 点击重载后由 Mihomo API <b>真实探测生效</b>才变绿。' : (isDrift ? '点下方一键切回安全节点、清队列并放行防火墙。' : '策略组与规则已通过实测。'), fixLabel: isFirst ? '写入 Script.js 覆写脚本并实测验收' : (isDrift ? '一键切回安全节点、清队列并实测恢复' : null), isKillItem: isDrift },
+      { id: 'node_tun', part: 'must', cat: '1. 代理与节点（改 Clash 配置）', icon: 'fw', mode: '向导 + 实测验收', title: '虚拟网卡接管（Clash TUN）', status: isFirst ? 'fail' : 'ok', summary: isFirst ? 'Clash TUN 虚拟网卡未激活，Electron 子进程可能绕过代理' : 'TUN 已激活 · Wintun 虚拟网卡接管全局流量', evidence: isFirst ? `Mihomo tun.enable: <span class="hl-r">false</span> | Wintun Adapter: <span class="hl-r">Inactive</span>` : `Mihomo tun.enable: <span class="hl-g">true</span> | Wintun Adapter: <span class="hl-g">Online</span>`, guide: isFirst ? '仅需在 Clash Verge 首页开启「虚拟网卡模式 (TUN)」（或安装 Service Mode），点击下方通过 Mihomo API 与 Wintun 网卡实测在线后变绿。' : '虚拟网卡已全面接管 Claude 子进程与退出清理线程。', fixLabel: isFirst ? '打开 Clash 指引并实测验收 TUN' : null },
+      { id: 'node_dns', part: 'must', cat: '1. 代理与节点（改 Clash 配置）', icon: 'dns', mode: '向导 + 实测验收', title: 'DNS 防泄漏（Clash Fake-IP）', status: isFirst ? 'fail' : 'ok', summary: isFirst ? '实测 claude.ai 解析未落入 198.18.0.0/15 Fake-IP 网段' : 'Fake-IP 生效 · 实测 claude.ai 解析为 198.18.0.14', evidence: isFirst ? `Mihomo dns.enhanced-mode: <span class="hl-r">redir-host</span>\nDNS Probe (claude.ai): <span class="hl-r">未命中 Fake-IP 网段</span>` : `Mihomo dns: <span class="hl-g">fake-ip</span>\nDNS Probe (claude.ai): <span class="hl-g">198.18.0.14 (Fake-IP 通过)</span>`, guide: isFirst ? '仅将 Fake-IP DNS 段写入 Clash 覆写配置，重载后工具真实解析 <code>claude.ai</code> 确认返回 <code>198.18.x.x</code> 才变绿。' : '已通过真实 DNS 解析探针验收，无本地宽带 DNS 泄漏。', fixLabel: isFirst ? '写入 Fake-IP 配置并实测验收 DNS' : null },
+      { id: 'node_geo', part: 'must', cat: '1. 代理与节点（改 Clash 配置）', icon: 'geo', mode: '自动一键', title: '出口节点合规与真实可达性', status: (isDrift || isDown) ? 'fail' : 'ok', summary: isDown ? '主节点 US-LA-Static-01 连续 3 次探测超时！已解锁同区热备' : (isDrift ? '真实探测出口落入 HK（禁区）' : 'US · ISP 住宅 · Anthropic 可达（落地 IP 未漂移）'), evidence: isDown ? `故障定位: US-LA-Static-01 连续 3 次超时 (>15s)\n当前状态: <span class="hl-r">节点不可用 · 防火墙已保护</span>\n建议方案: <span class="hl-a">清零进程后立即切换同地区热备 US-LA-Static-02（无需跨国静默期）</span>` : (isDrift ? `Real Probe → <span class="hl-r">HK (禁区)</span> | Landing IP Drift: <span class="hl-r">Detected</span>` : `Exit IP: 104.28.xx.xx (<span class="hl-g">US · 与历史锁定一致</span>)\nASN Purity: <span class="hl-g">ISP 住宅低风控</span> | Anthropic TLS/HTTP Probe: <span class="hl-g">可达 (非 CF 403)</span>`), guide: isDown ? '主节点确认长期失效时自动豁免 7 天冷却锁。点击下方一键清零进程并切换至同地区热备 US-LA-Static-02。' : (isDrift ? '禁止在禁区运行，请切回白名单节点。' : '已实测验证出口归属、落地 IP 无静默漂移、ASN 纯净度与 Anthropic 真实可达性；若遇 CF 403 拉黑可前往「节点流量」重选节点。'), fixLabel: isDown ? '一键应急切换至同区热备 US-LA-Static-02' : (isDrift ? '一键切回推荐节点并重测出口' : null), isKillItem: isDrift, isFailover: isDown },
+
+      // 2. Windows 系统环境（仅操作 Windows 网卡 / 环境变量 / 系统代理，不动 Clash 与 Claude 目录）
+      { id: 'sys_ipv6', part: 'must', cat: '2. Windows 系统环境（改系统）', icon: 'ipv6', mode: '管理员一键 + 实测', title: 'Windows 网卡 IPv6 禁用', status: isFirst ? 'fail' : 'ok', summary: isFirst ? 'Mihomo 虚拟网卡仍开启 ms_tcpip6 绑定，存在 IPv6 直连风险' : '网卡绑定已禁用且真实外网 IPv6 探测不可达', evidence: isFirst ? `1. 网卡 ms_tcpip6 (Mihomo): <span class="hl-r">Enabled</span>\n2. 注册表 DisabledComponents: <span class="hl-a">0x08 (未完全禁用)</span>\n3. 外网 IPv6 连通探针: <span class="hl-r">存在泄漏风险</span>` : `1. 活跃网卡 ms_tcpip6: <span class="hl-g">Disabled</span>\n2. 外网 IPv6 连通探针: <span class="hl-g">Blocked (0 泄漏)</span>`, guide: isFirst ? '仅对 Windows 活跃网卡禁用 <code>ms_tcpip6</code> 绑定（不改 Clash 规则、不碰 Claude 目录），随后<b>真实发起外网 IPv6 探测</b>确认无法出网才变绿。' : 'Windows 网卡 IPv6 绑定与外网探针均已验证 0 泄漏。', fixLabel: isFirst ? '管理员一键禁用网卡 IPv6 并实测验收' : null },
+      { id: 'sys_env', part: 'must', cat: '2. Windows 系统环境（改系统）', icon: 'startup', mode: '自动一键', title: '系统代理与环境变量冲突排查', status: isFirst ? 'fail' : 'ok', summary: isFirst ? '检测到残留 HTTP_PROXY=127.0.0.1:10808，可能导致 CLI 与桌面端不同 IP' : 'CLI 代理环境变量 0 冲突 · WinINET 端口与 7890 一致（三端同 IP）', evidence: isFirst ? `ANTHROPIC_BASE_URL: <span class="hl-g">Default Official</span>\nUser Env HTTP_PROXY: <span class="hl-r">127.0.0.1:10808 (端口冲突)</span>\nWinINET ProxyServer: <span class="hl-g">127.0.0.1:7890</span>` : `ANTHROPIC_BASE_URL: <span class="hl-g">Default Official</span>\nCLI Env (HTTP/S & NO_PROXY): <span class="hl-g">0 冲突 / 无直连豁免</span>\nWinINET ProxyServer: <span class="hl-g">127.0.0.1:7890 (三端同 IP)</span>`, guide: isFirst ? '仅备份并清理冲突的 Windows 环境变量（<code>HTTP_PROXY / NO_PROXY / 非官方 ANTHROPIC_BASE_URL</code>）或校准 WinINET 端口，<b>绝不碰 Claude 账号目录</b>；使用网页版时请关闭浏览器独立分流插件与 WebRTC 暴露。' : '系统代理与终端环境变量零冲突，确保桌面端、CLI、网页版三端同 IP。', fixLabel: isFirst ? '一键备份并清理冲突环境变量' : null },
+
+      // 3. Claude 本机卫生（仅操作 Claude 本地目录与官方 settings.json，不动系统与代理）
+      { id: 'claude_ban', part: 'must', cat: '3. Claude 本机卫生（改 Claude）', icon: 'ban', mode: '自动一键', title: '本地封号污染残留审查', status: 'ok', summary: '扫描本地日志与目录，0 封号污染残留', evidence: `Scanned main.log & web.log → <span class="hl-g">0 banned records</span>`, guide: '仅审计 Claude 本地目录封号残留；如检出污染，将先清零进程并自动 ZIP 备份后再纯净重置目录。', fixLabel: null },
+      { id: 'claude_acct', part: 'must', cat: '3. Claude 本机卫生（改 Claude）', icon: 'userLock', mode: '引导确认', title: '单号卫生锁（防混号与跨 orgId）', status: 'ok', summary: '已锁定唯一主号 078cfdb1... · 无多号混登或跨 orgId 竞态', evidence: `Bound Primary Account: <span class="hl-g">078cfdb1...</span>\nCross-orgId Conflict: <span class="hl-g">0</span>`, guide: '仅聚焦单号卫生与防连坐；若检出混号将提供二选一确认：① 误串旧号则备份重置目录；② 明确更换主力新号则二次确认后更新绑定。', fixLabel: null },
+      { id: 'claude_tel', part: 'must', cat: '3. Claude 本机卫生（改 Claude）', icon: 'privacy', mode: '自动一键', title: '官方隐私降噪开关 & 遥测缓存', status: isFirst ? 'fail' : 'ok', summary: isFirst ? '~/.claude/settings.json 尚未关闭非必要遥测与错误上报' : '已写入降噪环境变量并清空 telemetry 离线缓存', evidence: isFirst ? `File: ~/.claude/settings.json\nMissing: <span class="hl-r">CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1</span>\nMissing: <span class="hl-r">DISABLE_ERROR_REPORTING=1</span>` : `<span class="hl-g">CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1"\nDISABLE_ERROR_REPORTING = "1"\nTelemetry Cache: 0 B</span>`, guide: isFirst ? '仅合并写入 <code>~/.claude/settings.json</code> 官方降噪开关并清空 <code>~/.claude/telemetry/</code>，<b>绝不碰账号登录态与聊天记录</b>。' : '官方降噪配置已实测生效。', fixLabel: isFirst ? '一键写入隐私降噪并清空缓存' : null },
+
+      // 二、建议优化（Windows 系统辅助项 · 不阻断启动，每项均有独立处理与复测闭环）
+      { id: 'opt_boot', part: 'opt', cat: '系统辅助优化', icon: 'startup', mode: '只读风险监测', title: '开机启动项顺序风险检查（Clash / Claude）', status: 'warn', summary: '检测到 Claude 设了开机自启（不删启动项，建议手动关闭防抢先裸奔）', evidence: `Clash Verge 自启: <span class="hl-g">已开启</span>\nFD Claude Guard 自启: <span class="hl-g">已开启（仅显悬浮窗）</span>\nClaude Desktop 自启: <span class="hl-a">已开启（风险：可能早于代理联网）</span>`, guide: '<b>绝不擅自删除你的开机启动项</b>。点下方打开 Windows「启动应用」页手动关闭 Claude 自启；关闭后点「重新实测」即可复扫变绿。', fixLabel: '打开 Windows 启动应用管理页' },
+      { id: 'opt_ntp', part: 'opt', cat: '系统辅助优化', icon: 'clock', mode: '管理员一键', title: '系统时钟 NTP 同步偏差', status: isFirst ? 'warn' : 'ok', summary: isFirst ? '实测 UTC 偏差 +48.6s（超过 ±30s，可能影响 OAuth/JWT 校验）' : '实测 UTC 偏差 +0.12s（正常范围 ±30s）', evidence: isFirst ? `NTP Probe Drift: <span class="hl-a">+48.6 s (> 30s)</span>\nWindows Time Service: <span class="hl-a">需重新校准</span>` : `NTP Probe Drift: <span class="hl-g">+0.12 s</span> | Auto-Sync: <span class="hl-g">Active</span>`, guide: isFirst ? '仅调用 Windows <code>w32tm /resync /force</code> 执行自动对时并重测 UTC 偏差，回到 ±30s 内立即变绿。' : '系统时钟与 UTC 精准同步。', fixLabel: isFirst ? '管理员一键 NTP 校准对时' : null },
+      { id: 'opt_fw', part: 'opt', cat: '系统辅助优化', icon: 'fw', mode: '管理员一键', title: '防火墙 Kill Switch 权限就绪', status: isFirst ? 'warn' : 'ok', summary: isFirst ? '尚未安装免 UAC 守护计划任务，紧急断流将触发系统弹窗确认' : 'MSIX 路径已追踪 · 实测可无感读写 FDClaudeGuard_KillSwitch_* 规则', evidence: isFirst ? `Elevated Helper Task: <span class="hl-a">Not Installed</span>\nRule Prefix: FDClaudeGuard_KillSwitch_*` : `Elevated Helper Task: <span class="hl-g">Active</span>\nRule Probe (FDClaudeGuard_KillSwitch_*): <span class="hl-g">Writable</span>`, guide: isFirst ? '安装本地免 UAC 守护计划任务并实测读写一条探针规则，确保紧急断流可毫秒级无感封死出站；卸载软件时自动清空全部规则。' : '防火墙无感守护权限已就绪。', fixLabel: isFirst ? '安装免 UAC 守护权限并实测' : null }
+    ];
+  }
+
+  function loadPreset(preset) {
+    killActive = (preset === 'drift'); nodeDown = (preset === 'node_down');
+    bgProcs = preset === 'first_time' ? 0 : (preset === 'drift' ? 14 : (preset === 'node_down' ? 4 : 0));
+    killHoldSec = 0; respawnBlocked = 0;
+    if (preset === 'allok') {
+      flowEvents = [
+        { anomaly: false, proc: 'Claude.exe', host: 'api.anthropic.com:443', rule: 'DOMAIN-SUFFIX', chain: `Claude-Fixed → ${currentNode}`, action: '正常放行', time: '21:01:18', bytes: '1.42 MB' },
+        { anomaly: false, proc: 'Claude.exe', host: 'claude.ai:443', rule: 'DOMAIN-SUFFIX', chain: `Claude-Fixed → ${currentNode}`, action: '正常放行', time: '21:00:45', bytes: '642 KB' }
+      ];
+      logEvents = [
+        { id: 'e4', ruleId: null, anomaly: false, level: 'ok', tag: '遥测', time: '2026-11-23 20:58:12', file: 'main.log:57410', title: '后台刷新 EventLogging 队列（已走锁定节点安全发出）', cause: '正常行为。', ctx: `57410 [info] [EventLogging] flushEventQueue completed` },
+        { id: 'e5', ruleId: null, anomaly: false, level: 'ok', tag: '鉴权', time: '2026-11-23 20:45:02', file: 'main.log:57380', title: 'OAuth 令牌自动续期成功（主号 078cfdb1）', cause: '正常行为。', ctx: `57380 [info] [oauth-v2] token renewal ok` },
+        { id: 'e6', ruleId: null, anomaly: false, level: 'ok', tag: '设备采集', time: '2026-11-23 20:31:05', file: 'main.log:57322', title: '响应 1 次设备信息采集（get_device_info）', cause: '正常行为，已计入累计统计。', ctx: `57322 [info] [remote-tools-device] responded to get_device_info` }
+      ];
+    } else {
+      flowEvents = [
+        { anomaly: true, proc: 'Claude.exe', host: 'api.anthropic.com:443', rule: 'MATCH (漏规则)', chain: 'HK-Edge-03 → 已自动掐断', action: '已调用 DELETE /connections 强掐并激活防火墙', time: '20:54:02', bytes: '0 B (已阻断)' },
+        { anomaly: false, proc: 'Claude.exe', host: 'api.anthropic.com:443', rule: 'DOMAIN-SUFFIX', chain: `Claude-Fixed → ${currentNode}`, action: '正常放行', time: '20:52:18', bytes: '1.42 MB' },
+        { anomaly: false, proc: 'Claude.exe', host: 'claude.ai:443', rule: 'DOMAIN-SUFFIX', chain: `Claude-Fixed → ${currentNode}`, action: '正常放行', time: '20:51:45', bytes: '642 KB' }
+      ];
+      logEvents = [
+        { id: 'e1', ruleId: 'pb_exit', anomaly: true, level: 'fail', tag: '地区封锁', time: '2026-11-22 00:55:00', file: 'main.log:44299', title: '触发 region_unavailable（服务端判定非支持地区）', cause: '触发归因：退出 Claude 时执行 onQuitCleanup 刷新 EventLogging，此时代理已断开导致真实 IP 暴露。', ctx: `44297 [info] [onQuitCleanup] flushing EventLogging queue\n<span class="hl-r">44299 [error] {"error_code":"region_unavailable"}</span>` },
+        { id: 'e2', ruleId: 'pb_pay', anomaly: true, level: 'fail', tag: '账号连坐', time: '2026-11-23 13:00:24', file: 'main.log:57151', title: '跨账号 Org 异步竞态请求（触发 Ban Evasion 高危特征）', cause: '触发归因：封号后 5 分钟在同一污染客户端切回旧号，新号 Cookie 携带被封 orgId 发起 /authorize。', ctx: `<span class="hl-r">57151 [warn] [oauth] sessionKey names a different account than flow orgId=7aacf131 (404)</span>` },
+        { id: 'e3', ruleId: 'pb_node', anomaly: true, level: 'warn', tag: '断连爆发', time: '2026-11-23 11:42:18', file: 'main.log:55910', title: '5 分钟内连续发生 7 次网络断连（ECONNRESET）', cause: '触发归因：节点高抖动或 7890 / 12334 双代理并存造成链路重置。', ctx: `<span class="hl-a">55910 [error] [RemotePluginManager] Sync failed: net::ERR_CONNECTION_CLOSED (x7)</span>` },
+        { id: 'e4', ruleId: null, anomaly: false, level: 'ok', tag: '遥测', time: '2026-11-23 19:50:12', file: 'main.log:57410', title: '后台刷新 EventLogging 队列（已走锁定节点安全发出）', cause: '正常行为。', ctx: `57410 [info] [EventLogging] flushEventQueue completed` },
+        { id: 'e5', ruleId: null, anomaly: false, level: 'ok', tag: '鉴权', time: '2026-11-23 19:45:02', file: 'main.log:57380', title: 'OAuth 令牌自动续期成功（主号 078cfdb1）', cause: '正常行为。', ctx: `57380 [info] [oauth-v2] token renewal ok` },
+        { id: 'e6', ruleId: null, anomaly: false, level: 'ok', tag: '设备采集', time: '2026-11-23 19:31:05', file: 'main.log:57322', title: '响应 1 次设备信息采集（get_device_info）', cause: '正常行为，已计入累计统计。', ctx: `57322 [info] [remote-tools-device] responded to get_device_info` }
+      ];
+    }
+    items = buildItems(preset);
+    selectedId = preset === 'first_time' ? 'node_dns' : (preset === 'node_down' ? 'node_geo' : (preset === 'drift' ? 'node_group' : 'node_proxy'));
+    ['pFirst', 'pNodeDown', 'pDrift', 'pOk'].forEach(id => document.getElementById(id).className = '');
+    if (preset === 'first_time') document.getElementById('pFirst').className = 'active';
+    if (preset === 'node_down') document.getElementById('pNodeDown').className = 'active-danger';
+    if (preset === 'drift') document.getElementById('pDrift').className = 'active-danger';
+    if (preset === 'allok') document.getElementById('pOk').className = 'active';
+    render();
+    if (preset === 'drift') {
+      triggerAlertEvent('critical', 'flow', '危急熔断：出口漂移至禁区 HK', '事件驱动引擎已毫秒级掐断连接并锁死防火墙出站，请立即回控制台恢复安全节点。');
+    } else if (preset === 'node_down') {
+      triggerAlertEvent('critical', 'flow', '危急告警：主节点连续 3 次超时', '已自动解锁同地区热备 US-LA-Static-02，清零进程后可立即无缝接管。');
+    }
+  }
+
+  function setLicensed(val) {
+    licensed = !!val;
+    document.getElementById('licFree').className = licensed ? '' : 'active';
+    document.getElementById('licPro').className = licensed ? 'active' : '';
+    render();
+  }
+
+  function openLicenseModal(prefillKey = '') {
+    const m = document.getElementById('guardModal');
+    const icoEl = document.getElementById('gmIco');
+    icoEl.className = 'modal-ico is-ok';
+    icoEl.style.background = 'var(--primary-soft)';
+    icoEl.style.color = 'var(--primary)';
+    icoEl.innerHTML = SVG.key;
+
+    document.getElementById('gmTitle').textContent = '激活 FD Claude 安全启动器';
+    const b = document.getElementById('gmBadge');
+    b.textContent = '一次性密钥';
+    b.className = 'chip ch-mode';
+    document.getElementById('gmSub').textContent = '免费体检可无限运行；核销密钥后解锁清晰方案与自动修复';
+
+    const nextDemo = DEMO_KEYS.find(k => !usedKeys.has(k)) || DEMO_KEYS[0];
+    document.getElementById('gmBody').innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <div class="det-lbl" style="margin-bottom:0;display:flex;align-items:center;justify-content:space-between;">
+          <span>输入激活密钥（一码一次核销）</span>
+          <button class="text-action-link" style="padding:0;font-size:11.5px;color:var(--primary);" onclick="fillDemoKey('${nextDemo}')">填入演示密钥 (${usedKeys.has(nextDemo) ? '已作废' : '可用'})</button>
+        </div>
+        <div class="lic-input-row">
+          <input id="licKeyInput" class="lic-input" type="text" placeholder="FDG-XXXX-XXXX-XXXX" value="${prefillKey}" autocomplete="off" spellcheck="false" onkeydown="if(event.key==='Enter')submitLicenseKey()" />
+        </div>
+        <div class="lic-err" id="licErrTxt"></div>
+      </div>
+      <div class="lic-rules">
+        <div class="lic-rule-item"><span class="lic-rule-dot"></span><span><b>一码一次核销作废：</b>密钥在线核销成功后立即永久失效，无法在另一台机器或第二次重复使用。</span></div>
+        <div class="lic-rule-item"><span class="lic-rule-dot"></span><span><b>绑定当前安装实例：</b>只要不卸载本软件，本地加密凭证永久有效，后续完全离线运行无需联网。</span></div>
+        <div class="lic-rule-item"><span class="lic-rule-dot"></span><span><b>卸载即同步销毁：</b>卸载软件时将清除本地加密凭证与安装实例，旧密钥作废不可再次激活。</span></div>
+      </div>`;
+    const ftTip = document.getElementById('gmFootTip');
+    ftTip.innerHTML = usedKeys.size > 0
+      ? `已核销作废 ${usedKeys.size} 枚 · 售后 QQ：<span style="color:var(--text-1);font-family:var(--font-mono);cursor:pointer;text-decoration:underline;" onclick="copySupportQQ()">2568515327</span>`
+      : `获取密钥 / 售后支持：QQ <span style="color:var(--text-1);font-family:var(--font-mono);cursor:pointer;text-decoration:underline;" onclick="copySupportQQ()">2568515327</span>`;
+    document.getElementById('gmActions').innerHTML = `
+      <button class="btn btn-flat btn-sm" onclick="closeModal()">暂不激活</button>
+      <button class="btn btn-primary btn-sm" onclick="submitLicenseKey()">立即核销并解锁</button>`;
+    m.classList.add('show');
+    setTimeout(() => { const inp = document.getElementById('licKeyInput'); if (inp) inp.focus(); }, 40);
+  }
+
+  function copySupportQQ() {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText('2568515327').catch(() => {});
+    }
+    toast('已复制官方售后 QQ', 'QQ 号 2568515327 已复制到剪贴板，添加好友备注「FD 启动器」优先通过。', 'ok');
+  }
+
+  function openSupportModal() {
+    const m = document.getElementById('guardModal');
+    const icoEl = document.getElementById('gmIco');
+    icoEl.className = 'modal-ico is-ok';
+    icoEl.style.background = 'var(--primary-soft)';
+    icoEl.style.color = 'var(--primary)';
+    icoEl.innerHTML = SVG.support;
+
+    document.getElementById('gmTitle').textContent = '售后与激活支持';
+    const b = document.getElementById('gmBadge');
+    b.textContent = '官方直连';
+    b.className = 'chip ch-ok';
+    document.getElementById('gmSub').textContent = '密钥获取、核销异常咨询与复杂代理环境排障协助';
+
+    document.getElementById('gmBody').innerHTML = `
+      <div class="qq-card">
+        <div>
+          <div style="font-size:11.5px;color:var(--text-3);">官方售后 QQ</div>
+          <div class="qq-num tabular">2568515327</div>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="copySupportQQ()">复制 QQ 号</button>
+      </div>
+      <div class="lic-rules">
+        <div class="lic-rule-item"><span class="lic-rule-dot"></span><span><b>获取一次性激活密钥：</b>联系售后 QQ 获取专属激活码，核销后即永久绑定当前安装实例。</span></div>
+        <div class="lic-rule-item"><span class="lic-rule-dot"></span><span><b>排障协助建议：</b>如遇疑难环境问题，建议先导出脱敏诊断包（自动打码隐私）发给售后快速定位。</span></div>
+      </div>`;
+    document.getElementById('gmFootTip').textContent = '添加好友时请备注「FD 启动器」';
+    document.getElementById('gmActions').innerHTML = `
+      <button class="btn btn-flat btn-sm" onclick="closeModal()">关闭</button>
+      ${!licensed ? `<button class="btn btn-primary btn-sm" onclick="openLicenseModal()">去输入激活密钥</button>` : ''}`;
+    m.classList.add('show');
+  }
+
+  function fillDemoKey(k) {
+    const inp = document.getElementById('licKeyInput');
+    const err = document.getElementById('licErrTxt');
+    if (inp) { inp.value = k; inp.classList.remove('is-err'); inp.focus(); }
+    if (err) err.textContent = '';
+  }
+
+  function submitLicenseKey() {
+    const inp = document.getElementById('licKeyInput');
+    const err = document.getElementById('licErrTxt');
+    if (!inp || !err) return;
+    const raw = inp.value.trim().toUpperCase();
+    if (!raw) {
+      inp.classList.add('is-err');
+      err.textContent = '请输入 16 位激活密钥（格式：FDG-XXXX-XXXX-XXXX）。';
+      return;
+    }
+    if (!/^FDG-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(raw)) {
+      inp.classList.add('is-err');
+      err.textContent = '密钥格式不正确，请核对 FDG-XXXX-XXXX-XXXX 四段格式。';
+      return;
+    }
+    if (usedKeys.has(raw)) {
+      inp.classList.add('is-err');
+      err.textContent = `核销失败：密钥 ${raw} 已被使用并永久作废，无法二次激活（卸载后亦不可复用）。`;
+      return;
+    }
+    usedKeys.add(raw);
+    closeModal();
+    setLicensed(true);
+    toast('核销激活成功 · 已永久绑定当前安装实例', `密钥 ${raw} 已核销作废；解密密钥已存入本机 DPAPI 金库，所有清晰步骤与自动修复已解锁。`, 'ok');
+  }
+
+  function fixItem(id) {
+    if (!licensed) {
+      openLicenseModal();
+      return;
+    }
+    if (id === 'opt_boot') return toast('已打开 Windows 启动应用管理页', '请手动关闭 Claude Desktop 自启（我们绝不擅自删除你的启动项）；关闭后点右上角「重新实测」即复扫变绿。', 'ok');
+    if (id === 'node_geo' && nodeDown) {
+      nodeDown = false; currentNode = 'US-LA-Static-02';
+      startKillHold(45, '热备切换已清零进程，启动 45s 防复活盯防', true);
+      const it = items.find(x => x.id === 'node_geo');
+      it.status = 'ok'; it.fixLabel = null; it.isFailover = false;
+      it.summary = `US · ISP 静态 · Anthropic 可达（${currentNode} 同区热备接管）`;
+      it.evidence = `Failover → <span class="hl-g">US-LA-Static-02 (46 ms)</span> | 不计入频繁切换`;
+      toast('已完成同地区热备应急切换', '已先清零进程并启动 45s 防复活盯防，无缝切换至 US-LA-Static-02。', 'ok');
+    } else if ((id === 'node_group' || id === 'node_geo') && killActive) {
+      killActive = false;
+      startKillHold(45, '熔断清队列已完成，启动 45s 防复活盯防', true);
+      items.forEach(x => {
+        if (x.id === 'node_group') { x.status = 'ok'; x.summary = 'select 模式已锁死 · 全家桶域名、进程与 ipv6:false 生效'; x.evidence = `Group: Claude-Fixed (select) → <span class="hl-g">${currentNode}</span> | Mihomo ipv6: <span class="hl-g">false</span>`; x.fixLabel = null; x.isKillItem = false; }
+        if (x.id === 'node_geo') { x.status = 'ok'; x.summary = 'US · ISP 住宅 · Anthropic 可达（落地 IP 未漂移）'; x.evidence = `Exit IP: 104.28.xx.xx (<span class="hl-g">US · 与历史锁定一致</span>)\nASN Purity: <span class="hl-g">ISP 住宅低风控</span> | Anthropic Probe: <span class="hl-g">可达</span>`; x.fixLabel = null; x.isKillItem = false; }
+      });
+      toast('已安全修复熔断并实测验收通过', '策略组、内存/离线遥测清扫与出口实测均已通过，45s 防复活盯防持续护航中。', 'ok');
+    } else {
+      const it = items.find(x => x.id === id);
+      if (!it) return;
+      it.status = 'ok'; it.fixLabel = null;
+      if (id === 'node_group') { it.summary = 'select 模式已锁死 · 全家桶域名、进程与 ipv6:false 生效'; it.evidence = `Group: Claude-Fixed (select) → <span class="hl-g">${currentNode}</span> | Mihomo ipv6: <span class="hl-g">false</span>`; toast('策略组与全家桶规则验收通过', '仅更新 Clash 覆写规则，未改动其他项。', 'ok'); }
+      else if (id === 'node_tun') { it.summary = 'TUN 已激活 · Wintun 虚拟网卡接管全局流量'; it.evidence = `Mihomo tun.enable: <span class="hl-g">true</span> | Wintun Adapter: <span class="hl-g">Online</span>`; toast('Clash TUN 虚拟网卡验收通过', '已接管全部子进程与退出清理流量。', 'ok'); }
+      else if (id === 'node_dns') { it.summary = 'Fake-IP 生效 · 实测 claude.ai 解析为 198.18.0.14'; it.evidence = `Mihomo dns: <span class="hl-g">fake-ip</span>\nDNS Probe (claude.ai): <span class="hl-g">198.18.0.14 (Fake-IP 通过)</span>`; toast('Clash DNS Fake-IP 验收通过', 'claude.ai 已正确落入 198.18.0.0/15 网段。', 'ok'); }
+      else if (id === 'sys_ipv6') { it.summary = '网卡绑定已禁用且真实外网 IPv6 探测不可达'; it.evidence = `1. 活跃网卡 ms_tcpip6: <span class="hl-g">Disabled</span>\n2. 外网 IPv6 连通探针: <span class="hl-g">Blocked (0 泄漏)</span>`; toast('Windows 网卡 IPv6 禁用验收通过', '实测外网 IPv6 已彻底不可达。', 'ok'); }
+      else if (id === 'sys_env') { it.summary = 'CLI 代理环境变量 0 冲突 · WinINET 端口与 7890 一致（三端同 IP）'; it.evidence = `ANTHROPIC_BASE_URL: <span class="hl-g">Default Official</span>\nCLI Env (HTTP/S & NO_PROXY): <span class="hl-g">0 冲突 / 无直连豁免</span>\nWinINET ProxyServer: <span class="hl-g">127.0.0.1:7890 (三端同 IP)</span>`; toast('系统环境变量冲突已备份并清理', '已移除残留 HTTP_PROXY=127.0.0.1:10808（未触碰 Claude 目录）。', 'ok'); }
+      else if (id === 'claude_tel') { it.summary = '已写入降噪环境变量并清空 telemetry 离线缓存'; it.evidence = `<span class="hl-g">CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1"\nDISABLE_ERROR_REPORTING = "1"\nTelemetry Cache: 0 B</span>`; toast('官方隐私降噪已写入并验收通过', '仅更新 settings.json 并清空旧遥测缓存。', 'ok'); }
+      else if (id === 'opt_ntp') { it.summary = '实测 UTC 偏差 +0.12s（正常范围 ±30s）'; it.evidence = `NTP Probe Drift: <span class="hl-g">+0.12 s</span> | Auto-Sync: <span class="hl-g">Active</span>`; toast('系统时钟 NTP 校准完成', '已同步 Windows 时间服务，UTC 偏差回到 +0.12s。', 'ok'); }
+      else if (id === 'opt_fw') { it.summary = 'MSIX 路径已追踪 · 实测可无感读写 FDClaudeGuard_KillSwitch_* 规则'; it.evidence = `Elevated Helper Task: <span class="hl-g">Active</span>\nRule Probe (FDClaudeGuard_KillSwitch_*): <span class="hl-g">Writable</span>`; toast('免 UAC 防火墙守护权限验收通过', '紧急断流已支持毫秒级无感封死出站。', 'ok'); }
+      else if (id === 'claude_ban') {
+        startKillHold(45, '', true);
+        const now = new Date();
+        const ts = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}-${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
+        backups.unshift({ file: `claude-backup-${ts}.zip`, time: `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`, size: '31.8 MB' });
+        toast('已完成自动 ZIP 备份并纯净清理', `已归档至 ~/FDtools-Backups/claude-backup-${ts}.zip，并已启动 45s 防复活盯防防止清理后秒拉起。`, 'ok');
+      }
+    }
+    render();
+  }
+
+  function renderBackups() {
+    const tb = document.getElementById('backupTableBody');
+    if (!tb) return;
+    tb.innerHTML = backups.map(b => `
+      <tr>
+        <td style="font-family:var(--font-mono);font-size:12px;">${b.file}</td>
+        <td class="tabular" style="color:var(--text-2)">${b.time}</td>
+        <td class="tabular">${b.size}</td>
+        <td><button class="btn btn-flat btn-xs" onclick="toast('快照还原完成','还原前已自动建立安全点，目录已原子恢复至 ${b.file}。','ok')">一键还原</button></td>
+      </tr>`).join('');
+  }
+
+  function toggleCfg(key, label) {
+    if (key === 'showHud') { toggleHud(!cfg.showHud); return; }
+    if (key === 'notifyEnabled') { toggleNotify(!cfg.notifyEnabled); return; }
+    cfg[key] = !cfg[key];
+    if (key === 'bootStart' && !cfg.bootStart) cfg.bootHudOnly = false;
+    renderConfig(); renderPlaybook();
+    toast(`${label}已${cfg[key] ? '开启' : '关闭'}`, key === 'bootHudOnly' && cfg[key] ? '下次开机将只显示桌面悬浮状态卡，不弹出主控制台。' : '配置策略已实时更新。', cfg[key] ? 'ok' : 'info');
+  }
+
+  function renderConfig() {
+    const sw = (k, lbl) => `<div class="switch ${cfg[k] ? 'on' : ''}" onclick="event.stopPropagation();toggleCfg('${k}','${lbl}')"></div>`;
+    const recTag = (txt, cls) => `<span class="chip ${cls}" style="margin-right:6px;">${txt}</span>`;
+    document.getElementById('configPane').innerHTML = `
+      <div>
+        <div class="part-hd"><div class="part-title">桌面悬浮窗、消息提醒与开机保护</div><span class="part-tip">绿标为强烈推荐保持开启</span></div>
+        <div class="card">
+          <div class="row" onclick="toggleCfg('showHud','桌面悬浮状态窗')"><div class="row-l"><div class="icon-box">${SVG.hudIcon}</div><div><div class="row-title">显示桌面悬浮状态窗</div><div class="row-sub">常驻展示节点、日志与流量健康状态，支持任意位置拖拽与靠右贴边（也可在主窗口右上角一键开关）</div></div></div><div class="row-r">${recTag('推荐开启','ch-ok')}${sw('showHud','桌面悬浮状态窗')}</div></div>
+          <div class="row" onclick="toggleCfg('notifyEnabled','桌面预警消息提醒')"><div class="row-l"><div class="icon-box"><svg viewBox="0 0 24 24" class="ico">${SVG.bell}</svg></div><div><div class="row-title">桌面预警消息提醒（可一键静音普通预警）</div><div class="row-sub">悬浮窗隐藏或贴边时，事件驱动触发预警立即通过 Windows 原生通知推送；关闭后仅静音普通预警，熔断与防裸奔等危急警报仍保持强提醒</div></div></div><div class="row-r">${recTag('推荐开启','ch-ok')}${sw('notifyEnabled','桌面预警消息提醒')}</div></div>
+          <div class="row" onclick="toggleCfg('bootStart','开机自动启动')"><div class="row-l"><div class="icon-box">${SVG.startup}</div><div><div class="row-title">开机自动启动 FD Claude 安全启动器</div><div class="row-sub">随 Windows 开机在后台静默启动守护引擎</div></div></div><div class="row-r">${recTag('推荐开启','ch-ok')}${sw('bootStart','开机自动启动')}</div></div>
+          <div class="row sub-row" onclick="toggleCfg('bootHudOnly','开机仅显悬浮窗')"><div class="row-l"><div class="icon-box">${SVG.hudIcon}</div><div><div class="row-title">开机时仅显示桌面悬浮窗，不弹出主控制台</div><div class="row-sub">零打扰呈现桌面状态卡（支持靠右贴边自动隐藏）</div></div></div><div class="row-r">${recTag('推荐开启','ch-ok')}${sw('bootHudOnly','开机仅显悬浮窗')}</div></div>
+          <div class="row" onclick="toggleCfg('wakeSafeWindow','休眠唤醒 5 秒安全窗')"><div class="row-l"><div class="icon-box">${SVG.clock}</div><div><div class="row-title">休眠唤醒 / 切网 5 秒预阻断安全窗</div><div class="row-sub">监听 Windows 电源唤醒（PBT_APMRESUMEAUTOMATIC）与网卡切换事件，瞬间先锁住 Claude 出站，待代理与真实出口复测绿灯后再自动放行，杜绝“睡醒前 3 秒偷跑”</div></div></div><div class="row-r">${recTag('推荐开启','ch-ok')}${sw('wakeSafeWindow','休眠唤醒 5 秒安全窗')}</div></div>
+          <div class="row" onclick="toggleCfg('antiNakedGuard','防裸奔自动接管')"><div class="row-l"><div class="icon-box">${SVG.ban}</div><div><div class="row-title">防裸奔自动接管（拦截直接双击原生 Claude）</div><div class="row-sub">检测到直接启动 Claude 且环境未全绿时，100ms 内防火墙拦截并唤起控制台</div></div></div><div class="row-r">${recTag('推荐开启','ch-ok')}${sw('antiNakedGuard','防裸奔自动接管')}</div></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="part-hd"><div class="part-title">紧急断流、防回传与阶段保护</div><span class="part-tip">清楚区分日常必开与按需临时开启</span></div>
+        <div class="card">
+          <div class="row" onclick="toggleCfg('autoKillSwitch','自动紧急断流')"><div class="row-l"><div class="icon-box">${SVG.fw}</div><div><div class="row-title">异常全自动紧急断流（Clash 掐流 + 防火墙封死出站）</div><div class="row-sub">地区漂移或代理断开时毫秒级阻断 100% 出站流量</div></div></div><div class="row-r">${recTag('推荐开启','ch-ok')}${sw('autoKillSwitch','自动紧急断流')}</div></div>
+          <div class="row" onclick="toggleCfg('antiUploadFlush','防内存/离线队列回传')"><div class="row-l"><div class="icon-box">${SVG.privacy}</div><div><div class="row-title">熔断恢复前强杀进程丢弃内存队列 + 清离线遥测缓存</div><div class="row-sub">仅在触发紧急熔断时由系统自动执行（平时不影响正常使用）</div></div></div><div class="row-r">${recTag('仅熔断生效','ch-neutral')}${sw('antiUploadFlush','防内存/离线队列回传')}</div></div>
+          <div class="row" onclick="toggleCfg('safeExitPrompt','安全退出防呆提醒')"><div class="row-l"><div class="icon-box">${SVG.userLock}</div><div><div class="row-title">安全退出防呆提醒</div><div class="row-sub">关闭守卫或停用代理前若检测到 Claude 仍有后台残留进程，立即弹窗提醒</div></div></div><div class="row-r">${recTag('推荐开启','ch-ok')}${sw('safeExitPrompt','安全退出防呆提醒')}</div></div>
+          <div class="row" onclick="toggleCfg('calm24h','24h 冷静保护模式')"><div class="row-l"><div class="icon-box">${SVG.clock}</div><div><div class="row-title">新号 / 刚付费 24h 冷静保护模式 ${cfg.calm24h ? '<span class="chip ch-warn tabular" style="margin-left:6px;">剩余 23h 59m</span>' : ''}</div><div class="row-sub" style="white-space:normal;max-width:460px;">开启后 24h 内自动生效：① 严禁主动切节点；② 并发会话/请求过密时悬浮窗实时提醒放缓；③ 单次 401/403 立即强预警；④ 到期自动关闭（平时老号无需开启）。</div></div></div><div class="row-r">${recTag('按需开启','ch-warn')}${sw('calm24h','24h 冷静保护模式')}</div></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="part-hd"><div class="part-title">开机启动项风险监测（只读检测，绝不擅自删除你的启动项）</div></div>
+        <div class="card">
+          <div class="row"><div class="row-l"><div><div class="row-title">Clash Verge Rev</div><div class="row-sub">建议保持开机自启，确保代理早于应用就绪</div></div></div><span class="chip ch-ok">已开启自启</span></div>
+          <div class="row"><div class="row-l"><div><div class="row-title">Claude Desktop</div><div class="row-sub">风险提示：若早于 Clash 虚拟网卡启动，开机前 5 秒会直连裸奔！建议在系统设置中关闭</div></div></div><span class="chip ch-warn">已开启（有风险）</span></div>
+        </div>
+      </div>`;
+  }
+
+  function renderPlaybook() {
+    const sorted = [...playbooks].sort((a, b) => (b.checkTriggered() ? 1 : 0) - (a.checkTriggered() ? 1 : 0));
+    const hits = sorted.filter(p => p.checkTriggered());
+    const badge = document.getElementById('pbBadge');
+    badge.textContent = `${hits.length} 命中`;
+    badge.style.display = hits.length > 0 ? 'inline-flex' : 'none';
+
+    document.getElementById('playbookList').innerHTML = sorted.map(p => {
+      const hit = p.checkTriggered();
+      const cardCls = hit ? (p.level === 'fail' ? 'pb-card triggered' : 'pb-card triggered-warn') : 'pb-card';
+      const tagCls = hit ? (p.level === 'fail' ? 'ch-fail' : 'ch-warn') : 'ch-neutral';
+      return `
+        <div class="${cardCls}" id="pb-card-${p.id}">
+          <h3><span>${p.title}</span><span class="chip ${tagCls}">${hit ? '当前已触发' : p.tag}</span></h3>
+          ${hit && p.hitText ? `<div style="font-size:11.5px;color:${p.level==='fail'?'var(--danger-bright)':'var(--warning)'};margin-bottom:5px;font-weight:500;">• ${p.hitText}</div>` : ''}
+          <p>${p.desc}</p>
+        </div>`;
+    }).join('');
+  }
+
+  /* 三档清晰容灾与切换提示（现代三段式对话框：明确路由对比、风险等级、当前状态与建议等待时长） */
+  function requestSwitchNode(name) {
+    const m = document.getElementById('guardModal');
+    const curPrefix = currentNode.split('-')[0];
+    const tgtPrefix = name.split('-')[0];
+    const isSameRegion = curPrefix === tgtPrefix;
+    const isDanger = bgProcs > 0 || cfg.calm24h || nodeDown;
+
+    const icoEl = document.getElementById('gmIco');
+    icoEl.style.background = ''; icoEl.style.color = '';
+    icoEl.className = 'modal-ico ' + (isDanger ? 'is-danger' : (isSameRegion ? 'is-ok' : ''));
+    icoEl.innerHTML = isDanger ? SVG.ban : SVG.geo;
+
+    document.getElementById('gmTitle').textContent = nodeDown ? '主节点故障 · 应急容灾切换' : '节点切换风险评估';
+    const b = document.getElementById('gmBadge');
+    b.textContent = nodeDown ? '容灾豁免' : (isSameRegion ? '同区热备' : '跨洲切换');
+    b.className = 'chip ' + (nodeDown ? 'ch-fail' : (isSameRegion ? 'ch-ok' : 'ch-warn'));
+    document.getElementById('gmSub').textContent = nodeDown
+      ? '主节点连续 3 次探测超时 (>15s)，已自动豁免 7 天冷却锁'
+      : (isSameRegion ? '同地区热备接管，无跨洲地理位移风险' : '目标节点位于不同国家/地区，请注意跨洲静默间隔');
+
+    const curRole = (nodesData.find(n => n.name === currentNode) || {}).region || '当前锁定节点';
+    const tgtRole = (nodesData.find(n => n.name === name) || {}).region || '目标节点';
+    document.getElementById('gmBody').innerHTML = `
+      <div class="route-strip">
+        <div class="route-end">
+          <span class="route-code ${nodeDown ? 'is-danger' : ''}">${curPrefix}</span>
+          <div><div class="route-name">${currentNode}</div><div class="route-role">${curRole}</div></div>
+        </div>
+        <span class="route-arrow"><svg viewBox="0 0 24 24" class="ico"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg></span>
+        <div class="route-end">
+          <span class="route-code">${tgtPrefix}</span>
+          <div><div class="route-name">${name}</div><div class="route-role">${tgtRole}</div></div>
+        </div>
+      </div>
+      <div class="kv-card">
+        <div class="kv-row">
+          <span class="kv-k">当前状态</span>
+          <span class="kv-v">${bgProcs > 0 ? `<span style="color:var(--danger-bright);font-weight:600;">检测到 ${bgProcs} 个 Claude 进程运行中</span> · 防火墙守护中` : `<span style="color:var(--success);font-weight:500;">Claude 后台进程为 0（安全）</span> · 防火墙守护中`}</span>
+        </div>
+        <div class="kv-row">
+          <span class="kv-k">等待建议</span>
+          <span class="kv-v">${isSameRegion ? '清空进程后可 <b>立即无缝接管</b>，无需等待跨洲静默期。' : '建议切换完成后静默等待 <b>15 ~ 30 分钟</b> 再启动 Claude，规避瞬移风控。'}</span>
+        </div>
+        <div class="kv-row">
+          <span class="kv-k">风控记录</span>
+          <span class="kv-v">${cfg.calm24h ? '<span style="color:var(--danger-bright);font-weight:500;">24h 冷静保护期运行中，强烈不建议切节点</span>' : `近 7 天主动切换 <b>${weeklySwitchCount} 次</b>（建议控制在每周 ≤ 2 次）`}</span>
+        </div>
+      </div>`;
+    document.getElementById('gmFootTip').textContent = bgProcs > 0 ? '' : '知晓风险后你可随时决定是否执行';
+    document.getElementById('gmActions').innerHTML = `
+      <button class="btn btn-flat btn-sm" onclick="closeModal()">取消</button>
+      ${bgProcs > 0 ? `<button class="btn btn-primary btn-sm" onclick="killBgProcs();requestSwitchNode('${name}')">推荐：先清空进程</button>` : ''}
+      <button class="btn ${bgProcs>0?'btn-danger-soft':'btn-primary'} btn-sm" onclick="currentNode='${name}';if(!nodeDown)weeklySwitchCount++;nodeDown=false;closeModal();render();toast('已切换锁定节点：${name}','${isSameRegion?'同区热备已无缝生效。':'跨洲切换已完成，建议静默等待 15~30 分钟后再启动 Claude。'}','ok')">${bgProcs>0?'忽略风险，直接切换':'确认切换'}</button>`;
+    m.classList.add('show');
+  }
+
+  function requestForceBypass() {
+    const m = document.getElementById('guardModal');
+    const icoEl = document.getElementById('gmIco');
+    icoEl.style.background = ''; icoEl.style.color = '';
+    icoEl.className = 'modal-ico is-danger';
+    icoEl.innerHTML = SVG.ban;
+    document.getElementById('gmTitle').textContent = '强制解除防火墙熔断';
+    const b = document.getElementById('gmBadge');
+    b.textContent = '高危操作';
+    b.className = 'chip ch-fail';
+    document.getElementById('gmSub').textContent = '当前出口落入非支持地区 HK，强行解除防火墙极易触发封号';
+    document.getElementById('gmBody').innerHTML = `
+      <div class="kv-card">
+        <div class="kv-row"><span class="kv-k">问题定位</span><span class="kv-v">当前出口处于禁区 <b>HK-Edge-03</b>，直接放行将导致真实风控信号直连上报。</span></div>
+        <div class="kv-row"><span class="kv-k">当前状态</span><span class="kv-v">${bgProcs > 0 ? `<span style="color:var(--danger-bright);font-weight:600;">Claude 仍在运行（${bgProcs} 进程）</span>` : '当前未运行 Claude（0 残留进程）'}</span></div>
+        <div class="kv-row"><span class="kv-k">推荐方案</span><span class="kv-v">点击右侧推荐按钮一键切回安全节点并清扫队列，实测通过后防火墙自动放行。</span></div>
+      </div>`;
+    document.getElementById('gmFootTip').textContent = '';
+    document.getElementById('gmActions').innerHTML = `
+      <button class="btn btn-flat btn-sm" onclick="closeModal()">取消</button>
+      <button class="btn btn-danger-soft btn-sm" onclick="killActive=false;closeModal();render();toast('已忽略风险强制解除熔断','请勿在禁区节点启动 Claude。','danger')">忽略风险，强制解除</button>
+      <button class="btn btn-primary btn-sm" onclick="closeModal();fixItem('node_group')">推荐：切回安全节点</button>`;
+    m.classList.add('show');
+  }
+  function closeModal() { document.getElementById('guardModal').classList.remove('show'); }
+
+  function togglePlaybook(s) { document.getElementById('playbookMask').classList.toggle('show', s); }
+  function openPlaybookFocus(ruleId) {
+    togglePlaybook(true);
+    setTimeout(() => {
+      const el = document.getElementById('pb-card-' + ruleId);
+      if (!el) return;
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.remove('flash-focus');
+      void el.offsetWidth;
+      el.classList.add('flash-focus');
+    }, 80);
+  }
+  function exportIssueForAI(itemTitle) {
+    const filePath = 'Desktop\\FDClaudeGuard-诊断包-20261123.zip';
+    const w = document.getElementById('toastWrap'), el = document.createElement('div');
+    el.className = 'toast';
+    el.innerHTML = `<span class="dot" style="margin-top:5px;"></span><div style="flex:1"><div style="font-size:13px;font-weight:600">已导出脱敏诊断包并复制 AI 排障提示词</div><div style="font-size:11.5px;color:var(--text-2);margin-top:3px;line-height:1.5">保存路径：<code style="font-family:var(--font-mono);color:var(--text-1)">%USERPROFILE%\\${filePath}</code><br/>已自动复制脱敏上下文到剪贴板，直接 Ctrl+V 发给 AI 即可。</div><div style="margin-top:7px;display:flex;gap:6px;"><button class="btn btn-flat btn-xs" onclick="this.closest('.toast').remove();toast('已打开桌面导出目录','已定位至 %USERPROFILE%\\\\Desktop','ok')">打开所在文件夹</button></div></div>`;
+    w.appendChild(el);
+    setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 220); }, 6500);
+  }
+  let recheckSec = 900; // 15 分钟自动巡检倒计时
+  function manualRecheck() {
+    recheckSec = 900;
+    updateCountdownText();
+    toast('已重跑全部真实探针', '网络、IPv6、Fake-IP、启动项与日志探针已刷新，15 分钟自动巡检已重置。', 'ok');
+  }
+  function updateCountdownText() {
+    const m = String(Math.floor(recheckSec / 60)).padStart(2, '0');
+    const s = String(recheckSec % 60).padStart(2, '0');
+    const el = document.getElementById('countdownTxt');
+    if (el) el.textContent = `· 实时监听 · 巡检 ${m}:${s}`;
+  }
+  setInterval(() => {
+    recheckSec = recheckSec > 1 ? recheckSec - 1 : 900;
+    updateCountdownText();
+    if (killHoldSec > 0) {
+      killHoldSec -= 1;
+      if (killHoldSec === 0) {
+        const blk = respawnBlocked;
+        respawnBlocked = 0;
+        render();
+        toast('防复活持续盯防已结束', blk > 0 ? `本轮共拦截并瞬杀 ${blk} 次后台复活，现已安全解除盯防。` : '45 秒盯防窗口内无异常复活，现已安全解除。', 'ok');
+      } else {
+        updateProcCardUI();
+      }
+    }
+  }, 1000);
+  const HUD_RIGHT = 16;
+  let hudTop = 64;
+  let edgeDocked = false, dockCloseTimer = null;
+  function syncHudPos() {
+    const sh = document.getElementById('hudShell');
+    sh.style.top = hudTop + 'px';
+    if (edgeDocked) {
+      sh.style.left = '';
+      sh.style.right = '';
+    } else {
+      sh.style.left = '';
+      sh.style.right = HUD_RIGHT + 'px';
+    }
+  }
+  function toggleEdgeDock() {
+    clearTimeout(dockCloseTimer);
+    const wasDocked = edgeDocked;
+    edgeDocked = !edgeDocked;
+    const sh = document.getElementById('hudShell');
+    if (wasDocked) {
+      // 解除贴边：临时禁止单帧过渡并先移除 .docked，保证肉眼 0px 偏移、0ms 闪烁原地锁住！
+      hudCardEl.style.transition = 'none';
+      sh.classList.remove('docked', 'docked-open');
+      syncHudPos();
+      void hudCardEl.offsetWidth;
+      hudCardEl.style.transition = '';
+    } else {
+      sh.classList.remove('docked-open');
+      sh.classList.add('docked');
+      syncHudPos();
+    }
+    render();
+    toast(edgeDocked ? '已收起至屏幕右侧边缘' : '已恢复桌面固定悬浮', edgeDocked ? '仅右侧 20px 耳标响应鼠标，按住悬浮窗任意位置均可随时拖动。' : '悬浮窗已在原位固定（0px 偏移）。', 'info');
+  }
+  const hudShellEl = document.getElementById('hudShell');
+  const edgeTabEl = document.getElementById('edgeTab');
+  const hudCardEl = document.getElementById('hudCard');
+  edgeTabEl.addEventListener('mouseenter', () => {
+    if (!edgeDocked) return;
+    clearTimeout(dockCloseTimer);
+    hudShellEl.classList.add('docked-open');
+  });
+  hudShellEl.addEventListener('mouseenter', () => {
+    if (!edgeDocked || !hudShellEl.classList.contains('docked-open')) return;
+    clearTimeout(dockCloseTimer);
+  });
+  hudShellEl.addEventListener('mouseleave', () => {
+    if (!edgeDocked) return;
+    dockCloseTimer = setTimeout(() => hudShellEl.classList.remove('docked-open'), 220);
+  });
+  function oneClickFixAll() {
+    if (!licensed) {
+      openLicenseModal();
+      return;
+    }
+    const autoFails = items.filter(x => x.part === 'must' && x.status !== 'ok' && x.mode !== '向导 + 实测验收');
+    autoFails.forEach(x => fixItem(x.id));
+    const guideFail = items.find(x => x.part === 'must' && x.status !== 'ok');
+    if (guideFail) {
+      selectedId = guideFail.id; render();
+      toast('已完成全部可自动修复项，剩 1 项需手动配合', `已自动聚焦「${guideFail.title}」，请按右侧说明操作并点验收（如仍异常可点「导出问题给 AI 分析」）。`, 'info');
+    } else {
+      render();
+      toast('全部问题已一键处理完毕！', '所有必须项已通过真实探针验收，现可点击「安全启动 Claude」。', 'ok');
+    }
+  }
+  function goConsole() { toggleMain(true); switchTab('console', document.getElementById('nav-console')); }
+  function goConsoleAndFocusFirstFail() { goConsole(); const f = items.find(x => x.part==='must' && x.status!=='ok') || items.find(x => x.status!=='ok'); if (f) { selectedId = f.id; render(); } }
+  function startKillHold(sec = 45, reason = '', silent = false) {
+    bgProcs = 0;
+    if (killHoldSec === 0) respawnBlocked = 0;
+    killHoldSec = Math.max(killHoldSec, sec);
+    render();
+    if (!silent) {
+      toast(`已进入 ${killHoldSec}s 防复活持续盯防`, reason || '每 300ms 高频扫描进程树，如检测到后台拉起将瞬间击杀并顺延 +15s。', 'ok');
+    }
+  }
+  function simulateRespawn() {
+    if (killHoldSec <= 0) return;
+    respawnBlocked += 1;
+    killHoldSec += 15;
+    render();
+    triggerAlertEvent('warn', 'proc', `已拦截 Claude 后台复活（第 ${respawnBlocked} 次）`, `监测到 ClaudeUpdate/子进程尝试拉起，已毫秒级瞬杀并自动顺延 +15s（当前剩余 ${killHoldSec}s）。`);
+  }
+  function releaseKillHold(silent = false) {
+    if (killHoldSec <= 0) return;
+    killHoldSec = 0;
+    respawnBlocked = 0;
+    render();
+    if (!silent) toast('已手动解除防复活盯防', '现在可以随时重新启动 Claude。', 'info');
+  }
+  function updateProcCardUI() {
+    const card = document.getElementById('procCard');
+    const dot = document.getElementById('procDot');
+    const txt = document.getElementById('procTxt');
+    const sub = document.getElementById('procSub');
+    const btnKill = document.getElementById('btnKillBg');
+    const holdRow = document.getElementById('procHoldRow');
+    const btnTest = document.getElementById('btnTestHold');
+    if (!card) return;
+    if (killHoldSec > 0) {
+      card.classList.add('is-hold');
+      dot.className = 'dot hold';
+      txt.textContent = `盯防 ${killHoldSec}s`;
+      txt.style.color = 'var(--primary)';
+      sub.textContent = respawnBlocked > 0 ? `持续拦截复活中 · 已瞬杀 ${respawnBlocked} 次` : '防复活盯防中 · 发现复活 +15s';
+      btnKill.style.display = 'none';
+      holdRow.style.display = 'flex';
+      btnTest.style.display = 'none';
+    } else if (bgProcs > 0) {
+      card.classList.remove('is-hold');
+      dot.className = 'dot warn';
+      txt.textContent = `${bgProcs} 存活`;
+      txt.style.color = 'var(--warning)';
+      sub.textContent = '存在后台进程，切代理前需清空';
+      btnKill.style.display = 'inline-flex';
+      holdRow.style.display = 'none';
+      btnTest.style.display = 'none';
+    } else {
+      card.classList.remove('is-hold');
+      dot.className = 'dot';
+      txt.textContent = '0 残留';
+      txt.style.color = 'var(--success)';
+      sub.textContent = '已彻底退出，可安全操作';
+      btnKill.style.display = 'none';
+      holdRow.style.display = 'none';
+      btnTest.style.display = 'inline-flex';
+    }
+    // 同步更新悬浮窗进程微卡片倒计时
+    const hmProc = document.getElementById('hmProc');
+    if (hmProc && killHoldSec > 0) {
+      const v = hmProc.querySelector('.hm-val');
+      if (v) v.textContent = `盯防 ${killHoldSec}s`;
+    }
+  }
+  function killBgProcs() {
+    const n = bgProcs;
+    startKillHold(45, n > 0 ? `已强杀 ${n} 个 Claude 进程并跳过 onQuitCleanup，持续盯防 45s（有复活自动 +15s）。` : '已启动 45s 防复活盯防锁，拦截到拉起将瞬杀并顺延 +15s。');
+  }
+
+  function setNodeTab(t) { document.getElementById('ntQuality').className = t==='quality'?'active':''; document.getElementById('ntTraffic').className = t==='traffic'?'active':''; document.getElementById('nodeSub-quality').style.display = t==='quality'?'flex':'none'; document.getElementById('nodeSub-traffic').style.display = t==='traffic'?'flex':'none'; }
+  function ackAllFlows() {
+    if (killActive) return toast('当前正处于熔断阻断状态', '必须先切回安全节点并实测通过后才可解除流量红灯。', 'danger');
+    flowEvents.forEach(f => { if (f.anomaly) f.acked = true; });
+    render();
+    toast('已清零当前异常拦截角标', '历史拦截明细仍保留在下方列表供查验（12 小时滚动窗口到期也会自动归零）。', 'ok');
+  }
+  function setFlowFilter(f) { flowFilter = f; document.getElementById('ffAnom').className = f==='anomaly'?'active':''; document.getElementById('ffAll').className = f==='all'?'active':''; renderFlows(); }
+  function renderFlows() {
+    const activeAnom = flowEvents.filter(x => x.anomaly && !x.acked).length;
+    const totalAnom = flowEvents.filter(x => x.anomaly).length;
+    const b = document.getElementById('navFlowBadge'); b.style.display = activeAnom > 0 ? 'inline-block' : 'none'; b.textContent = activeAnom;
+    const ackBtn = document.getElementById('btnAckFlows');
+    if (ackBtn) ackBtn.style.display = (activeAnom > 0 && !killActive) ? 'inline-flex' : 'none';
+    document.getElementById('flowStatsGrid').innerHTML = `<div class="stat-card ${activeAnom>0?'alert-card':''}" onclick="setFlowFilter('anomaly')"><div class="stat-lbl">12h 未确认拦截</div><div class="stat-val" style="color:${activeAnom>0?'var(--danger-bright)':'var(--success)'}">${activeAnom} 条</div></div><div class="stat-card"><div class="stat-lbl">活跃安全连接</div><div class="stat-val" style="color:var(--success)">${flowEvents.length-totalAnom} 条</div></div><div class="stat-card"><div class="stat-lbl">直连泄漏</div><div class="stat-val">0 条</div></div><div class="stat-card"><div class="stat-lbl">锁定策略组</div><div class="stat-val" style="font-size:16px;margin-top:8px;">Claude-Fixed</div></div>`;
+    const list = flowFilter === 'anomaly' ? flowEvents.filter(x => x.anomaly) : flowEvents;
+    document.getElementById('flowListBody').innerHTML = list.length ? list.map(f => `<div class="log-row"><div class="log-main"><div><div style="display:flex;align-items:center;gap:8px;"><span class="chip ${f.anomaly?(f.acked?'ch-neutral':'ch-fail'):'ch-ok'}">${f.anomaly?(f.acked?'已确认 · 历史拦截':'异常已掐断'):'安全放行'}</span><span class="log-msg" style="font-family:var(--font-mono);font-size:12.5px;">${f.proc} → ${f.host}</span></div><div class="log-cause">规则：${f.rule} · 链路：${f.chain} · 处理：${f.action}</div></div><div style="text-align:right;"><div class="tabular" style="font-size:11px;color:var(--text-3)">${f.time}</div><div class="tabular" style="font-size:11px;color:var(--text-2);margin-top:2px;">${f.bytes}</div></div></div></div>`).join('') : `<div style="padding:18px;text-align:center;font-size:12.5px;color:var(--text-3)">近 12 小时无异常拦截流量，全部连接均纯净通过锁定节点。</div>`;
+  }
+
+  function ackLog(id) {
+    const it = logEvents.find(e => e.id === id);
+    if (!it) return;
+    it.acked = true;
+    render();
+    toast('已标为已读（推进游标）', '已解除此条告警提醒，原始日志文件保持完整未删改。', 'ok');
+  }
+  function ackAllLogs() {
+    logEvents.forEach(e => { if (e.anomaly) e.acked = true; });
+    render();
+    toast('已将当前未读异常全部标为已读', '已推进本地已读游标并归零红灯，原始日志保留在「全部行为」中供随时取证。', 'ok');
+  }
+  function setLogFilter(f) { logFilter = f; document.getElementById('fltAnom').className = f==='anomaly'?'active':''; document.getElementById('fltAll').className = f==='all'?'active':''; renderLogs(); }
+  function simulateAnomaly() {
+    logEvents.unshift({ id: 'e'+Date.now(), ruleId: 'pb_rate', anomaly: true, acked: false, level: 'warn', tag: '高并发 429', time: new Date().toTimeString().slice(0,8), file: 'main.log:57688', title: '检测到连续 429 限流与 4 个并行 sideSession', cause: '触发归因：短时间并发过高，已自动联动点亮「安全守则（禁止高并发/无人值守循环）」。', ctx: `<span class="hl-a">57688 [warn] HTTP 429 rate_limit_error (active sideSessions=4)</span>` });
+    render();
+    triggerAlertEvent('warn', 'log', '事件驱动预警：捕获高并发 429', '日志实时监听发现连续 429 限流，已联动高亮安全守则与悬浮窗。');
+  }
+  function renderLogs() {
+    const unreadAnom = logEvents.filter(e => e.anomaly && !e.acked).length;
+    const lb = document.getElementById('navLogBadge');
+    lb.textContent = unreadAnom;
+    lb.style.display = unreadAnom > 0 ? 'inline-block' : 'none';
+    const ackBtn = document.getElementById('btnAckLogs');
+    if (ackBtn) ackBtn.style.display = unreadAnom > 0 ? 'inline-flex' : 'none';
+    document.getElementById('fltAnom').textContent = `仅看未读异常 (${unreadAnom})`; document.getElementById('fltAll').textContent = `全部行为 (${logEvents.length})`;
+    const netErrCnt = logEvents.some(e => e.id === 'e3' && !e.acked) ? 7 : 0;
+    const telCnt = logEvents.filter(e => !e.anomaly).length;
+    document.getElementById('logStatsGrid').innerHTML = `<div class="stat-card ${unreadAnom>0?'alert-card':''}" onclick="setLogFilter('anomaly')"><div class="stat-lbl">24h 未读异常</div><div class="stat-val" style="color:${unreadAnom>0?'var(--danger-bright)':'var(--success)'}">${unreadAnom} 起</div></div><div class="stat-card"><div class="stat-lbl">地区 / 429 / 403</div><div class="stat-val" style="color:${unreadAnom>0?'var(--danger-bright)':'var(--success)'}">${unreadAnom} 次</div></div><div class="stat-card"><div class="stat-lbl">网络断连累计</div><div class="stat-val" style="color:${netErrCnt>0?'var(--warning)':'var(--success)'}">${netErrCnt} 次</div></div><div class="stat-card"><div class="stat-lbl">遥测 / 设备记录</div><div class="stat-val">${telCnt} 条</div></div>`;
+    const shown = logFilter === 'anomaly' ? logEvents.filter(e => e.anomaly && !e.acked) : logEvents;
+    document.getElementById('logListCount').textContent = `显示 ${shown.length} 条记录`;
+    document.getElementById('logListBody').innerHTML = shown.length ? shown.map(e => {
+      const isPollute = e.ruleId === 'pb_pay' || e.ruleId === 'pb_exit';
+      const nextActionBtn = (e.anomaly && !e.acked)
+        ? (isPollute
+          ? `<button class="btn btn-danger-soft btn-xs" onclick="event.stopPropagation();toggleMain(true);switchTab('maintain',document.getElementById('nav-maintain'))">前往环境维护：备份并重置目录</button><button class="btn btn-flat btn-xs" onclick="event.stopPropagation();ackLog('${e.id}')">标为已读</button>`
+          : `<button class="btn btn-flat btn-xs" onclick="event.stopPropagation();ackLog('${e.id}')">标为已读（推进游标）</button>`)
+        : (e.acked ? `<span class="chip ch-neutral">已读归档（原日志未删）</span>` : '');
+      return `<div class="log-row" onclick="this.classList.toggle('open')"><div class="log-main"><div><div style="display:flex;align-items:center;gap:8px;"><span class="chip ${e.acked?'ch-neutral':(e.level==='fail'?'ch-fail':(e.level==='warn'?'ch-warn':'ch-neutral'))}">${e.acked?e.tag+' · 已读':e.tag}</span><span class="log-msg">${e.title}</span></div><div class="log-cause">${e.cause}</div></div><div style="text-align:right;flex-shrink:0;"><div class="tabular" style="font-size:11px;color:var(--text-3)">${e.time}</div><div class="tabular" style="font-size:11px;color:var(--text-2);font-family:var(--font-mono);margin-top:2px;">${e.file}</div></div></div><div class="log-ctx"><div class="code-box tabular">${e.ctx}</div><div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;"><button class="btn btn-flat btn-xs" onclick="event.stopPropagation();toast('已定位日志原文','跳转到 %LOCALAPPDATA%\\\\Claude\\\\logs\\\\${e.file}','ok')">定位 ${e.file}</button>${e.ruleId?`<button class="btn btn-primary btn-xs" onclick="event.stopPropagation();openPlaybookFocus('${e.ruleId}')">查看联动安全守则</button>`:''}${nextActionBtn}</div></div></div>`;
+    }).join('') : `<div style="padding:20px;text-align:center;font-size:12.5px;color:var(--text-3)">当前无未读异常日志（已读记录可切至「全部行为」随时回溯取证）。</div>`;
+  }
+
+  function renderNodes() {
+    document.getElementById('ndCur').textContent = currentNode;
+    document.getElementById('ndSwitchCnt').textContent = `${weeklySwitchCount} 次`;
+    const ndH = document.getElementById('ndHealth');
+    if (killActive) {
+      ndH.innerHTML = `<span style="color:var(--danger-bright)">已触发熔断</span><div style="font-size:11px;font-weight:500;color:var(--text-3);margin-top:1px;">防火墙阻断出站</div>`;
+    } else if (nodeDown) {
+      ndH.innerHTML = `<span style="color:var(--danger-bright)">管道已连接</span><div style="font-size:11px;font-weight:500;color:var(--danger-bright);margin-top:1px;">主节点超时 · 可热备</div>`;
+    } else {
+      ndH.innerHTML = `<span style="color:var(--success)">管道已连接</span><div style="font-size:11px;font-weight:500;color:var(--text-3);margin-top:1px;">Claude-Fixed</div>`;
+    }
+    document.getElementById('nodeTableBody').innerHTML = nodesData.map(n => {
+      const isCur = n.name === currentNode;
+      const scCls = n.score >= 90 ? 'ch-ok' : (n.score >= 70 ? 'ch-neutral' : 'ch-fail');
+      const asnDesc = n.asn.txt === 'ISP' ? 'ISP 住宅 IP' : (n.asn.txt === '机房' ? '数据中心 / 机房 IP' : 'CF 403 已拉黑');
+      return `<tr>
+        <td>
+          <div style="font-weight:600;display:flex;align-items:center;gap:6px;">${n.name}${isCur ? (nodeDown ? '<span class="chip ch-fail">当前失效</span>' : '<span class="chip ch-ok">当前锁定</span>') : ''}</div>
+          <div class="node-sub">${n.region}</div>
+        </td>
+        <td>
+          <div class="plat-badges"><span class="chip ${n.claude.cls}">${n.claude.txt}</span><span class="chip ${n.gemini.cls}">${n.gemini.txt}</span></div>
+          <div class="node-sub">${asnDesc}</div>
+        </td>
+        <td class="tabular">${n.lat}</td>
+        <td><span class="chip ${scCls} tabular">${n.score} 分 · ${n.rec}</span></td>
+        <td style="text-align:right;">${isCur ? '<span style="font-size:12px;color:var(--text-3)">当前节点</span>' : `<button class="btn ${nodeDown && n.name==='US-LA-Static-02' ? 'btn-primary' : 'btn-flat'} btn-xs" ${(n.blocked || n.score<50)?'disabled':''} onclick="requestSwitchNode('${n.name}')">${nodeDown && n.name==='US-LA-Static-02' ? '热备接管' : (n.blocked ? '已被拉黑' : (n.score<50?'不建议':'切换锁定'))}</button>`}</td>
+      </tr>`;
+    }).join('');
+    renderFlows();
+  }
+
+  function render() {
+    const mustAll = items.filter(x => x.part === 'must'), mustOk = mustAll.filter(x => x.status === 'ok').length, mustFail = mustAll.length - mustOk;
+    const optAll = items.filter(x => x.part === 'opt'), optOk = optAll.filter(x => x.status === 'ok').length;
+
+    const nb = document.getElementById('navMustBadge'); nb.textContent = mustFail > 0 ? mustFail : 'OK'; nb.className = 'nav-cnt' + (mustFail === 0 ? ' ok' : '');
+    const licChip = document.getElementById('consoleLicChip');
+    if (licChip) {
+      licChip.textContent = licensed ? '已激活' : '未激活 · 点击激活';
+      licChip.className = 'chip ' + (licensed ? 'ch-ok' : 'ch-mode');
+    }
+    const mm = String(Math.floor(recheckSec / 60)).padStart(2, '0'), ss = String(recheckSec % 60).padStart(2, '0');
+    document.getElementById('consoleSub').innerHTML = `<span>启动前实测体检</span><span class="chip ${mustFail>0?'ch-fail':'ch-ok'}">必须 ${mustOk}/${mustAll.length}</span><span class="chip ${optOk<optAll.length?'ch-warn':'ch-neutral'}">建议 ${optOk}/${optAll.length}</span><span class="recheck-meta tabular" id="countdownTxt">· 实时监听 · 巡检 ${mm}:${ss}</span>`;
+
+    updateProcCardUI();
+
+    const blocked = mustFail > 0 || killActive || nodeDown;
+    const oneClickBtn = document.getElementById('btnOneClickFix');
+    const launchBtn = document.getElementById('btnLaunch');
+    // 严格遵守“一屏唯一主蓝色 CTA”原则：>=2 项时右上角蓝主按钮一键批量处理；仅剩 1 项时把唯一蓝焦点留给右侧处理按钮；全绿时右上角亮起安全启动
+    if (mustFail >= 2) {
+      oneClickBtn.style.display = 'inline-flex';
+      oneClickBtn.innerHTML = licensed
+        ? `一键处理全部 (${mustFail})`
+        : `<svg viewBox="0 0 24 24" class="ico-sm ico">${SVG.lock}</svg> 解锁处理 (${mustFail})`;
+      launchBtn.style.display = 'none';
+    } else if (blocked) {
+      oneClickBtn.style.display = 'none';
+      launchBtn.style.display = 'inline-flex';
+      launchBtn.disabled = true;
+      document.getElementById('launchTxt').textContent = '请先处理右侧 1 项';
+      document.getElementById('launchIco').innerHTML = SVG.lock;
+    } else {
+      oneClickBtn.style.display = 'none';
+      launchBtn.style.display = 'inline-flex';
+      launchBtn.disabled = false;
+      document.getElementById('launchTxt').textContent = '安全启动 Claude';
+      document.getElementById('launchIco').innerHTML = SVG.play;
+    }
+
+    const dCls = (killActive || nodeDown) ? 'dot danger' : (mustFail > 0 ? 'dot warn' : 'dot');
+    ['sideDot', 'hudDot', 'trayDot', 'edgeDot'].forEach(id => { const n = document.getElementById(id); if (n) n.className = dCls; });
+
+    const cats = ['1. 代理与节点（改 Clash 配置）', '2. Windows 系统环境（改系统）', '3. Claude 本机卫生（改 Claude）'];
+    const renderRow = (it) => {
+      const boxCls = it.status === 'fail' ? 'icon-box is-fail' : (it.status === 'warn' ? 'icon-box is-warn' : 'icon-box');
+      const chip = it.status === 'fail' ? '<span class="chip ch-fail">未通过</span>' : (it.status === 'warn' ? '<span class="chip ch-warn">风险提示</span>' : '<span class="chip ch-ok">已通过</span>');
+      return `<div class="row ${selectedId===it.id?'selected':''}" onclick="selectedId='${it.id}';render()"><div class="row-l"><div class="${boxCls}">${SVG[it.icon]}</div><div style="min-width:0"><div class="row-title">${it.title}</div><div class="row-sub">${it.summary}</div></div></div><div class="row-r">${chip}${SVG.chev}</div></div>`;
+    };
+
+    document.getElementById('checkCol').innerHTML = `
+      <div>
+        <div class="part-hd"><div class="part-title">一、必须通过 <span class="chip ${mustFail>0?'ch-fail':'ch-ok'}">${mustOk}/${mustAll.length}</span></div><span class="part-tip">全部通过真实探针验收后解锁启动</span></div>
+        ${cats.map(c => `<div class="cat-block"><div class="cat-label">${c}</div><div class="card">${mustAll.filter(x=>x.cat===c).map(renderRow).join('')}</div></div>`).join('')}
+      </div>
+      <div>
+        <div class="part-hd"><div class="part-title">二、建议优化 <span class="chip ch-neutral">${optOk}/${optAll.length}</span></div><span class="part-tip">含启动项顺序只读监测，不阻断启动</span></div>
+        <div class="card">${optAll.map(renderRow).join('')}</div>
+      </div>`;
+
+    const cur = items.find(x => x.id === selectedId) || items[0];
+    const detBox = cur.status === 'fail' ? 'icon-box is-fail' : (cur.status === 'warn' ? 'icon-box is-warn' : 'icon-box');
+    const detChip = cur.status === 'fail' ? '<span class="chip ch-fail">必须项 · 未通过</span>' : (cur.status === 'warn' ? '<span class="chip ch-warn">建议项 · 风险提示</span>' : '<span class="chip ch-ok">实测通过</span>');
+    let riskHtml = (cur.isKillItem && killActive) ? `<div class="risk-divider"><div style="font-size:12px;color:var(--text-3);">${bgProcs>0?'⚠️ Claude 运行中，禁止直接解除熔断。':'当前未运行 Claude，暂不使用时可临时停用防火墙。'}</div><button class="risk-link" onclick="requestForceBypass()">高级风险操作：强制解除熔断（不推荐，非解决办法）</button></div>` : '';
+
+    const guideHtml = licensed
+      ? `<div class="guide-box">${cur.guide}</div>`
+      : `<div class="guide-box is-locked" onclick="openLicenseModal()" title="点击输入激活密钥解锁清晰处理步骤"><div class="guide-blur-txt">${cur.guide}</div><div class="guide-lock-overlay"></div></div>`;
+
+    const actionHtml = !licensed
+      ? (cur.status !== 'ok'
+        ? `<div style="display:flex;flex-direction:column;gap:8px;"><button class="btn ${mustFail >= 2 ? 'btn-secondary' : 'btn-primary'}" style="justify-content:center;padding:10px;" onclick="openLicenseModal()"><svg viewBox="0 0 24 24" class="ico-sm ico">${SVG.lock}</svg>输入激活密钥 · 解锁步骤并一键处理</button></div>`
+        : `<div style="font-size:12px;color:var(--success);font-weight:500;">该项已通过真实探针验收，无需额外操作。</div>`)
+      : (cur.status !== 'ok'
+        ? `<div style="display:flex;flex-direction:column;gap:8px;">${cur.fixLabel ? `<button class="btn ${mustFail >= 2 ? 'btn-secondary' : 'btn-primary'}" style="justify-content:center;padding:10px;" onclick="fixItem('${cur.id}')">${cur.fixLabel}</button>` : ''}<button class="text-action-link" onclick="exportIssueForAI('${cur.title}')">无法自动解决？导出脱敏问题包给 AI 分析 ↗</button></div>`
+        : `<div style="font-size:12px;color:var(--success);font-weight:500;">该项已通过真实探针验收，无需额外操作。</div>`);
+
+    document.getElementById('detailCol').innerHTML = `
+      <div class="card card-pad" style="display:flex;flex-direction:column;gap:14px;">
+        <div style="display:flex;align-items:flex-start;gap:12px;">
+          <div class="${detBox}" style="width:36px;height:36px;">${SVG[cur.icon]}</div>
+          <div><div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><h2 class="det-title">${cur.title}</h2>${detChip}<span class="chip ch-mode">${cur.mode}</span></div><p class="det-desc">${cur.summary}</p></div>
+        </div>
+        <div><div class="det-lbl">真实探针实测数据</div><div class="code-box tabular">${cur.evidence}</div></div>
+        <div><div class="det-lbl" style="display:flex;align-items:center;justify-content:space-between;"><span>处理方式与验证说明</span>${licensed ? '<span style="font-size:11px;color:var(--success);">已解密</span>' : ''}</div>${guideHtml}</div>
+        ${actionHtml}
+        ${riskHtml}
+      </div>`;
+
+    // 悬浮窗顶栏图标态：无彩色底块、无下划线，仅纯图标亮度/实心表达状态
+    document.getElementById('pinSvg').innerHTML = pinned ? SVG.pinSolid : SVG.pinOutline;
+    document.getElementById('btnPin').classList.toggle('is-active', pinned);
+    document.getElementById('btnPin').title = pinned ? '已固定置顶（点击取消置顶）' : '点击固定置顶';
+    document.getElementById('edgeSvg').innerHTML = edgeDocked ? SVG.undockEdge : SVG.dockToEdge;
+    document.getElementById('btnEdge').classList.toggle('is-active', edgeDocked);
+    document.getElementById('btnEdge').title = edgeDocked ? '已贴边自动隐藏（点击恢复固定）' : '靠右贴边自动隐藏';
+    document.getElementById('btnFold').classList.toggle('is-folded', folded);
+    document.getElementById('btnFold').title = folded ? '展开详情与实时动态' : '折叠为紧凑模式';
+
+    const hud = document.getElementById('hudCard');
+    hud.classList.toggle('danger', killActive || nodeDown);
+    hud.classList.toggle('is-folded', folded);
+    const et = document.getElementById('edgeTab');
+    if (et) et.classList.toggle('danger', killActive || nodeDown);
+
+    const hc = document.getElementById('hudChip');
+    hc.textContent = killActive ? '已自动熔断' : (nodeDown ? '节点失效' : (mustFail > 0 ? `${mustFail} 项待办` : '守护正常'));
+    hc.className = 'chip ' + ((killActive || nodeDown) ? 'ch-fail' : (mustFail > 0 ? 'ch-warn' : 'ch-ok'));
+
+    // 第一段：地区徽标 + 节点信息 + 信号柱延迟
+    const regionCode = killActive ? 'HK' : (currentNode.startsWith('JP') ? 'JP' : (currentNode.startsWith('SG') ? 'SG' : (currentNode.startsWith('TW') ? 'TW' : 'US')));
+    const rb = document.getElementById('hudRegionBadge');
+    rb.textContent = regionCode;
+    rb.className = 'hud-region-badge' + ((killActive || nodeDown) ? ' is-fail' : '');
+    document.getElementById('hudNodeName').textContent = killActive ? 'HK-Edge-03 · 禁区阻断' : (nodeDown ? 'US-LA-Static-01 · 超时' : currentNode);
+    document.getElementById('hudNodeMeta').textContent = killActive ? '防火墙已锁死全部出站' : (nodeDown ? '连续 3 次超时 · 可切同区热备' : '104.28.xx.xx · 稳定锁定');
+    document.getElementById('hudSigBars').className = 'sig-bars' + ((killActive || nodeDown) ? ' is-fail' : '');
+    const latEl = document.getElementById('hudLat');
+    latEl.textContent = killActive ? '已阻断' : (nodeDown ? '超时' : '42 ms');
+    latEl.className = 'hud-lat-txt tabular' + ((killActive || nodeDown) ? ' is-fail' : '');
+
+    // 第二段：三维实时监测微卡片矩阵（日志 · 流量 · 进程，按未读/12h 未确认/盯防锁口径统计）
+    const logAnomCnt = logEvents.filter(e => e.anomaly && !e.acked).length;
+    const flowAnomCnt = flowEvents.filter(e => e.anomaly && !e.acked).length;
+    const hasRateWarn = logEvents.some(e => e.ruleId === 'pb_rate' && !e.acked);
+    const logTileCls = logAnomCnt > 0 ? 'is-fail' : 'is-ok';
+    const flowTileCls = (killActive || flowAnomCnt > 0) ? (killActive ? 'is-fail' : 'is-warn') : 'is-ok';
+    const procTileCls = killHoldSec > 0 ? 'is-hold' : (bgProcs > 0 ? 'is-warn' : 'is-ok');
+    const procDotCls = killHoldSec > 0 ? 'hold' : (bgProcs > 0 ? 'warn' : '');
+    const procValTxt = killHoldSec > 0 ? `盯防 ${killHoldSec}s` : (bgProcs > 0 ? `${bgProcs} 存活` : '0 残留');
+    document.getElementById('hudMetrics').innerHTML = `
+      <div class="hm-tile ${logTileCls}" id="hmLog" title="点击前往日志分析" onclick="toggleMain(true);switchTab('logs',document.getElementById('nav-logs'))">
+        <div class="hm-top"><span>日志</span><span class="dot ${logAnomCnt > 0 ? 'danger' : ''}"></span></div>
+        <div class="hm-val">${logAnomCnt > 0 ? `${logAnomCnt} 异常` : '正常'}</div>
+      </div>
+      <div class="hm-tile ${flowTileCls}" id="hmFlow" title="点击前往实时流量监控" onclick="toggleMain(true);switchTab('nodes',document.getElementById('nav-nodes'));setNodeTab('traffic')">
+        <div class="hm-top"><span>流量</span><span class="dot ${killActive ? 'danger' : (flowAnomCnt > 0 ? 'warn' : '')}"></span></div>
+        <div class="hm-val">${killActive ? '已断流' : (flowAnomCnt > 0 ? `${flowAnomCnt} 拦截` : '纯净')}</div>
+      </div>
+      <div class="hm-tile ${procTileCls}" id="hmProc" title="点击前往环境维护" onclick="toggleMain(true);switchTab('maintain',document.getElementById('nav-maintain'))">
+        <div class="hm-top"><span>进程</span><span class="dot ${procDotCls}"></span></div>
+        <div class="hm-val tabular">${procValTxt}</div>
+      </div>`;
+
+    // 第三段：去重后的高价值实时动态流（每条点击精准跳转对应页面）
+    const evs = killActive
+      ? [
+          { m: '防火墙已锁死 Claude 全部出站流量', t: '21:02', c: 'danger', go: "goConsoleAndFocusFirstFail()" },
+          { m: 'Clash 已强掐 HK-Edge-03 禁区连接', t: '21:02', c: 'danger', go: "toggleMain(true);switchTab('nodes',document.getElementById('nav-nodes'));setNodeTab('traffic')" }
+        ]
+      : (nodeDown
+        ? [
+            { m: '主节点 US-LA-Static-01 连续 3 次超时', t: '21:02', c: 'danger', go: "toggleMain(true);switchTab('nodes',document.getElementById('nav-nodes'));setNodeTab('quality')" },
+            { m: '已自动豁免冷却锁，可一键切同区热备', t: '21:02', c: 'warn', go: "goConsoleAndFocusFirstFail()" }
+          ]
+        : (mustFail > 0
+          ? [
+              { m: hasRateWarn ? '守则联动：日志捕获连续 429 高并发限流' : '主日志检出跨账号 orgId 竞态高危记录', t: hasRateWarn ? '刚刚' : '13:00', c: hasRateWarn ? 'warn' : 'danger', go: "toggleMain(true);switchTab('logs',document.getElementById('nav-logs'))" },
+              { m: '拦截漏规则连接 HK-Edge-03（已自动掐断）', t: '20:54', c: 'warn', go: "toggleMain(true);switchTab('nodes',document.getElementById('nav-nodes'));setNodeTab('traffic')" }
+            ]
+          : [
+              { m: '10 项启动前真实探针与卫生检查全部通过', t: '21:01', c: '', go: "goConsole()" },
+              { m: '开机监测：Claude 设了自启，留意裸奔风险', t: '21:00', c: 'warn', go: "toggleMain(true);switchTab('config',document.getElementById('nav-config'))" }
+            ]));
+    document.getElementById('hudEvents').innerHTML = evs.map(e => `
+      <div class="hud-ev ${e.c}" onclick="${e.go}">
+        <span class="hud-ev-l"><span class="hud-ev-bar"></span><span class="em">${e.m}</span></span>
+        <span class="tabular" style="font-size:10.5px;color:var(--text-3);flex-shrink:0">${e.t}</span>
+      </div>`).join('');
+
+    // 克制高质感底部 CTA（统一回控制台处理）
+    const gotoBtn = document.getElementById('hudGotoConsoleBtn');
+    if (killActive || nodeDown) {
+      gotoBtn.className = 'hud-cta is-danger';
+      gotoBtn.textContent = nodeDown ? '前往控制台切换同区热备 →' : '前往控制台应急处理熔断 →';
+    } else if (mustFail > 0) {
+      gotoBtn.className = 'hud-cta';
+      gotoBtn.textContent = `前往控制台处理 ${mustFail} 项待办 →`;
+    } else {
+      gotoBtn.className = 'hud-cta is-ok';
+      gotoBtn.textContent = '前往控制台安全启动 Claude →';
+    }
+
+    renderNodes(); renderLogs(); renderConfig(); renderPlaybook(); renderBackups(); syncMainHudToggle();
+  }
+
+  function syncMainHudToggle() {
+    const btn = document.getElementById('btnToggleHudMain');
+    const hs = document.getElementById('mainHudSvg');
+    if (btn && hs) {
+      btn.classList.toggle('is-on', cfg.showHud);
+      btn.title = cfg.showHud ? '桌面悬浮窗已开启（点击隐藏）' : '桌面悬浮窗已隐藏（点击开启）';
+      hs.innerHTML = cfg.showHud ? SVG.hudOn : SVG.hudOff;
+    }
+    const nb = document.getElementById('btnToggleNotify');
+    const ns = document.getElementById('mainNotifySvg');
+    if (nb && ns) {
+      nb.classList.toggle('is-on', cfg.notifyEnabled);
+      nb.title = cfg.notifyEnabled ? '桌面预警消息提醒已开启（点击静音普通预警）' : '普通预警通知已静音（熔断与防裸奔危急警报仍保持强提醒）';
+      ns.innerHTML = cfg.notifyEnabled ? SVG.bell : SVG.bellOff;
+    }
+    const trayBtn = document.getElementById('trayHudBtn');
+    if (trayBtn) trayBtn.classList.toggle('tray-alert', !cfg.showHud && (killActive || nodeDown));
+  }
+  function toggleNotify(f) {
+    cfg.notifyEnabled = typeof f === 'boolean' ? f : !cfg.notifyEnabled;
+    syncMainHudToggle();
+    renderConfig();
+    toast(cfg.notifyEnabled ? '已开启桌面预警消息提醒' : '已静音普通预警通知', cfg.notifyEnabled ? '悬浮窗隐藏或贴边时将实时推送预警通知。' : '普通预警将静默仅更新角标；熔断等危急警报仍会强提醒。', cfg.notifyEnabled ? 'ok' : 'info');
+  }
+  function triggerAlertEvent(level, targetTile, title, body) {
+    // 1. 悬浮窗可见时：卡片脉冲闪动 + 对应微卡片脉冲；若贴边收起且为危急事件，自动临时滑出 4.5s 提醒
+    if (cfg.showHud) {
+      if (edgeDocked && level === 'critical') {
+        clearTimeout(dockCloseTimer);
+        hudShellEl.classList.add('docked-open');
+        dockCloseTimer = setTimeout(() => hudShellEl.classList.remove('docked-open'), 4500);
+      }
+      hudCardEl.classList.remove('alert-flash');
+      void hudCardEl.offsetWidth;
+      if (level === 'critical') hudCardEl.classList.add('alert-flash');
+      const tileId = targetTile === 'log' ? 'hmLog' : (targetTile === 'flow' ? 'hmFlow' : 'hmProc');
+      const tileEl = document.getElementById(tileId);
+      if (tileEl) { tileEl.classList.remove('tile-flash'); void tileEl.offsetWidth; tileEl.classList.add('tile-flash'); }
+    }
+    syncMainHudToggle();
+    // 2. 危急级（必须项变红/熔断）：无论悬浮窗是否隐藏、无论是否静音，强制弹出带定位动作的原生高优通知
+    if (level === 'critical' || cfg.notifyEnabled) {
+      const w = document.getElementById('toastWrap'), el = document.createElement('div');
+      el.className = 'toast ' + (level === 'critical' ? 'danger' : '');
+      const badgeTxt = level === 'critical' ? (!cfg.showHud ? 'Windows 强提醒 · 悬浮窗已隐藏' : '事件驱动 · 危急联动') : '事件驱动预警';
+      el.innerHTML = `<span class="dot ${level === 'critical' ? 'danger' : 'warn'}" style="margin-top:5px;"></span><div style="flex:1"><div style="display:flex;align-items:center;justify-content:space-between;gap:6px;"><span style="font-size:13px;font-weight:600">${title}</span><span class="chip ${level==='critical'?'ch-fail':'ch-warn'}" style="font-size:10px;padding:1px 6px;">${badgeTxt}</span></div><div style="font-size:11.5px;color:var(--text-2);margin-top:3px;line-height:1.45">${body}</div>${level==='critical'?`<div style="margin-top:7px;"><button class="btn btn-danger-soft btn-xs" onclick="this.closest('.toast').remove();goConsoleAndFocusFirstFail()">立即定位处理 →</button></div>`:''}</div>`;
+      w.appendChild(el);
+      setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 220); }, level === 'critical' ? 6000 : 4500);
+    }
+  }
+  function switchTab(name, el) { document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active')); el.classList.add('active'); document.querySelectorAll('.view').forEach(v => v.classList.remove('active')); document.getElementById('view-' + name).classList.add('active'); }
+  function setTheme(t) { document.documentElement.setAttribute('data-theme', t); document.getElementById('tDark').className = t==='dark'?'active':''; document.getElementById('tLight').className = t==='light'?'active':''; }
+  function togglePin() { pinned = !pinned; document.getElementById('hudShell').classList.toggle('unpinned', !pinned); render(); }
+  function toggleFold() { folded = !folded; document.getElementById('hudBody').classList.toggle('collapsed', folded); render(); }
+  function toggleHud(f) {
+    const h = document.getElementById('hudShell');
+    const nextShow = typeof f === 'boolean' ? f : h.classList.contains('hidden');
+    cfg.showHud = nextShow;
+    h.classList.toggle('hidden', !nextShow);
+    syncMainHudToggle();
+    renderConfig();
+  }
+  function toggleMain(f) { const w = document.getElementById('mainWin'); w.classList.toggle('hidden', typeof f==='boolean' ? !f : !w.classList.contains('hidden')); }
+  function safeLaunch() {
+    if (items.some(x => x.part==='must' && x.status!=='ok') || killActive || nodeDown) return;
+    const hadHold = killHoldSec > 0;
+    releaseKillHold(true);
+    bgProcs = 14;
+    render();
+    toast('启动门禁通过，正在安全拉起 Claude', `${hadHold ? '已自动释放防复活盯防锁 · ' : ''}出口锁定 ${currentNode}，实时流量、日志与守则联动护航中。`, 'ok');
+  }
+  function toast(title, body, type = 'info') { const w = document.getElementById('toastWrap'), el = document.createElement('div'); el.className = 'toast ' + (type==='danger'?'danger':''); el.innerHTML = `<span class="${type==='danger'?'dot danger':(type==='ok'?'dot':'dot warn')}" style="margin-top:5px;"></span><div><div style="font-size:13px;font-weight:600">${title}</div><div style="font-size:12px;color:var(--text-2);margin-top:2px;line-height:1.45">${body}</div></div>`; w.appendChild(el); setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 200); }, 4200); }
+
+  /* 整卡任意位置拖拽（5px 防误触死区：轻点正常跳转控制台，按住任意位置拖动丝滑移动，贴边滑出态拖走自动无缝解除贴边） */
+  const hudEl = document.getElementById('hudShell');
+  let dragPending = false, isDragging = false, suppressClick = false;
+  let startX = 0, startY = 0, grabOffsetX = 0, grabOffsetY = 0;
+
+  hudCardEl.addEventListener('mousedown', e => {
+    if (e.button !== 0 || e.target.closest('button')) return;
+    dragPending = true;
+    isDragging = false;
+    startX = e.clientX;
+    startY = e.clientY;
+    const r = hudCardEl.getBoundingClientRect();
+    grabOffsetX = e.clientX - r.left;
+    grabOffsetY = e.clientY - r.top;
+  });
+
+  window.addEventListener('mousemove', e => {
+    if (!dragPending) return;
+    if (!isDragging) {
+      if (Math.hypot(e.clientX - startX, e.clientY - startY) < 5) return;
+      isDragging = true;
+      hudCardEl.classList.add('is-dragging');
+      if (edgeDocked) {
+        clearTimeout(dockCloseTimer);
+        edgeDocked = false;
+        hudCardEl.style.transition = 'none';
+        const curRect = hudCardEl.getBoundingClientRect();
+        hudEl.classList.remove('docked', 'docked-open');
+        hudEl.style.left = curRect.left + 'px';
+        hudEl.style.top = curRect.top + 'px';
+        hudEl.style.right = 'auto';
+        void hudCardEl.offsetWidth;
+        hudCardEl.style.transition = '';
+        render();
+      }
+    }
+    const cardH = hudCardEl.offsetHeight || 260;
+    const clampedLeft = Math.max(8, Math.min(window.innerWidth - 356, e.clientX - grabOffsetX));
+    const clampedTop = Math.max(48, Math.min(window.innerHeight - Math.min(cardH, 240) - 48, e.clientY - grabOffsetY));
+    hudTop = clampedTop;
+    hudEl.style.left = clampedLeft + 'px';
+    hudEl.style.top = clampedTop + 'px';
+    hudEl.style.right = 'auto';
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (!dragPending) return;
+    if (isDragging) {
+      suppressClick = true;
+      setTimeout(() => { suppressClick = false; }, 80);
+    }
+    dragPending = false;
+    isDragging = false;
+    hudCardEl.classList.remove('is-dragging');
+  });
+
+  hudCardEl.addEventListener('click', e => {
+    if (suppressClick) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+  }, true);
+
+  syncHudPos();
+  loadPreset('first_time');
+</script>
+</body>
+</html>

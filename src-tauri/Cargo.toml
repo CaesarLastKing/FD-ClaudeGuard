@@ -1,0 +1,74 @@
+[package]
+name = "fd-claude-guard"
+version = "0.2.8"
+description = "FD Claude 安全启动器 (FD Claude Guard)"
+authors = ["FDtools"]
+edition = "2021"
+
+[lib]
+name = "fd_claude_guard_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+default = ["commercial-license"]
+commercial-license = [
+  "dep:aes-gcm",
+  "dep:ed25519-dalek",
+  "dep:sha2",
+  "dep:hex",
+  "dep:base64",
+  "dep:uuid",
+]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+aes-gcm = "0.10"
+hex = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-autostart = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "6"
+tokio = { version = "1", features = ["full"] }
+thiserror = "2"
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "socks"] }
+urlencoding = "2"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+# 阶段性商业授权依赖（仅 commercial-license feature 编译，一键移除即可切纯净开源版）
+aes-gcm = { version = "0.10", optional = true }
+ed25519-dalek = { version = "2", features = ["rand_core"], optional = true }
+sha2 = { version = "0.10", optional = true }
+hex = { version = "0.4", optional = true }
+base64 = { version = "0.22", optional = true }
+uuid = { version = "1", features = ["v4"], optional = true }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"
+windows-sys = { version = "0.59", features = [
+  "Win32_Foundation",
+  "Win32_Security_Cryptography",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_Memory",
+  "Win32_System_Threading",
+  "Win32_UI_WindowsAndMessaging",
+] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+strip = true
+lto = "fat"
+codegen-units = 1
+panic = "abort"

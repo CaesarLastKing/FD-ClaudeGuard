@@ -1,0 +1,12 @@
+name = "fd-claude-guard-license"
+main = "worker.js"
+compatibility_date = "2026-01-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "fd_claude_guard_licenses"
+database_id = "<YOUR_CLOUDFLARE_D1_DATABASE_ID>"
+
+# 每周日 UTC 03:00 自动清理超过 30 天的过期遥测、排障与频控记录，防止 D1 无限膨胀
+[triggers]
+crons = ["0 3 * * 0"]
