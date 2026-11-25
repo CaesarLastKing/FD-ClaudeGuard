@@ -26,6 +26,7 @@ pub const CLEAN_CAT_LOGS: &str = "logs";
 pub const CLEAN_CAT_TELEMETRY: &str = "telemetry";
 pub const CLEAN_CAT_CACHE: &str = "cache";
 pub const CLEAN_CAT_MCP_SESSIONS: &str = "mcp_sessions";
+pub const CLEAN_CAT_CLI_AUTH: &str = "cli_auth_and_backups";
 
 pub const DEFAULT_CLEAN_CATEGORIES: &[&str] = &[
     CLEAN_CAT_AUTH,
@@ -689,12 +690,15 @@ pub struct ClaudeDataExtraRoot {
     pub dir: PathBuf,
 }
 
-/// 本机全部 Claude 数据目录根集合（经典安装版 + 微软商店 MSIX + Local\Claude-Data + CLI 遥测）
+/// 本机全部 Claude 数据目录根集合（经典安装版 + 微软商店 MSIX + Local\Claude-Data + CLI 遥测 + CLI 登录态与备份）
 #[derive(Debug, Clone, Default)]
 pub struct ClaudeDataRoots {
     pub classic_roaming: Option<PathBuf>,
     pub classic_local: Option<PathBuf>,
     pub telemetry: Option<PathBuf>,
+    pub cli_claude_json: Option<PathBuf>,
+    pub cli_credentials: Option<PathBuf>,
+    pub cli_backups_dir: Option<PathBuf>,
     pub msix_roots: Vec<MsixClaudeRoot>,
     pub msix_claude_data: Vec<ClaudeDataExtraRoot>,
     pub classic_install_detected: bool,
@@ -761,6 +765,9 @@ pub fn discover_claude_data_roots_from(
     let classic_roaming = config_dir.map(|d| d.join("Claude"));
     let classic_local = data_local_dir.map(|d| d.join("Claude"));
     let telemetry = home_dir.map(|h| h.join(".claude").join("telemetry"));
+    let cli_claude_json = home_dir.map(|h| h.join(".claude.json"));
+    let cli_credentials = home_dir.map(|h| h.join(".claude").join(".credentials.json"));
+    let cli_backups_dir = home_dir.map(|h| h.join(".claude").join("backups"));
     let mut msix_roots = Vec::new();
     let mut msix_claude_data = Vec::new();
     let mut classic_install_detected = false;
@@ -821,6 +828,9 @@ pub fn discover_claude_data_roots_from(
         classic_roaming,
         classic_local,
         telemetry,
+        cli_claude_json,
+        cli_credentials,
+        cli_backups_dir,
         msix_roots,
         msix_claude_data,
         classic_install_detected,
@@ -869,6 +879,54 @@ fn scan_all_claude_roots(
             &mut entries,
             &mut protected_reasons,
         );
+    }
+    // 扫描可选 CLI 登录态与历史旧号备份（cli_auth_and_backups，清理前强制 ZIP 原子备份）
+    if let Some(p) = roots.cli_claude_json.as_deref() {
+        if let Ok(meta) = fs::symlink_metadata(p) {
+            if !meta.file_type().is_symlink() && meta.is_file() {
+                entries.push(ScannedEntry {
+                    abs_path: p.to_path_buf(),
+                    zip_name: "cli/.claude.json".to_string(),
+                    display_hint: "~\\.claude.json (仅清除 oauthAccount)".to_string(),
+                    size_bytes: meta.len(),
+                    disposition: FileDisposition::Category(CLEAN_CAT_CLI_AUTH, true),
+                });
+            }
+        }
+    }
+    if let Some(p) = roots.cli_credentials.as_deref() {
+        if let Ok(meta) = fs::symlink_metadata(p) {
+            if !meta.file_type().is_symlink() && meta.is_file() {
+                entries.push(ScannedEntry {
+                    abs_path: p.to_path_buf(),
+                    zip_name: "cli/.claude/.credentials.json".to_string(),
+                    display_hint: "~\\.claude\\.credentials.json".to_string(),
+                    size_bytes: meta.len(),
+                    disposition: FileDisposition::Category(CLEAN_CAT_CLI_AUTH, true),
+                });
+            }
+        }
+    }
+    if let Some(backups_dir) = roots.cli_backups_dir.as_deref() {
+        if let Ok(rd) = fs::read_dir(backups_dir) {
+            for ent in rd.flatten() {
+                let p = ent.path();
+                let Ok(meta) = fs::symlink_metadata(&p) else {
+                    continue;
+                };
+                if meta.file_type().is_symlink() || !meta.is_file() {
+                    continue;
+                }
+                let fname = ent.file_name().to_string_lossy().to_string();
+                entries.push(ScannedEntry {
+                    abs_path: p,
+                    zip_name: format!("cli/.claude/backups/{fname}"),
+                    display_hint: format!("~\\.claude\\backups\\{fname}"),
+                    size_bytes: meta.len(),
+                    disposition: FileDisposition::Category(CLEAN_CAT_CLI_AUTH, true),
+                });
+            }
+        }
     }
     for m in &roots.msix_roots {
         if m.roaming.exists() {
@@ -972,6 +1030,13 @@ pub fn preview_claude_cleanup_plan_with_roots(
             CLEAN_CAT_MCP_SESSIONS,
             "个人 MCP 配置与本地工作会话",
             "包含 claude_desktop_config.json（MCP 服务器配置）及 local-agent-mode-sessions，仅需彻底重置时再勾选。",
+            false,
+            true,
+        ),
+        (
+            CLEAN_CAT_CLI_AUTH,
+            "CLI 登录态与历史旧号备份（~/.claude）",
+            "先 ZIP 原子备份后，移除 ~/.claude.json 中的 oauthAccount、.credentials.json 及 ~/.claude/backups/ 旧号快照，保留个人偏好与项目设置。",
             false,
             true,
         ),
@@ -1243,7 +1308,12 @@ pub fn backup_and_clean_with_roots_selected(
     for e in entries {
         if let FileDisposition::Category(cid, _) = e.disposition {
             if selected_set.contains(cid) {
-                if fs::remove_file(&e.abs_path).is_ok() {
+                if cid == CLEAN_CAT_CLI_AUTH && e.zip_name == "cli/.claude.json" {
+                    // 无损清除 ~/.claude.json 中的 oauthAccount 登录态，保留其余个人偏好设置
+                    if strip_oauth_account_from_claude_json(&e.abs_path).is_ok() {
+                        removed_files += 1;
+                    }
+                } else if fs::remove_file(&e.abs_path).is_ok() {
                     removed_files += 1;
                     freed_bytes = freed_bytes.saturating_add(e.size_bytes);
                 }
@@ -1279,6 +1349,46 @@ pub fn backup_and_clean_with_roots_selected(
         ),
     );
     Ok(info)
+}
+
+/// 无损剥离 `~/.claude.json` 中的 `oauthAccount` 字段（保留用户其余偏好与项目记录）
+pub fn strip_oauth_account_from_claude_json(path: &Path) -> Result<bool, String> {
+    if !path.exists() {
+        return Ok(false);
+    }
+    let raw = fs::read_to_string(path).map_err(|e| format!("读取 .claude.json 失败: {e}"))?;
+    let mut val: serde_json::Value = serde_json::from_str(raw.trim_start_matches('\u{feff}'))
+        .map_err(|e| format!("解析 .claude.json 失败: {e}"))?;
+    let Some(obj) = val.as_object_mut() else {
+        return Ok(false);
+    };
+    if obj.remove("oauthAccount").is_none() {
+        return Ok(false);
+    }
+    let out =
+        serde_json::to_string_pretty(&val).map_err(|e| format!("序列化 .claude.json 失败: {e}"))?;
+    fs::write(path, out).map_err(|e| format!("写回 .claude.json 失败: {e}"))?;
+    Ok(true)
+}
+
+/// 供账户审计页「清理 CLI 凭据与备份」按钮一键调用：先原子 ZIP 备份，再清理 CLI 登录态与旧备份
+pub fn clean_claude_cli_credentials_with_backup_in(
+    bdir: &Path,
+    home_dir: Option<&Path>,
+) -> Result<BackupInfo, String> {
+    let roots = ClaudeDataRoots {
+        cli_claude_json: home_dir.map(|h| h.join(".claude.json")),
+        cli_credentials: home_dir.map(|h| h.join(".claude").join(".credentials.json")),
+        cli_backups_dir: home_dir.map(|h| h.join(".claude").join("backups")),
+        ..Default::default()
+    };
+    let cats = vec![CLEAN_CAT_CLI_AUTH.to_string()];
+    backup_and_clean_with_roots_selected(bdir, &roots, Some(&cats))
+}
+
+/// 供账户审计页直接调用的默认路径 CLI 备份清理
+pub fn clean_claude_cli_credentials_with_backup() -> Result<BackupInfo, String> {
+    clean_claude_cli_credentials_with_backup_in(&backups_dir(), dirs::home_dir().as_deref())
 }
 
 /// 手动创建一份当前环境快照（含 MSIX 与 Local\Claude-Data，自动跳过大缓存与 VM 镜像，不清理目录）
@@ -1438,6 +1548,7 @@ pub fn atomic_extract_and_swap_with_roots(
     let mut has_roaming = false;
     let mut has_local = false;
     let mut has_telemetry = false;
+    let mut has_cli = false;
     let mut msix_buckets: std::collections::BTreeSet<(String, String)> =
         std::collections::BTreeSet::new();
     let mut claude_data_buckets: std::collections::BTreeSet<String> =
@@ -1464,6 +1575,9 @@ pub fn atomic_extract_and_swap_with_roots(
         } else if let Some(rel) = name.strip_prefix("telemetry/") {
             has_telemetry = true;
             Some(staging_root.join("telemetry").join(rel))
+        } else if let Some(rel) = name.strip_prefix("cli/") {
+            has_cli = true;
+            Some(staging_root.join("cli").join(rel))
         } else if let Some(rest) = name.strip_prefix("msix/") {
             // msix/<package_dir_name>/(roaming|local)/<rel>
             let mut parts = rest.splitn(3, '/');
@@ -1525,6 +1639,39 @@ pub fn atomic_extract_and_swap_with_roots(
     if has_telemetry {
         if let Some(dest) = roots.telemetry.as_deref() {
             res = res.and_then(|_| merge_into_dest(staging_root.join("telemetry"), dest));
+        }
+    }
+    if has_cli {
+        let cli_stage = staging_root.join("cli");
+        if let Some(dest) = roots.cli_claude_json.as_deref() {
+            let src = cli_stage.join(".claude.json");
+            if src.exists() {
+                res = res.and_then(|_| {
+                    fs::copy(&src, dest)
+                        .map(|_| ())
+                        .map_err(|e| format!("[{FD_ERR_BACKUP_TX}] 还原 .claude.json 失败: {e}"))
+                });
+            }
+        }
+        if let Some(dest) = roots.cli_credentials.as_deref() {
+            let src = cli_stage.join(".claude").join(".credentials.json");
+            if src.exists() {
+                res = res.and_then(|_| {
+                    if let Some(parent) = dest.parent() {
+                        fs::create_dir_all(parent)
+                            .map_err(|e| format!("[{FD_ERR_BACKUP_TX}] 创建 .claude 目录失败: {e}"))?;
+                    }
+                    fs::copy(&src, dest)
+                        .map(|_| ())
+                        .map_err(|e| format!("[{FD_ERR_BACKUP_TX}] 还原 .credentials.json 失败: {e}"))
+                });
+            }
+        }
+        if let Some(dest) = roots.cli_backups_dir.as_deref() {
+            let src = cli_stage.join(".claude").join("backups");
+            if src.exists() {
+                res = res.and_then(|_| merge_into_dest(src, dest));
+            }
         }
     }
     for (pkg, kind) in msix_buckets {

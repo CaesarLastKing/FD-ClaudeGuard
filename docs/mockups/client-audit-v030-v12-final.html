@@ -1,0 +1,2228 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FD Claude 安全启动器 · 账户审计 v12（终极定稿版）</title>
+    <style>
+      .app-root {
+        --font-sans: "Segoe UI Variable Text", "Segoe UI Variable Display", "HarmonyOS Sans SC", "MiSans", "PingFang SC", "Microsoft YaHei UI", -apple-system, sans-serif;
+        --font-mono: "Cascadia Code", "JetBrains Mono", "Consolas", ui-monospace, monospace;
+        --r-card: 12px;
+        --r-btn: 8px;
+        --r-chip: 6px;
+        --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+        --primary: #006fee;
+        --primary-hover: #338ef7;
+        --primary-soft: rgba(0, 111, 238, 0.14);
+        --success: #22c55e;
+        --success-soft: rgba(34, 197, 94, 0.11);
+        --warning: #f5a524;
+        --warning-soft: rgba(245, 165, 36, 0.13);
+        --danger: #ef4444;
+        --danger-bright: #f87171;
+        --danger-soft: rgba(239, 68, 68, 0.14);
+
+        --bg-canvas: #09090b;
+        --bg-sidebar: #0d0d10;
+        --bg-card: #131316;
+        --bg-card-elev: #18181b;
+        --bg-subtle: #1f1f24;
+        --bg-selected: rgba(255, 255, 255, 0.04);
+        --tile-neutral-bg: #27272a;
+        --tile-neutral-fg: #a1a1aa;
+        --border: rgba(255, 255, 255, 0.08);
+        --border-strong: rgba(255, 255, 255, 0.14);
+        --text-1: #fafafa;
+        --text-2: #a1a1aa;
+        --text-3: #71717a;
+        --card-shadow: none;
+      }
+
+      .app-root[data-theme="light"] {
+        --success: #16a34a;
+        --danger: #dc2626;
+        --danger-bright: #dc2626;
+        --danger-soft: rgba(220, 38, 38, 0.09);
+        --bg-canvas: #f4f4f5;
+        --bg-sidebar: #ffffff;
+        --bg-card: #fafafa;
+        --bg-card-elev: #ffffff;
+        --bg-subtle: #f4f4f5;
+        --bg-selected: rgba(0, 0, 0, 0.03);
+        --tile-neutral-bg: #f4f4f5;
+        --tile-neutral-fg: #52525b;
+        --border: rgba(0, 0, 0, 0.08);
+        --border-strong: rgba(0, 0, 0, 0.14);
+        --text-1: #11181c;
+        --text-2: #52525b;
+        --text-3: #71717a;
+        --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 14px rgba(0, 0, 0, 0.02);
+      }
+
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #09090b; }
+      .app-root {
+        width: 100vw; height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+        font-family: var(--font-sans); background: var(--bg-canvas); color: var(--text-1);
+        -webkit-font-smoothing: antialiased;
+      }
+      .tabular { font-variant-numeric: tabular-nums; }
+      .mono { font-family: var(--font-mono); }
+      .hidden { display: none !important; }
+      .app-root.is-embed .demo-ribbon { display: none; }
+
+      .demo-ribbon {
+        height: 36px; flex-shrink: 0; background: #10141f; border-bottom: 1px solid rgba(51, 142, 247, 0.25);
+        color: #d4e4ff; font-size: 11.5px; padding: 0 14px;
+        display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      }
+      .app-root[data-theme="light"] .demo-ribbon {
+        background: #eaf2ff; border-bottom: 1px solid rgba(0, 111, 238, 0.2); color: #1e3a8a;
+      }
+      .demo-left { display: flex; align-items: center; gap: 8px; }
+      .demo-tag {
+        font-size: 10.5px; font-weight: 600; padding: 2px 8px; border-radius: 99px;
+        background: rgba(0, 111, 238, 0.22); color: #60a5fa; white-space: nowrap;
+      }
+      .app-root[data-theme="light"] .demo-tag { background: rgba(0, 111, 238, 0.14); color: #005bc4; }
+      .demo-pills { display: flex; align-items: center; gap: 6px; }
+      .demo-pill {
+        border: 1px solid rgba(148, 163, 184, 0.28); background: transparent; color: inherit;
+        border-radius: 6px; padding: 3px 10px; font-size: 11px; font-family: var(--font-sans); cursor: pointer;
+        transition: all 0.14s var(--ease); white-space: nowrap;
+      }
+      .demo-pill:hover { background: rgba(0, 111, 238, 0.15); border-color: rgba(51, 142, 247, 0.5); }
+      .demo-pill.active { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
+      .demo-hint { font-size: 11px; opacity: 0.78; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+      .window-frame {
+        flex: 1; min-height: 0; display: flex; flex-direction: column;
+        background: var(--bg-canvas); overflow: hidden; position: relative;
+      }
+
+      /* 38px 顶栏 */
+      .chrome {
+        height: 38px; flex-shrink: 0; background: var(--bg-sidebar); border-bottom: 1px solid var(--border);
+        display: flex; align-items: center; justify-content: space-between; padding-left: 16px; user-select: none;
+      }
+      .chrome-brand { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+      .brand-icon {
+        width: 18px; height: 18px; border-radius: 4px; background: #18181b; border: 1px solid var(--border-strong);
+        display: grid; place-items: center; color: #f59e0b; flex-shrink: 0; font-size: 10px; font-weight: 700;
+      }
+      .chrome-sub { color: var(--text-3); font-weight: 400; font-size: 11.5px; }
+      .chrome-right { display: flex; align-items: center; height: 100%; }
+      .ico-group { display: flex; align-items: center; gap: 6px; padding: 0 10px 0 4px; }
+      .win-ico-btn {
+        width: 32px; height: 28px; border-radius: 7px; border: none; background: transparent;
+        color: var(--text-1); opacity: 0.65; display: grid; place-items: center; cursor: pointer;
+      }
+      .win-ico-btn:hover { background: var(--bg-subtle); opacity: 1; }
+      .win-ico-btn.is-on { opacity: 0.92; }
+      .win-bar-sep { width: 1px; height: 14px; background: var(--border-strong); margin-right: 6px; opacity: 0.65; }
+      .win-sys-btn { width: 44px; height: 38px; display: grid; place-items: center; color: var(--text-2); }
+
+      .body-wrap { flex: 1; min-height: 0; display: flex; }
+
+      /* 198px 左侧导航栏 */
+      .sidebar {
+        width: 198px; flex-shrink: 0; background: var(--bg-sidebar); border-right: 1px solid var(--border);
+        padding: 14px 10px 12px; display: flex; flex-direction: column; justify-content: space-between; user-select: none;
+      }
+      .nav-list { display: flex; flex-direction: column; gap: 3px; }
+      .nav-btn {
+        width: 100%; border: none; background: transparent; display: flex; align-items: center; justify-content: space-between;
+        padding: 9px 12px; border-radius: var(--r-btn); font-family: var(--font-sans); font-size: 14px; font-weight: 500;
+        color: var(--text-2); white-space: nowrap; cursor: pointer; transition: background-color 0.14s, color 0.14s;
+      }
+      .nav-btn:hover { background: var(--bg-subtle); color: var(--text-1); }
+      .nav-btn.active { background: var(--bg-subtle); color: var(--text-1); font-weight: 600; }
+      .nav-left { display: flex; align-items: center; gap: 10px; }
+      .nav-badge { font-size: 11px; font-weight: 600; min-width: 20px; text-align: center; padding: 1px 6px; border-radius: var(--r-chip); }
+      .nb-ok { background: var(--success-soft); color: var(--success); }
+      .nb-warn { background: var(--warning-soft); color: var(--warning); }
+      .nb-danger { background: var(--danger-soft); color: var(--danger-bright); }
+
+      .side-bottom { display: flex; flex-direction: column; gap: 8px; }
+      .mini-box {
+        padding: 10px 12px; border-radius: var(--r-btn); background: var(--bg-card-elev); border: 1px solid var(--border);
+        box-shadow: var(--card-shadow); font-size: 12px; line-height: 1.45;
+      }
+      .mini-hd { display: flex; align-items: center; justify-content: space-between; font-weight: 500; margin-bottom: 2px; }
+      .guard-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); display: inline-block; flex-shrink: 0; }
+      .guard-dot.warn { background: var(--warning); }
+      .guard-dot.danger { background: var(--danger); box-shadow: 0 0 7px var(--danger); }
+      .guard-dot.neutral { background: var(--text-3); }
+      .mini-sub { font-size: 11px; color: var(--text-3); }
+      .mini-btn {
+        width: 100%; margin-top: 7px; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--border-strong);
+        background: var(--bg-subtle); color: var(--text-2); font-size: 11px; font-weight: 500; text-align: center; cursor: pointer;
+      }
+
+      /* 主区 */
+      .main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+
+      .page-hd {
+        padding: 12px 22px 11px; border-bottom: 1px solid var(--border);
+        display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-shrink: 0;
+      }
+      .page-title { margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -0.02em; }
+      .page-sub { margin: 2px 0 0; font-size: 12px; color: var(--text-3); }
+      .hd-btns { display: flex; align-items: center; gap: 9px; flex-shrink: 0; }
+
+      .seg-wrap {
+        display: inline-flex; padding: 2px; border-radius: 8px; background: var(--bg-subtle);
+        border: 1px solid var(--border); gap: 2px;
+      }
+      .seg-btn {
+        border: none; border-radius: 6px; padding: 5px 12px; font-family: var(--font-sans); font-size: 12px;
+        font-weight: 500; background: transparent; color: var(--text-2); white-space: nowrap;
+        display: inline-flex; align-items: center; gap: 6px; cursor: pointer; transition: all 0.14s var(--ease);
+      }
+      .seg-btn:hover { color: var(--text-1); }
+      .seg-btn.active { background: var(--bg-card-elev); color: var(--text-1); font-weight: 600; box-shadow: var(--card-shadow); }
+
+      .guard-btn {
+        border: none; border-radius: var(--r-btn); padding: 6px 13px; font-family: var(--font-sans);
+        font-size: 12px; font-weight: 500; display: inline-flex; align-items: center; gap: 6px;
+        white-space: nowrap; flex-shrink: 0; cursor: pointer; transition: all 0.14s var(--ease);
+      }
+      .guard-btn-primary { background: var(--primary); color: #fff; font-weight: 600; }
+      .guard-btn-primary:hover:not(:disabled) { background: var(--primary-hover); }
+      .guard-btn-primary:disabled { opacity: 0.38; cursor: not-allowed; }
+      .guard-btn-flat { background: var(--bg-card-elev); color: var(--text-1); border: 1px solid var(--border-strong); }
+      .guard-btn-flat:hover:not(:disabled) { background: var(--bg-subtle); }
+      .guard-btn-flat:disabled { opacity: 0.4; cursor: not-allowed; }
+      .guard-btn-sm { padding: 5px 11px; font-size: 12px; }
+      .guard-btn-xs { padding: 3.5px 9px; font-size: 11px; }
+
+      /* 顶部蓝色文档型入口：防封宝典（克制柔蓝，与实心蓝主 CTA 形成主次） */
+      .guide-doc-btn {
+        border: 1px solid rgba(51, 142, 247, 0.36); background: rgba(0, 111, 238, 0.11); color: #60a5fa;
+        border-radius: var(--r-btn); padding: 5.5px 11px; font-family: var(--font-sans); font-size: 12px; font-weight: 600;
+        display: inline-flex; align-items: center; gap: 5px; cursor: pointer; white-space: nowrap; transition: all 0.14s var(--ease);
+      }
+      .guide-doc-btn:hover { background: rgba(0, 111, 238, 0.2); border-color: rgba(51, 142, 247, 0.6); color: #93c5fd; }
+      .app-root[data-theme="light"] .guide-doc-btn { background: rgba(0, 111, 238, 0.08); color: #005bc4; border-color: rgba(0, 111, 238, 0.28); }
+
+      /* 顶部右侧：可点击引导提示 + 动态风险评分徽章 + 云端核验 */
+      .profile-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+      .verify-age {
+        font-size: 11px; color: var(--text-3); padding: 2px 7px; border-radius: 6px;
+        border: 1px solid transparent; white-space: nowrap; background: transparent; font-family: var(--font-sans);
+      }
+      .verify-age.is-prompt {
+        color: #60a5fa; background: rgba(0, 111, 238, 0.09); border: 1px dashed rgba(51, 142, 247, 0.48);
+        cursor: pointer; display: inline-flex; align-items: center; gap: 5px; font-weight: 500;
+        padding: 3px 8px; transition: all 0.14s var(--ease);
+      }
+      .verify-age.is-prompt:hover { background: rgba(0, 111, 238, 0.18); border-color: rgba(51, 142, 247, 0.75); }
+      .app-root[data-theme="light"] .verify-age.is-prompt { color: #005bc4; background: rgba(0, 111, 238, 0.07); }
+      .pulse-blue-dot {
+        width: 6px; height: 6px; border-radius: 50%; background: #3b82f6;
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25); display: inline-block; flex-shrink: 0;
+      }
+      .geo-pill-mini {
+        display: inline-flex; align-items: center; gap: 4px; padding: 0.5px 6px; border-radius: 5px;
+        background: var(--bg-subtle); border: 1px solid var(--border); color: var(--text-2); font-size: 11px; font-weight: 500;
+      }
+      .geo-pill-mini.is-verified { color: var(--text-1); border-color: rgba(51, 142, 247, 0.35); background: rgba(0, 111, 238, 0.1); }
+      .score-pill {
+        border: 1px solid var(--border); background: var(--bg-subtle); border-radius: 7px;
+        padding: 3px 9px; font-size: 11.5px; font-weight: 600; font-family: var(--font-sans);
+        display: inline-flex; align-items: center; gap: 5px; cursor: pointer; white-space: nowrap;
+        transition: transform 0.12s var(--ease), border-color 0.14s;
+      }
+      .score-pill:hover { transform: translateY(-0.5px); border-color: var(--border-strong); }
+      .score-pill.s-safe { color: var(--success); background: var(--success-soft); border-color: rgba(34, 197, 94, 0.28); }
+      .score-pill.s-watch { color: var(--warning); background: var(--warning-soft); border-color: rgba(245, 165, 36, 0.32); }
+      .score-pill.s-mid { color: #fb923c; background: rgba(251, 146, 60, 0.14); border-color: rgba(251, 146, 60, 0.36); }
+      .score-pill.s-crit { color: var(--danger-bright); background: var(--danger-soft); border-color: rgba(239, 68, 68, 0.42); }
+      .pstat-v.ok-green { color: var(--success); }
+
+      /* 防封宝典 & 评分明细右侧抽屉 */
+      .drawer-backdrop {
+        position: absolute; inset: 0; z-index: 50; background: rgba(0, 0, 0, 0.56); backdrop-filter: blur(2px);
+        display: flex; justify-content: flex-end;
+      }
+      .drawer-panel {
+        width: 520px; max-width: 92%; height: 100%; background: var(--bg-sidebar); border-left: 1px solid var(--border-strong);
+        display: flex; flex-direction: column; overflow: hidden; box-shadow: -12px 0 36px rgba(0, 0, 0, 0.45);
+      }
+      .drawer-hd {
+        padding: 14px 18px; border-bottom: 1px solid var(--border);
+        display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-shrink: 0;
+      }
+      .drawer-title { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+      /* 防封宝典抽屉：去卡片套娃、扁平白皮书级舒适阅读排版 */
+      .drawer-body { flex: 1; overflow-y: auto; padding: 16px 20px 26px; display: flex; flex-direction: column; gap: 0; }
+      .score-summary-card {
+        padding: 14px 16px; border-radius: 10px; background: var(--bg-card-elev); border: 1px solid var(--border);
+        display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px;
+      }
+      .score-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+      .score-big { font-size: 24px; font-weight: 700; line-height: 1; }
+      .score-track { width: 100%; height: 6px; border-radius: 99px; background: var(--bg-subtle); overflow: hidden; }
+      .score-bar { height: 100%; border-radius: 99px; transition: width 0.25s var(--ease); }
+      /* 取消嵌套子卡片边框，改用清爽细分割线列表 */
+      .score-deduct-list { display: flex; flex-direction: column; border-top: 1px solid var(--border); margin-top: 2px; }
+      .score-deduct-item {
+        display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+        padding: 9px 2px; border-bottom: 1px solid var(--border);
+      }
+      .score-deduct-item:last-child { border-bottom: none; padding-bottom: 2px; }
+      .score-deduct-title { font-size: 12.5px; font-weight: 600; color: var(--text-1); line-height: 1.4; }
+      .score-deduct-desc { font-size: 11.5px; color: var(--text-3); margin-top: 2px; line-height: 1.5; }
+
+      /* 宝典文档流章节（无套娃边框，大行距、清晰标题层级与舒适留白） */
+      .doc-section { padding: 16px 0; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 14px; }
+      .doc-section:first-of-type { border-top: none; padding-top: 4px; }
+      .doc-sec-hd { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+      .doc-sec-title { font-size: 14px; font-weight: 700; color: var(--text-1); letter-spacing: -0.01em; }
+      .doc-sec-sub { font-size: 11.5px; color: var(--text-3); }
+      .doc-entry { display: flex; flex-direction: column; gap: 5px; padding-left: 11px; border-left: 2px solid var(--border-strong); }
+      .doc-entry.is-high { border-left-color: rgba(239, 68, 68, 0.55); }
+      .doc-entry.is-mid { border-left-color: rgba(245, 165, 36, 0.55); }
+      .doc-entry.is-info { border-left-color: rgba(59, 130, 246, 0.45); }
+      .doc-entry-title {
+        font-size: 13px; font-weight: 600; color: var(--text-1); line-height: 1.4;
+        display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      }
+      .doc-entry-body { font-size: 12.5px; color: var(--text-2); line-height: 1.7; }
+      .doc-entry-body strong { color: var(--text-1); font-weight: 600; }
+      .doc-bullets { margin: 3px 0 0; padding-left: 16px; display: flex; flex-direction: column; gap: 4px; }
+
+      /* 默认折叠的 100 分权重明细区 */
+      .weight-collapse-btn {
+        width: 100%; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-1);
+        border-radius: 9px; padding: 10px 13px; font-family: var(--font-sans); font-size: 12.5px; font-weight: 600;
+        display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer;
+        transition: background-color 0.14s, border-color 0.14s; margin-top: 8px;
+      }
+      .weight-collapse-btn:hover { background: var(--bg-subtle); border-color: var(--border-strong); }
+      .weight-table {
+        margin-top: 8px; border-top: 1px solid var(--border); display: flex; flex-direction: column;
+      }
+      .weight-row {
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+        padding: 8px 4px; border-bottom: 1px solid var(--border); font-size: 12px;
+      }
+      .weight-row:last-child { border-bottom: none; }
+      .w-pill {
+        font-size: 11px; font-weight: 600; padding: 1.5px 7px; border-radius: 5px; white-space: nowrap; flex-shrink: 0;
+      }
+      .w-high { background: var(--danger-soft); color: var(--danger-bright); }
+      .w-mid { background: var(--warning-soft); color: var(--warning); }
+      .w-low { background: var(--bg-subtle); color: var(--text-2); }
+      .w-ok { background: var(--success-soft); color: var(--success); }
+
+      .guard-chip {
+        display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+        font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: var(--r-chip); white-space: nowrap;
+      }
+      .guard-chip-warn { background: var(--warning-soft); color: var(--warning); font-weight: 600; }
+      .guard-chip-neutral { background: var(--bg-subtle); color: var(--text-2); }
+
+      /* Master-Detail 双栏布局 */
+      .workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: 244px minmax(0, 1fr); }
+
+      /* 左栏 */
+      .acct-pane {
+        border-right: 1px solid var(--border); padding: 14px 13px; display: flex; flex-direction: column;
+        justify-content: space-between; gap: 12px; min-height: 0; overflow-y: auto;
+      }
+      .acct-pane-top { display: flex; flex-direction: column; gap: 11px; }
+      .pane-hd { display: flex; align-items: center; justify-content: space-between; padding: 0 2px; }
+      .pane-title { font-size: 12px; font-weight: 600; color: var(--text-2); }
+      .add-btn {
+        border: 1px dashed var(--border-strong); background: transparent; color: var(--text-2);
+        border-radius: 6px; padding: 3px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px; cursor: pointer;
+      }
+      .add-btn:hover { border-color: var(--primary); color: var(--text-1); }
+
+      .acct-card {
+        background: var(--bg-card-elev); border: 1px solid var(--primary);
+        box-shadow: 0 0 0 1px rgba(0, 111, 238, 0.22);
+        border-radius: var(--r-card); padding: 12px; display: flex; flex-direction: column; gap: 8px; cursor: pointer;
+      }
+      .acct-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+      .acct-mail {
+        display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600;
+        min-width: 0; color: var(--text-1);
+      }
+      .acct-mail span.txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .acct-sub { font-size: 11px; color: var(--text-3); display: flex; align-items: center; justify-content: space-between; }
+
+      .acct-quota {
+        display: flex; flex-direction: column; gap: 5px;
+        padding: 7px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+      }
+      .q-row { display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: var(--text-2); }
+      .q-track { width: 100%; height: 4px; border-radius: 99px; background: var(--bg-subtle); overflow: hidden; }
+      .q-fill { height: 100%; border-radius: 99px; background: var(--primary); transition: width 0.25s var(--ease); }
+      .q-fill.soft { background: var(--text-3); }
+      .q-stamp { font-size: 10px; color: var(--text-3); display: flex; justify-content: space-between; margin-top: 1px; }
+      .acct-tags { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 11.5px; }
+
+      .live-pulse {
+        background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r-card);
+        padding: 11px 12px; display: flex; flex-direction: column; gap: 6px; cursor: pointer;
+        transition: border-color 0.14s, background-color 0.14s;
+      }
+      .live-pulse:hover { border-color: var(--border-strong); background: var(--bg-subtle); }
+      .pulse-hd { display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 600; }
+      .pulse-desc { font-size: 11.5px; color: var(--text-2); line-height: 1.48; }
+      .pulse-go { font-size: 11.5px; color: var(--primary); font-weight: 500; }
+
+      .acct-foot-hint {
+        font-size: 11px; color: var(--text-3); line-height: 1.5; padding: 9px 10px;
+        border: 1px dashed var(--border); border-radius: 10px;
+      }
+
+      /* 右栏主工作区（参考控制台宽松呼吸感） */
+      .detail-pane {
+        padding: 15px 22px 22px; overflow-y: auto; display: flex; flex-direction: column; gap: 13px; min-height: 0;
+      }
+      .detail-pane > * { flex-shrink: 0; }
+
+      .card {
+        background: var(--bg-card-elev); border: 1px solid var(--border); border-radius: var(--r-card);
+        box-shadow: var(--card-shadow); overflow: hidden;
+      }
+
+      /* 顶部档案卡：名片主栏（含可点击切换的订阅天数/预计到期日 + 注册/本机/商户） + 4等分状态栏 */
+      .profile-top {
+        padding: 11px 16px; border-bottom: 1px solid var(--border);
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      }
+      .profile-id-line {
+        display: flex; align-items: center; gap: 7px; flex-wrap: wrap; min-width: 0; font-size: 12.5px; color: var(--text-2);
+      }
+      .profile-email { font-size: 14px; font-weight: 600; color: var(--text-1); }
+      .sep-dot { color: var(--text-3); opacity: 0.55; }
+      .sub-toggle-btn {
+        border: 1px solid var(--border); background: var(--bg-subtle); color: var(--text-1);
+        border-radius: 6px; padding: 2px 8px; font-size: 12px; font-family: var(--font-sans); font-weight: 500;
+        cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: border-color 0.14s, color 0.14s;
+      }
+      .sub-toggle-btn:hover { border-color: var(--primary); color: var(--primary-hover); }
+
+      .profile-stats {
+        display: grid; grid-template-columns: repeat(4, 1fr); background: rgba(128, 128, 140, 0.02);
+      }
+      .pstat {
+        padding: 10px 16px; border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 3px; min-width: 0;
+      }
+      .pstat:last-child { border-right: none; }
+      .pstat-k { font-size: 11px; color: var(--text-3); display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+      .pstat-v {
+        font-size: 13px; font-weight: 600; color: var(--text-1); display: flex; align-items: center; gap: 6px;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
+      .pstat-v.muted { color: var(--text-2); font-weight: 500; }
+      .pstat-v.warn { color: var(--warning); }
+      .pstat-v.danger { color: var(--danger-bright); }
+      .pstat-sub { font-size: 11px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+      .help-btn {
+        width: 15px; height: 15px; border-radius: 50%; border: 1px solid var(--border-strong);
+        background: transparent; color: var(--text-3); font-size: 10px; font-weight: 700;
+        display: inline-grid; place-items: center; cursor: pointer; flex-shrink: 0; padding: 0; line-height: 1;
+      }
+      .help-btn:hover { border-color: var(--primary); color: var(--primary); }
+
+      .kyc-explain {
+        padding: 10px 16px; border-top: 1px solid var(--border); background: var(--bg-subtle);
+        font-size: 12px; color: var(--text-2); line-height: 1.6;
+        display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+      }
+      .kyc-explain strong { color: var(--text-1); }
+
+      .part-block { display: flex; flex-direction: column; gap: 7px; }
+      .part-hd { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 2px; }
+      .part-title { font-size: 13px; font-weight: 600; color: var(--text-2); }
+      .part-sub { font-size: 11.5px; color: var(--text-3); }
+
+      /* 完全对齐控制台 .guard-row 与 .guard-icon-box 真实层高规格（padding: 11px 14px, 标题 14px, 副标 12px） */
+      .guard-icon-box {
+        width: 30px; height: 30px; border-radius: 8px;
+        background: var(--tile-neutral-bg); color: var(--tile-neutral-fg);
+        display: grid; place-items: center; flex-shrink: 0;
+      }
+      .guard-icon-box.is-warn { background: var(--warning-soft); color: var(--warning); }
+      .guard-icon-box.is-danger { background: var(--danger-soft); color: var(--danger-bright); }
+
+      .audit-group { border-bottom: 1px solid var(--border); }
+      .audit-group:last-child { border-bottom: none; }
+      .audit-row {
+        padding: 11px 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+        cursor: pointer; transition: background-color 0.14s;
+      }
+      .audit-row:hover { background: var(--bg-subtle); }
+      .audit-group.is-open .audit-row { background: var(--bg-selected); }
+      .audit-group.is-danger-row .audit-row { background: rgba(239, 68, 68, 0.045); }
+
+      .audit-left { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; }
+      .audit-text { min-width: 0; flex: 1; }
+      .audit-title-line { display: flex; align-items: center; gap: 7px; }
+      /* 第 1 点（图 1）：保留红/黄/灰分层区分，但去掉彩色边框底色，改为「中性暗标 + 5px 语义微色点」，显著降低视觉噪音 */
+      .prefix-tag {
+        display: inline-flex; align-items: center; gap: 4.5px;
+        font-size: 10.5px; font-weight: 500; padding: 1.5px 6.5px; border-radius: 5px;
+        border: 1px solid var(--border); color: var(--text-2); background: var(--bg-subtle); flex-shrink: 0;
+      }
+      .pt-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; background: var(--text-3); }
+      .prefix-tag.redline .pt-dot { background: #ef4444; }
+      .prefix-tag.warn-exp .pt-dot { background: #f5a524; }
+      .prefix-tag.privacy-low { color: var(--text-3); }
+      .audit-title { font-size: 14px; font-weight: 500; line-height: 1.3; color: var(--text-1); white-space: nowrap; }
+      .audit-summary { font-size: 12px; color: var(--text-2); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+      .audit-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+      .status-pill {
+        width: 74px; text-align: center; font-size: 11.5px; font-weight: 500;
+        padding: 3px 0; border-radius: var(--r-chip); white-space: nowrap;
+      }
+      .st-ok { color: var(--text-3); background: transparent; border: 1px solid var(--border); }
+      .st-pending { color: var(--primary-hover); background: var(--primary-soft); font-weight: 600; }
+      .app-root[data-theme="light"] .st-pending { color: var(--primary); }
+      .st-warn { color: var(--warning); background: var(--warning-soft); font-weight: 600; }
+      .st-danger { color: var(--danger-bright); background: var(--danger-soft); font-weight: 600; }
+      .chev { color: var(--text-3); font-size: 11px; width: 12px; text-align: center; }
+
+      /* 展开详情区：纯只读对照项前置顶部（永无需操作），下方可处置子项固定位置、哪项异常亮哪项 */
+      .audit-detail {
+        padding: 2px 14px 13px 56px; display: flex; flex-direction: column; gap: 9px; background: var(--bg-selected);
+      }
+      .audit-group.is-danger-row .audit-detail { background: rgba(239, 68, 68, 0.03); }
+      .readonly-strip {
+        display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;
+      }
+      .readonly-strip.cols-3 { grid-template-columns: repeat(3, 1fr); }
+      .readonly-box {
+        padding: 8px 11px; border-radius: 8px; background: rgba(128, 128, 140, 0.05); border: 1px dashed var(--border);
+        display: flex; flex-direction: column; gap: 3px;
+      }
+      .readonly-box.is-warn { border-style: solid; border-color: rgba(245, 165, 36, 0.35); background: rgba(245, 165, 36, 0.04); }
+      .readonly-box .k { font-size: 11px; color: var(--text-3); }
+      .readonly-box .v { font-size: 12.5px; font-weight: 500; color: var(--text-2); }
+      .readonly-box .v.warn { color: var(--warning); font-weight: 600; }
+      .metric-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+      .metric-strip.cols-2 { grid-template-columns: repeat(2, 1fr); }
+      .metric-strip.cols-1 { grid-template-columns: 1fr; }
+      .metric-box {
+        padding: 10px 12px; border-radius: 8px; background: var(--bg-card); border: 1px solid var(--border);
+        display: flex; flex-direction: column; justify-content: space-between; gap: 8px;
+      }
+      .metric-box.is-warn { border-color: rgba(245, 165, 36, 0.38); background: rgba(245, 165, 36, 0.04); }
+      .metric-box.is-danger { border-color: rgba(239, 68, 68, 0.42); background: rgba(239, 68, 68, 0.05); }
+      .metric-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+      .metric-box .k { font-size: 11px; color: var(--text-3); }
+      .metric-box .v { font-size: 12.5px; font-weight: 600; color: var(--text-1); }
+      .metric-box .v.warn { color: var(--warning); }
+      .metric-box .v.ok { color: var(--text-2); font-weight: 500; }
+      .metric-box .v.danger { color: var(--danger-bright); }
+      .metric-act { display: flex; justify-content: flex-end; margin-top: 2px; }
+
+      .sk-inline-box {
+        padding: 9px 11px; border-radius: 9px; background: var(--bg-canvas); border: 1px solid var(--border-strong);
+        display: flex; flex-direction: column; gap: 7px;
+      }
+      .sk-row { display: flex; align-items: center; gap: 8px; }
+      .sk-input {
+        flex: 1; height: 32px; padding: 0 10px; border-radius: var(--r-btn);
+        border: 1px solid var(--border-strong); background: var(--bg-card-elev); color: var(--text-1);
+        font-family: var(--font-mono); font-size: 12px; outline: none;
+      }
+      .sk-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+      .sk-input::placeholder { font-family: var(--font-sans); color: var(--text-3); }
+      .sk-sub-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 11px; color: var(--text-3); }
+      .text-btn { background: none; border: none; padding: 0; font: inherit; font-size: 11px; color: var(--primary); cursor: pointer; font-weight: 500; }
+      .text-btn:hover { text-decoration: underline; }
+      .sk-how-box {
+        padding: 7px 10px; border-radius: 7px; background: var(--bg-subtle); border: 1px solid var(--border);
+        font-size: 11.5px; color: var(--text-2); line-height: 1.55;
+      }
+
+      .advice-bar {
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+        padding: 7px 11px; border-radius: 8px; background: var(--bg-subtle); border: 1px solid var(--border);
+        font-size: 11.5px; color: var(--text-2); line-height: 1.5;
+      }
+
+      /* 实时异常日志流 */
+      .log-banner {
+        padding: 10px 15px; border-radius: var(--r-card); background: var(--bg-card-elev); border: 1px solid var(--border);
+        display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12px; color: var(--text-2);
+      }
+      .log-filter-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+      .filter-pills { display: flex; align-items: center; gap: 6px; }
+      .filter-pill {
+        border: 1px solid var(--border); background: var(--bg-card-elev); color: var(--text-2);
+        border-radius: 8px; padding: 5px 11px; font-size: 12px; font-family: var(--font-sans); cursor: pointer;
+      }
+      .filter-pill.active { border-color: var(--primary); color: var(--text-1); background: var(--primary-soft); font-weight: 600; }
+      .log-item { padding: 12px 16px; border-bottom: 1px solid var(--border); cursor: pointer; }
+      .log-item:last-child { border-bottom: none; }
+      .log-item:hover { background: var(--bg-subtle); }
+      .log-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+      .log-title { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; }
+      .log-desc { margin-top: 4px; font-size: 12px; color: var(--text-2); line-height: 1.5; }
+      .log-raw {
+        margin-top: 8px; padding: 9px 11px; border-radius: 7px; background: var(--bg-subtle);
+        border: 1px solid var(--border); font-family: var(--font-mono); font-size: 11px; color: var(--text-2);
+        white-space: pre-wrap; word-break: break-all; line-height: 1.55;
+      }
+
+      .toast-host {
+        position: absolute; right: 20px; bottom: 20px; z-index: 60; display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+      }
+      .toast {
+        min-width: 260px; max-width: 360px; padding: 10px 13px; border-radius: 10px;
+        background: var(--bg-card-elev); border: 1px solid var(--border-strong); box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+        font-size: 12px; line-height: 1.45;
+      }
+      .toast-t { font-weight: 600; color: var(--text-1); }
+      .toast-b { color: var(--text-2); margin-top: 2px; }
+
+      ::-webkit-scrollbar { width: 6px; height: 6px; }
+      ::-webkit-scrollbar-thumb { background: rgba(161, 161, 170, 0.25); border-radius: 99px; }
+    </style>
+  </head>
+  <body>
+    <div class="app-root" id="appRoot" data-theme="dark">
+      <div class="demo-ribbon">
+        <div class="demo-left">
+          <span class="demo-tag">v12 终极定稿 · 白皮书级防封宝典 + 零套娃 + 全页纯净产品文案</span>
+          <div class="demo-pills">
+            <button class="demo-pill active" id="demoRealLocal" type="button">1. 本机实测（未输 sk）</button>
+            <button class="demo-pill" id="demoVerifiedRisk" type="button">2. 输 sk 后（错配+静默标）</button>
+            <button class="demo-pill" id="demoStale7d" type="button">3. 核验超 7 天衰减态</button>
+            <button class="demo-pill" id="demoDisconnectWarn" type="button">4. 断连防护异常</button>
+            <button class="demo-pill" id="demoAllClean" type="button">5. 全部稳健态</button>
+          </div>
+        </div>
+        <div class="demo-hint">点右上「防封宝典」看去套娃文档流与折叠 100 分权重表</div>
+      </div>
+
+      <div class="window-frame">
+        <header class="chrome">
+          <div class="chrome-brand">
+            <div class="brand-icon">FD</div>
+            <span>FD Claude 安全启动器</span>
+            <span class="chrome-sub">Fuck Dario！！！</span>
+          </div>
+          <div class="chrome-right">
+            <div class="ico-group">
+              <button class="win-ico-btn is-on" type="button" title="开源支持">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/></svg>
+              </button>
+              <button class="win-ico-btn is-on" type="button" title="悬浮窗">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="4" width="18" height="16" rx="3"/><rect x="11" y="7.5" width="7" height="5.5" rx="1.4" fill="currentColor" stroke="none"/></svg>
+              </button>
+              <button class="win-ico-btn" type="button" title="提醒声音">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+              </button>
+              <button class="win-ico-btn" id="btnTheme" type="button" title="切换深色 / 浅色主题">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+              </button>
+            </div>
+            <span class="win-bar-sep"></span>
+            <div class="win-sys-btn"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.85"><path d="M5 12h14"/></svg></div>
+            <div class="win-sys-btn"><svg viewBox="0 0 24 24" width="11.5" height="11.5" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="4" y="4" width="16" height="16" rx="2"/></svg></div>
+            <div class="win-sys-btn"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.85"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></div>
+          </div>
+        </header>
+
+        <div class="body-wrap">
+          <aside class="sidebar">
+            <nav class="nav-list">
+              <button class="nav-btn" type="button" onclick="showToast('控制台', '原有 11 项启动前体检保持不变。')">
+                <span class="nav-left"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>控制台</span>
+                <span class="nav-badge nb-ok">OK</span>
+              </button>
+              <button class="nav-btn active" type="button">
+                <span class="nav-left"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>账户审计</span>
+                <span class="nav-badge nb-warn tabular" id="sideBadge">2</span>
+              </button>
+              <button class="nav-btn" type="button" onclick="showToast('节点流量', '排在账户审计正下方，可锁死与归属地一致的固定节点。')">
+                <span class="nav-left"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>节点流量</span>
+              </button>
+              <button class="nav-btn" type="button" onclick="showToast('环境维护', '用于换号防连坐清洗旧组织缓存与设备指纹。')">
+                <span class="nav-left"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>环境维护</span>
+              </button>
+              <button class="nav-btn" type="button" onclick="showToast('守卫配置', '端口、开机自启与版本更新设置保持不变。')">
+                <span class="nav-left"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75"><line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/></svg>守卫配置</span>
+              </button>
+            </nav>
+
+            <div class="side-bottom">
+              <div class="mini-box">
+                <div class="mini-hd">
+                  <span style="display:flex;align-items:center;gap:6px"><span class="guard-dot"></span>Claude 进程</span>
+                  <span class="tabular" style="font-size:11px;color:var(--success)">0 残留</span>
+                </div>
+                <div class="mini-sub">已彻底退出，可安全操作</div>
+                <div class="mini-btn" onclick="showToast('防复活盯防', '已启动 45s 强杀盯防保护。')">强杀防复活盯防 (45s)</div>
+              </div>
+              <div class="mini-box">
+                <div class="mini-hd">
+                  <span style="display:flex;align-items:center;gap:6px"><span class="guard-dot"></span>Clash Verge</span>
+                </div>
+                <div class="mini-sub tabular">Mihomo v1.19.33 · 7890</div>
+              </div>
+            </div>
+          </aside>
+
+          <main class="main">
+            <div class="page-hd">
+              <div>
+                <h1 class="page-title">账户审计</h1>
+                <p class="page-sub">本地只读体检与按需云端核验，提前排查账号风控隐患</p>
+              </div>
+              <div class="hd-btns">
+                <!-- 第 4 点（图 5）：在「账号安全审计」左侧加入蓝色文档型提示入口「防封宝典」 -->
+                <button class="guide-doc-btn" id="btnOpenGuide" type="button" onclick="openGuideDrawer()">
+                  <svg viewBox="0 0 24 24" width="13.5" height="13.5" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/><path d="M8 7h6"/><path d="M8 11h8"/></svg>
+                  <span>防封宝典</span>
+                </button>
+                <div class="seg-wrap" role="tablist">
+                  <button class="seg-btn active" id="tabAudit" type="button">账号安全审计</button>
+                  <button class="seg-btn" id="tabLogs" type="button">
+                    <span>实时异常日志流</span>
+                    <span class="guard-chip guard-chip-warn tabular" id="segLogBadge" style="padding:0 5px;font-size:10.5px">1</span>
+                  </button>
+                </div>
+                <button class="guard-btn guard-btn-flat" id="btnRescan" type="button">
+                  <svg viewBox="0 0 24 24" width="13.5" height="13.5" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+                  <span>重新审计</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="workspace">
+              <!-- 左栏 -->
+              <section class="acct-pane">
+                <div class="acct-pane-top">
+                  <div class="pane-hd">
+                    <span class="pane-title tabular">当前档案 (1)</span>
+                    <span style="font-size:11px;color:var(--text-3)">本机激活</span>
+                  </div>
+
+                  <div class="acct-card tabular">
+                    <div class="acct-top">
+                      <div class="acct-mail">
+                        <span class="guard-dot warn" id="acctDot"></span>
+                        <!-- 第 6 点（图 6）：更易精准辨识的脱敏格式（前 4 + *** + 后 2） -->
+                        <span class="txt">stev***88@gmail.com</span>
+                      </div>
+                      <span class="guard-chip guard-chip-neutral">Pro</span>
+                    </div>
+                    <!-- 第 2 点（图 1）：右侧直接展示精简更新时间，砍掉底部多余的缓存/更新行 -->
+                    <div class="acct-sub">
+                      <span id="acctGeoRoute">属地待核 · 出口 US</span>
+                      <span id="acctQuotaStamp" title="本地缓存 · 9 天前采样" style="color:var(--text-3)">9天前</span>
+                    </div>
+
+                    <div class="acct-quota">
+                      <div class="q-row">
+                        <span>5h 额度</span>
+                        <span id="acct5hTxt" style="font-weight:600">22%</span>
+                      </div>
+                      <div class="q-track"><div class="q-fill" id="acct5hFill" style="width:22%"></div></div>
+                      <div class="q-row" style="margin-top:2px">
+                        <span>7d 额度</span>
+                        <span id="acct7dTxt">72%</span>
+                      </div>
+                      <div class="q-track"><div class="q-fill soft" id="acct7dFill" style="width:72%"></div></div>
+                    </div>
+
+                    <div class="acct-tags">
+                      <span id="acctStatusText" style="color:var(--warning);font-weight:600">2 项待处理</span>
+                      <span id="acctAgeMini" style="color:var(--text-3)">33 天</span>
+                    </div>
+                  </div>
+
+                  <div class="live-pulse" id="pulseCard">
+                    <div class="pulse-hd">
+                      <span style="display:flex;align-items:center;gap:6px"><span class="guard-dot warn" id="pulseDot"></span>实时异常日志流</span>
+                      <span class="tabular" id="pulseCount" style="font-size:11px;color:var(--warning)">1 未读</span>
+                    </div>
+                    <div class="pulse-desc" id="pulseDesc">403 消歧：1 条 CF 入口盾（非封号）；7 条背景 OAuth 403 已自动降噪。</div>
+                    <div class="pulse-go">进入日志流 →</div>
+                  </div>
+                </div>
+
+                <div class="acct-foot-hint">
+                  Anthropic 风控为黑盒模型，无“集齐必封”公式；本页仅保留经真机验证有效的防封项。
+                </div>
+              </section>
+
+              <!-- 右栏视图 A -->
+              <section class="detail-pane" id="viewAudit">
+                <!-- 顶部档案总览卡 -->
+                <div class="card tabular">
+                  <div class="profile-top">
+                    <div style="display:flex;flex-direction:column;gap:4px;min-width:0">
+                      <div class="profile-id-line">
+                        <span class="profile-email">stev***88@gmail.com</span>
+                        <span class="guard-chip guard-chip-neutral" style="padding:1px 6px">Pro</span>
+                        <button
+                          class="sub-toggle-btn"
+                          id="btnSubToggle"
+                          type="button"
+                          title="点击切换「已订阅天数」与「预计到期/续费日」"
+                          onclick="toggleSubDateMode()"
+                        >
+                          <span id="subToggleTxt">订阅 33 天</span>
+                          <span style="opacity:0.55;font-size:10px">⇄</span>
+                        </button>
+                        <span id="metaMerchant">Stripe 直付</span>
+                      </div>
+                      <div style="display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--text-3);flex-wrap:wrap">
+                        <span>组织 <span class="mono" style="color:var(--text-2)">7aacf131</span></span>
+                        <span class="sep-dot">·</span>
+                        <!-- 第 5 点（图 4）：核验 sk 后在此直观显示账户属地 -->
+                        <span class="geo-pill-mini" id="metaGeoBadge">属地 待核</span>
+                        <span class="sep-dot">·</span>
+                        <span id="metaRegAge">注册 33 天</span>
+                        <span class="sep-dot">·</span>
+                        <span id="metaLocalAge">本机 28 天</span>
+                      </div>
+                    </div>
+                    <!-- 第 1 点（图 2）：未核验/过期态变为醒目柔蓝可点击引导提示 + 评分徽章 + 蓝色主按钮 -->
+                    <div class="profile-actions">
+                      <button
+                        class="verify-age is-prompt tabular"
+                        id="verifyAgeTag"
+                        type="button"
+                        title="云端核验后可补全官方本体状态与归属地，评分更真实完整"
+                        onclick="focusCloudGroup()"
+                      >
+                        <span class="pulse-blue-dot"></span>
+                        <span id="verifyAgeTxt">未核云端 · 补验评分更准 →</span>
+                      </button>
+                      <button
+                        class="score-pill s-watch tabular"
+                        id="scorePillBtn"
+                        type="button"
+                        title="点击查看账户风险评分明细与防封宝典权重依据"
+                        onclick="openGuideDrawer()"
+                      >
+                        <span id="scorePillTxt">84 分 · 本地估</span>
+                      </button>
+                      <button class="guard-btn guard-btn-primary guard-btn-sm" id="btnTopSkAction" type="button" onclick="focusCloudGroup()">云端核验</button>
+                    </div>
+                  </div>
+
+                  <!-- 第 2 点（图 3）：官方警告与静默标增加 ? 解释，全部副标改为高价值中文含义/触发说明 -->
+                  <div class="profile-stats">
+                    <div class="pstat">
+                      <div class="pstat-k"><span>对话可用状态</span></div>
+                      <div class="pstat-v muted" id="stChat">待 sk 实证</div>
+                      <div class="pstat-sub" id="stChatSub">本地 0 封号 · 待云端实证</div>
+                    </div>
+
+                    <div class="pstat">
+                      <div class="pstat-k">
+                        <span>官方警告与静默标</span>
+                        <button class="help-btn" type="button" title="查看官方静默标、Persona 与 Portal 风控区别" onclick="toggleKycExplain()">?</button>
+                      </div>
+                      <div class="pstat-v muted" id="stWarn">待 sk 实证</div>
+                      <div class="pstat-sub" id="stWarnSub">后台隐性观察标 · 容错率预警</div>
+                    </div>
+
+                    <div class="pstat">
+                      <div class="pstat-k">
+                        <span>Persona 实名 KYC</span>
+                        <button class="help-btn" type="button" title="查看官方静默标、Persona 与 Portal 风控区别" onclick="toggleKycExplain()">?</button>
+                      </div>
+                      <div class="pstat-v muted" id="stPersona">待 sk 实证</div>
+                      <div class="pstat-sub" id="stPersonaSub">敏感/付费抽检 · 过审抗风险提升</div>
+                    </div>
+
+                    <div class="pstat">
+                      <div class="pstat-k">
+                        <span>Portal 风控门户</span>
+                        <button class="help-btn" type="button" title="查看官方静默标、Persona 与 Portal 风控区别" onclick="toggleKycExplain()">?</button>
+                      </div>
+                      <div class="pstat-v muted" id="stPortal">本地 0 拦截</div>
+                      <div class="pstat-sub" id="stPortalSub">风控强制挂起 · 触发即风险极高</div>
+                    </div>
+                  </div>
+
+                  <div class="kyc-explain hidden" id="kycExplainBox">
+                    <div>
+                      <div><strong>官方警告与静默标</strong>（<code>monitoring_notice</code> / <code>active_flags</code>）：账号仍可正常对话，但后台已挂入观察队列或计费/风控提示；接口若返回具体 flag 类型会直接译出，否则属黑盒观察标（常由跨区漂移、高频 429 或异常计费诱发）。</div>
+                      <div><strong>Persona 实名 KYC</strong>（<code>/kyc_status</code>）：第三方证件/人脸核验，常见于高敏区或升级/付费抽检；<strong>通过（<code>verified</code>）并度过 72h 后能显著提升账号抗误杀能力</strong>，与「无需验证」不同。</div>
+                      <div><strong>Portal 风控门户</strong>（<code>portal.anthropic.com</code> / <code>hold_notice</code>）：<strong>风险极高！</strong>代表 Anthropic 风控已主动挂起账号要求强制申诉；一旦触发，建议在彻底清洗本机环境前不要同机切换备用号。</div>
+                    </div>
+                    <button class="text-btn" type="button" onclick="toggleKycExplain()">收起</button>
+                  </div>
+                </div>
+
+                <!-- 一、需用户自行注意与克制 -->
+                <div class="part-block">
+                  <div class="part-hd">
+                    <div class="part-title">一、需用户自行注意与克制</div>
+                    <span class="part-sub">事前监测预警，避免不当使用习惯触发风控</span>
+                  </div>
+                  <div class="card" id="partUserCard"></div>
+                </div>
+
+                <!-- 二、工具可介入防御与修复 -->
+                <div class="part-block">
+                  <div class="part-hd">
+                    <div class="part-title">二、工具可介入防御与修复</div>
+                    <span class="part-sub">发现隐患可点开直接处理或联动修复</span>
+                  </div>
+                  <div class="card" id="partToolCard"></div>
+                </div>
+              </section>
+
+              <!-- 右栏视图 B：实时异常日志流 -->
+              <section class="detail-pane hidden" id="viewLogs">
+                <div class="log-banner">
+                  <span><strong>7 类 403 精准消歧引擎：</strong>结合本机 Pro 套餐自动区分「无害背景 OAuth 403」「CF 入口盾」「断连回传 Cookie 403」与「官方实锤封号」。</span>
+                  <span class="guard-chip guard-chip-neutral">已自动降噪 7 条</span>
+                </div>
+
+                <div class="log-filter-row">
+                  <div class="filter-pills">
+                    <button class="filter-pill active" data-f="all" onclick="setLogFilter('all', this)" type="button">全部安全异常 (2)</button>
+                    <button class="filter-pill" data-f="403" onclick="setLogFilter('403', this)" type="button">403 精准消歧 (1 + 7降噪)</button>
+                    <button class="filter-pill" data-f="net" onclick="setLogFilter('net', this)" type="button">代理断连 (1)</button>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:12px">
+                    <label style="font-size:12px;color:var(--text-2);display:inline-flex;align-items:center;gap:5px;cursor:pointer">
+                      <input type="checkbox" id="chkDenoised" /> 显示已降噪的 OAuth 403 (7)
+                    </label>
+                    <button class="guard-btn guard-btn-flat guard-btn-sm" id="btnMarkRead" type="button">全部标为已读</button>
+                  </div>
+                </div>
+                <div class="card" id="logListCard"></div>
+              </section>
+            </div>
+          </main>
+        </div>
+
+        <!-- 第 4 & 5 点：右侧滑出「防封宝典与风险评分明细」抽屉 -->
+        <div class="drawer-backdrop hidden" id="guideDrawer" onclick="if(event.target===this) closeGuideDrawer()">
+          <div class="drawer-panel">
+            <div class="drawer-hd">
+              <div class="drawer-title">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="var(--primary-hover)" stroke-width="2"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/><path d="M8 7h6"/><path d="M8 11h8"/></svg>
+                <span>防封宝典 · 风险权重与审计依据</span>
+              </div>
+              <button class="guard-btn guard-btn-flat guard-btn-xs" type="button" onclick="closeGuideDrawer()">关闭</button>
+            </div>
+            <div class="drawer-body">
+              <!-- 当前动态风险评分明细卡 -->
+              <div class="score-summary-card tabular" id="drawerScoreCard"></div>
+
+              <!-- 核心主体：以通俗防封知识为绝对主角（零卡片套娃、优雅文档流、按重要性清晰分层） -->
+              <section class="doc-section">
+                <div class="doc-sec-hd">
+                  <span class="doc-sec-title">一、最易触发封号的 4 大核心雷区</span>
+                  <span class="doc-sec-sub">建议优先排查</span>
+                </div>
+
+                <div class="doc-entry is-high">
+                  <div class="doc-entry-title">
+                    <span>1. 账号属地与出口 IP 错配、机房 IP 或高频换城</span>
+                    <span class="w-pill w-high">高危诱因</span>
+                  </div>
+                  <div class="doc-entry-body">
+                    Anthropic 严格执行支持国家与地区政策。若账号注册属地（如美区）与当前代理出口跨洲错配（如连澳洲/日本节点），或使用已知商业 VPN、云机房 IP 段、对话中途频繁跳城市，极易触发自动风控。<strong>建议长期锁死单一、稳定、与属地一致的原生住宅类节点。</strong>
+                  </div>
+                </div>
+
+                <div class="doc-entry is-high">
+                  <div class="doc-entry-title">
+                    <span>2. 虚拟 U 卡、共享代充与多号同机连坐</span>
+                    <span class="w-pill w-high">高危连坐</span>
+                  </div>
+                  <div class="doc-entry-body">
+                    <ul class="doc-bullets">
+                      <li><strong>切勿复用封号卡：</strong>曾给已封禁账号付过款的银行卡或虚拟 U 卡，绑到新号上极易秒触发审核甚至直接连坐封号。</li>
+                      <li><strong>警惕共享代充与高危 U 卡段：</strong>低价代充常拿同一张卡给几十个号付款，或虚拟卡段被大面积滥用，同卡/同渠道只要有账号违规，其他正常号也容易被批量波及。</li>
+                      <li><strong>换号前彻底清理残留：</strong>同机 CLI 与桌面端混登不同账号、或未清理旧封号目录与设备指纹（machineID/userID），容易牵连新号。换号建议按序：① 开防复活盯防强杀进程 → ② 备份清理桌面端与 CLI 残留 → ③ 核对设备指纹刷新 → ④ 使用独立干净节点与未关联支付方式。</li>
+                    </ul>
+                  </div>
+                </div>
+
+                <div class="doc-entry is-high">
+                  <div class="doc-entry-title">
+                    <span>3. 消费级订阅接入第三方共享反代</span>
+                    <span class="w-pill w-high">官方红线</span>
+                  </div>
+                  <div class="doc-entry-body">
+                    个人 Pro / Max 订阅若通过 <code>ANTHROPIC_BASE_URL</code> 走第三方共享反代中转池，会与大量陌生账号混用出口与请求特征，极易引发批量连坐。强烈建议消费级账号直连官方原生端点。
+                  </div>
+                </div>
+
+                <div class="doc-entry is-high">
+                  <div class="doc-entry-title">
+                    <span>4. 自动化脚本机刷与持续撞击 429 限流</span>
+                    <span class="w-pill w-high">官方红线</span>
+                  </div>
+                  <div class="doc-entry-body">
+                    24×7 无人值守定时脚本、失控的子代理循环或持续压线高频触发 429 限流，容易被识别为非人工自动化滥用。建议保持常规人工交互节奏，留意定时任务与异常并发。
+                  </div>
+                </div>
+              </section>
+
+              <section class="doc-section">
+                <div class="doc-sec-hd">
+                  <span class="doc-sec-title">二、3 个关键防翻车阶段与护航习惯</span>
+                  <span class="doc-sec-sub">社区高频实战经验</span>
+                </div>
+
+                <div class="doc-entry is-mid">
+                  <div class="doc-entry-title">
+                    <span>1. 守好 3 个高敏脆弱观察窗</span>
+                    <span class="w-pill w-mid">经验预警</span>
+                  </div>
+                  <div class="doc-entry-body">
+                    <strong>新号注册不满 7 天</strong>、<strong>绑卡或升级套餐后 24 小时</strong>、以及<strong>刚通过 KYC 或解封后的前 72 小时</strong>，风控容错率明显偏低。此期间倾向于锁死单一稳定节点并保持低频人工对话，避免大幅波动。
+                  </div>
+                </div>
+
+                <div class="doc-entry is-mid">
+                  <div class="doc-entry-title">
+                    <span>2. 升级 Max 或换卡时的「四码一致」建议</span>
+                    <span class="w-pill w-mid">付费避坑</span>
+                  </div>
+                  <div class="doc-entry-body">
+                    升级高阶套餐或更换支付方式时较容易抽检触发实名核验。尽量保证<strong>发卡行国家、账单区、代理出口 IP 与实名证件签发地</strong>一致，有助于降低触发二次复审的概率。
+                  </div>
+                </div>
+
+                <div class="doc-entry is-mid">
+                  <div class="doc-entry-title">
+                    <span>3. 防止代理断连瞬间裸奔回传（Cookie 403）</span>
+                    <span class="w-pill w-mid">经验防护</span>
+                  </div>
+                  <div class="doc-entry-body">
+                    Clash 断开或切换节点瞬间，后台残留的 Claude 进程发送退出清理请求可能直接暴露本地真实网络特征。切节点或重启代理前建议先开启「防复活盯防」。
+                  </div>
+                </div>
+              </section>
+
+              <section class="doc-section">
+                <div class="doc-sec-hd">
+                  <span class="doc-sec-title">三、云端状态、403 报错与数据边界速查</span>
+                  <span class="doc-sec-sub">看懂信号不误判</span>
+                </div>
+
+                <div class="doc-entry is-info">
+                  <div class="doc-entry-title"><span>1. 读懂 3 个云端官方风控状态</span></div>
+                  <div class="doc-entry-body">
+                    <ul class="doc-bullets">
+                      <li><strong>Portal 风控门户（风险极高）：</strong>代表账号已被风控主动挂起要求申诉；触发后切勿未清理环境就同机切备用号。</li>
+                      <li><strong>官方静默标（后台观察）：</strong>还能正常对话，但后台已被贴上观察标记，常与跨区漂移、高频 429 或计费异常相关，需格外稳健使用。</li>
+                      <li><strong>Persona 实名 KYC（抗风控护城河）：</strong>敏感区或付费抽检触发的证件核验；通过并平稳度过 72 小时后，抗误杀能力显著高于未验证账号。</li>
+                    </ul>
+                  </div>
+                </div>
+
+                <div class="doc-entry is-info">
+                  <div class="doc-entry-title"><span>2. 别把普通 403 当封号（4 类速辨）</span></div>
+                  <div class="doc-entry-body">
+                    <strong>CF 入口盾 403</strong> 是节点 IP 弹盾（换干净同区节点即可，非封号）；<strong>背景 OAuth 403</strong> 是套餐权限边界（无害，工具已自动降噪）；<strong>退出回传 Cookie 403</strong> 是断连漏 IP 前兆；只有命中 <strong>account_banned</strong> 才是官方实锤封号。
+                  </div>
+                </div>
+
+                <div class="doc-entry is-info">
+                  <div class="doc-entry-title"><span>3. 工具能查什么 / 不能查什么</span></div>
+                  <div class="doc-entry-body">
+                    可自动获取：<strong>出口 IP/地区</strong>（本地）、<strong>账户属地</strong>（输 sk）、<strong>商户渠道</strong>（Stripe/Apple/Google）及部分 Stripe 计费币种；受支付与隐私隔离保护，<strong>银行卡/U 卡发卡国与 KYC 证件签发国绝不可由任何软件读取</strong>，需由你自行核对。
+                  </div>
+                </div>
+              </section>
+
+              <!-- 底部折叠区：100 分制评分权重明细表（默认收起，不抢宝典正文主角） -->
+              <section class="doc-section" style="padding-bottom:6px">
+                <button class="weight-collapse-btn" id="btnWeightToggle" type="button" onclick="toggleWeightTable()">
+                  <span>查看 100 分制评分权重明细（8 项总分 = 100 分）</span>
+                  <span id="weightChevron" style="color:var(--text-3);font-size:12px">展开 ▾</span>
+                </button>
+                <div class="weight-table hidden tabular" id="weightTableBox">
+                  <div class="weight-row"><span>归属地与出口 IP 一致性</span><span class="w-pill w-high">占 24 分</span></div>
+                  <div class="weight-row"><span>官方 API 端点纯净度（防反代）</span><span class="w-pill w-high">占 16 分</span></div>
+                  <div class="weight-row"><span>多号隔离与设备指纹防连坐</span><span class="w-pill w-high">占 16 分</span></div>
+                  <div class="weight-row"><span>官方警告与静默监控标（封号/Portal 熔断 ≤15）</span><span class="w-pill w-high">占 12 分</span></div>
+                  <div class="weight-row"><span>高敏观察窗（新号 / 支付 / 过 KYC）</span><span class="w-pill w-mid">占 10 分</span></div>
+                  <div class="weight-row"><span>人机节律与 429 并发安全</span><span class="w-pill w-mid">占 10 分</span></div>
+                  <div class="weight-row"><span>Clash 断连回传 Cookie 403 防护</span><span class="w-pill w-mid">占 8 分</span></div>
+                  <div class="weight-row"><span>本机隐私遥测与待传缓存</span><span class="w-pill w-low">占 4 分</span></div>
+                  <div class="weight-row"><span>Persona 实名护城河（过 72h 额外缓冲，封顶 100）</span><span class="w-pill w-ok">额外 +5 分</span></div>
+                </div>
+              </section>
+
+              <div style="font-size:11px;color:var(--text-3);line-height:1.55;padding:4px 2px">
+                免责与客观声明：本工具的「安全评分」是基于公开政策、本机实测特征与社区高频样本构建的<strong>启发式防御参考分</strong>，绝不等同于 Anthropic 内部黑盒风控分；高分不承诺永不封号，低分仅代表存在较多已知可优化隐患。
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="toast-host" id="toastHost"></div>
+      </div>
+    </div>
+
+    <script>
+      const ICONS = {
+        window: `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`,
+        auto: `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>`,
+        cloud: `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M2 12h18"/><path d="M12 3a13 13 0 0 1 0 18 13 13 0 0 1 0-18"/></svg>`,
+        mix: `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
+        endpoint: `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
+        disconnect: `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`,
+        telemetry: `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`,
+      };
+
+      const state = {
+        mode: "real-local", // 'real-local' | 'verified-risk' | 'stale-7d' | 'disconnect-warn' | 'all-clean'
+        subView: "audit",
+        openGroupId: null, // 单值互斥，默认全收起总览，每次点击仅打开 1 个
+        subShowExpire: false, // 点击切换订阅天数 / 预计到期日期
+        showKycExplain: false,
+        guideOpen: false, // 防封宝典与评分明细抽屉
+        weightTableOpen: false, // 100 分权重明细默认折叠，按需展开
+        verifyCount: 0, // 记录多次核验 sk 次数，实时刷新状态与时间戳
+        telemetryEnvFixed: false,
+        telemetryDirCleaned: true, // 本机实测为 0 B，只有 >0 B 时亮按钮
+        holdEnabled: false,
+        skInputVal: "",
+        showHowSk: false,
+        unreadLogs: 1,
+        logFilter: "all",
+        showDenoised: false,
+        expandedLogId: "l1",
+      };
+
+      const LOGS = [
+        {
+          id: "l1",
+          cat: "403",
+          denoised: false,
+          unread: true,
+          chip: "403 消歧 · CF 入口盾",
+          chipCls: "guard-chip-warn",
+          title: "Cloudflare 网页拦截盾（出口节点 IP 问题，非账号封禁）",
+          desc: "main.log 捕获 1 次 navigation to https://claude.ai/ failed with status code 403，属于节点 IP 弹盾；建议前往「节点流量」切同区干净住宅节点。",
+          time: "19:41:18 · main.log:3512",
+          raw: "[2026-11-25 19:41:18] navigation to https://claude.ai/ failed with status code 403\n消歧依据：Cloudflare 挑战盾特征命中，且 account_banned=0、portalVerify=0（非封号）",
+        },
+        {
+          id: "l2",
+          cat: "net",
+          denoised: false,
+          unread: false,
+          chip: "代理断连 · 已读 · x10",
+          chipCls: "guard-chip-neutral",
+          title: "代理长连接瞬时断开（ERR_CONNECTION_CLOSED · 0 次回传 Cookie 403）",
+          desc: "节点短暂抖动导致连接重置，已稳定折叠 10 次；期间未检出高危退出回传 Cookie 403。",
+          time: "16:05:00 · main.log:3069~3419",
+          raw: "[2026-11-25 16:05:00] Request failed: net::ERR_CONNECTION_CLOSED (已稳定折叠 10 次)",
+        },
+        {
+          id: "l3",
+          cat: "403",
+          denoised: true,
+          unread: false,
+          chip: "已自动降噪 · 背景 OAuth 403 · x7",
+          chipCls: "guard-chip-neutral",
+          title: "客户端背景轮询未开通特性接口返回 OAuth 403 (permission_error)",
+          desc: "本机 main.log 实测命中 7 次；结合 ~/.claude.json 套餐事实已归类为正常权限边界，默认静默降噪。",
+          time: "本机实测 · 共 7 次",
+          raw: "authorize returned 403 permission_error (x7)\n消歧结论：正常特性权限边界（非 KYC、非封号），已自动降噪",
+        },
+      ];
+
+      function showToast(title, body) {
+        const host = document.getElementById("toastHost");
+        const el = document.createElement("div");
+        el.className = "toast";
+        el.innerHTML = `<div class="toast-t">${title}</div><div class="toast-b">${body}</div>`;
+        host.appendChild(el);
+        setTimeout(() => {
+          el.style.opacity = "0";
+          el.style.transition = "opacity 0.2s";
+          setTimeout(() => el.remove(), 220);
+        }, 3000);
+      }
+
+      function extractSk(raw) {
+        if (!raw) return null;
+        const m = raw.match(/sk-ant-sid[0-9a-zA-Z_-]{16,}/);
+        return m ? m[0] : null;
+      }
+
+      function getAllGroups() {
+        const isRealLocal = state.mode === "real-local";
+        const isVerifiedRisk = state.mode === "verified-risk";
+        const isStale7d = state.mode === "stale-7d";
+        const isDisconnectWarn = state.mode === "disconnect-warn";
+        const isClean = state.mode === "all-clean";
+
+        // ===== 一、需用户自行注意与克制（按黑盒权重客观校准提示语气） =====
+        const gWindow = {
+          part: "user",
+          id: "g-window",
+          icon: ICONS.window,
+          prefix: "经验预警",
+          prefixKind: "warn-exp",
+          redline: false,
+          title: "新号、支付与 KYC 后高敏观察窗",
+          status: "ok",
+          statusText: "已过观察",
+          summary: isRealLocal
+            ? "注册 33 天（>7天）、订阅 33 天（>24h）、0 次套餐跳变；KYC 复核窗待 sk 校验。"
+            : "注册 33 天、订阅 33 天、Persona KYC 已过 3 天经验复核期、0 次套餐跳变。",
+          cols: 2,
+          metrics: [
+            { k: "新号注册观察窗 (<7 天)", v: "已注册 33 天 · 已过观察", cls: "ok" },
+            { k: "支付 / 升级复审窗 (<=24h)", v: "已订阅 33 天 · 已过复审", cls: "ok" },
+            {
+              k: "过 KYC 后复核窗 (<=72h · 社区经验)",
+              v: isRealLocal ? "待核 KYC 时间（仅前 3 天偏敏感）" : "已过 3 天 · 实名护城河缓冲",
+              cls: "ok",
+            },
+            { k: "近期套餐变动 (plan_changed)", v: "0 次异常跳变", cls: "ok" },
+          ],
+          advice: "属社区经验参考（非官方明文规则）：新号(<7天)、支付/升级(<=24h)及过 KYC 前 72h 容错率偏低，期间建议锁死单一稳定节点低频使用；升级 Max 或换卡时发卡国、账单区、出口 IP 与证件地尽量一致，有助于降低复审概率。",
+        };
+
+        const gAuto = {
+          part: "user",
+          id: "g-auto",
+          icon: ICONS.auto,
+          prefix: "官方红线",
+          redline: true,
+          title: "自动化机刷与人机节律监测",
+          status: "ok",
+          statusText: "节律正常",
+          summary: "近 5h/24h 无异常跨夜机刷循环，子代理 0%，0 个无人值守定时脚本，0 次 429 限流。",
+          cols: 2,
+          metrics: [
+            { k: "离线 .jsonl 跨夜节律 & 子代理占比", v: "人工停顿正常 · 子代理 0%", cls: "ok" },
+            { k: "无人值守脚本 (scheduled-tasks)", v: "0 个定时脚本", cls: "ok" },
+            { k: "多开并发峰值 (sideSessions) & 429", v: "峰值 0 · 0 次 429", cls: "ok" },
+            { k: "缓存 5h / 7d 水位与软锁", v: "22% / 72% · 无软锁", cls: "ok" },
+          ],
+          advice: "消费级订阅建议保持常规人工交互节律，尽量避免 24×7 无人值守循环或持续压线触发 429 限流。",
+        };
+
+        // ===== 二、工具可介入防御与修复 =====
+        // 第 1 & 2 点：云端静默监控已独立放顶部第 2 格，这里专注「注册归属地与出口一致性核对」（零重复！）
+        let gCloud;
+        if (isRealLocal) {
+          gCloud = {
+            part: "tool",
+            id: "g-cloud",
+            icon: ICONS.cloud,
+            prefix: "官方红线",
+            redline: true,
+            title: "注册归属地与出口一致性核对",
+            status: "pending",
+            statusText: "待核归属",
+            summary: "输入一次性 sk，同步顶部 4 项账号云端本体状态，并绑定隐藏注册归属地长期自动比对出口。",
+            isSkPanel: true,
+          };
+        } else if (isVerifiedRisk) {
+          gCloud = {
+            part: "tool",
+            id: "g-cloud",
+            icon: ICONS.cloud,
+            prefix: "官方红线",
+            redline: true,
+            title: "注册归属地与出口一致性核对",
+            status: "danger",
+            statusText: "跨洲错配",
+            summary: `账号注册属地 US 与当前出口 SYD(澳) 跨洲错配，建议切回美区稳定节点。`,
+            readonlyCols: 2,
+            readonlyMetrics: [
+              { k: "出口 IP 纯净度", v: "住宅段 · 近 7 天跨区 1 次", cls: "" },
+              { k: "属地绑定状态", v: `已绑定属地 US · 第 ${Math.max(1, state.verifyCount)} 次核验`, cls: "" },
+            ],
+            cols: 1,
+            metrics: [
+              {
+                k: "注册属地 × 当前出口节点",
+                v: "US × SYD(澳) · 跨洲错配（高风险诱因）",
+                cls: "danger",
+                boxState: "is-danger",
+                btn: { label: "前往切换美区节点 →", primary: true, toast: ["联动节点流量", "即将跳转「节点流量」选择稳定的美国原生住宅节点。"] },
+              },
+            ],
+            advice: "归属地与出口跨洲错配属已知高风险诱因，强烈建议切回同区稳定节点；切换后随时可点击右侧「重验 sk」刷新云端状态。",
+            allowReverify: true,
+          };
+        } else {
+          gCloud = {
+            part: "tool",
+            id: "g-cloud",
+            icon: ICONS.cloud,
+            prefix: "官方红线",
+            redline: true,
+            title: "注册归属地与出口一致性核对",
+            status: "ok",
+            statusText: "同区一致",
+            summary: isStale7d
+              ? "已绑定注册属地 US（与当前出口 SJC 一致）；云端状态为 12 天前快照，建议按需重验。"
+              : `账号注册属地 US 与当前出口 SJC(US) 同区一致。`,
+            readonlyCols: 2,
+            readonlyMetrics: [
+              { k: "出口 IP 纯净度", v: "美区住宅段 · 近 7 天 0 跳区", cls: "" },
+              {
+                k: "属地绑定状态",
+                v: isStale7d ? "属地 US 长期有效 · 云端 12 天前核验" : `已绑定属地 US · 第 ${Math.max(2, state.verifyCount)} 次核验`,
+                cls: isStale7d ? "warn" : "",
+                boxState: isStale7d ? "is-warn" : "",
+              },
+            ],
+            cols: 1,
+            metrics: [
+              {
+                k: "注册属地 × 当前出口节点",
+                v: "US × SJC(US) · 同区一致（持续自动比对）",
+                cls: "ok",
+                btn: { label: "节点已匹配", primary: false, disabled: true },
+              },
+            ],
+            advice: "绑定注册属地后工具会自动持续比对当前出口；如需更新对话状态、警告标或实时额度，可随时点击右侧重验。",
+            allowReverify: true,
+          };
+        }
+
+        const mixClean = isClean;
+        const gMix = {
+          part: "tool",
+          id: "g-mix",
+          icon: ICONS.mix,
+          prefix: "官方红线",
+          redline: true,
+          title: "多号混登、设备指纹与旧号残留防连坐",
+          status: mixClean ? "ok" : "warn",
+          statusText: mixClean ? "纯净无混" : "跨端混登",
+          summary: mixClean
+            ? "CLI 与桌面端同属 7aacf131，设备指纹一致，本地仅 1 个账号记录，0 跨组织 404。"
+            : "本机 CLI (7aacf131 · stev***88@gmail.com) 与桌面端日志组织 (a4722ea6) 不一致。",
+          readonlyCols: 2,
+          readonlyMetrics: [
+            { k: "本机设备指纹（换号前后对照）", v: "machineID 4cfdc2d2 · userID e084f6b6", cls: "" },
+            { k: "跨组织 404 与封禁残留", v: "0 次 404 · 0 封禁残留", cls: "" },
+          ],
+          cols: 2,
+          metrics: [
+            {
+              k: "桌面端残留组织（日志不含邮箱）",
+              v: mixClean ? "Desktop=7aacf131（与 CLI 一致）" : "Desktop=a4722ea6 ≠ CLI=7aacf131",
+              cls: mixClean ? "ok" : "warn",
+              boxState: mixClean ? "" : "is-warn",
+              btn: mixClean
+                ? { label: "桌面端已纯净", primary: false, disabled: true }
+                : { label: "前往清理桌面端 →", primary: true, toast: ["联动环境维护", "跳转「环境维护」先 ZIP 原子备份并清理 Desktop 目录。"] },
+            },
+            {
+              k: "CLI 备份识别到的账号",
+              v: mixClean ? "仅 1 号：stev***88@gmail.com (Pro)" : "5 份备份均属 stev***88@gmail.com (Pro)",
+              cls: "ok",
+              btn: mixClean
+                ? { label: "CLI 已纯净", primary: false, disabled: true }
+                : { label: "清理 CLI 凭据与备份", primary: false, toast: ["清理 CLI 登录态与备份", "将先原子备份再清理 CLI 旧凭据与历史配置，清理后可重新登录同一主号。"] },
+            },
+          ],
+          advice: "换号前建议清理旧端残留并核对上方设备指纹已刷新，同时尽量避免在新号复用曾封禁账号的银行卡或虚拟 U 卡（详见右上「防封宝典」）。",
+        };
+
+        const gEndpoint = {
+          part: "tool",
+          id: "g-endpoint",
+          icon: ICONS.endpoint,
+          prefix: "官方红线",
+          redline: true,
+          title: "官方 API 端点防反代检测",
+          status: "ok",
+          statusText: "原生端点",
+          summary: "未检出非官方 ANTHROPIC_BASE_URL / API_URL 改写，消费级订阅直连原生官方端点。",
+          cols: 2,
+          metrics: [
+            { k: "settings.json ANTHROPIC_BASE_URL", v: "默认官方（未改写）", cls: "ok" },
+            { k: "系统环境变量 API 端点冲突", v: "0 冲突 · 原生直连", cls: "ok" },
+          ],
+          advice: "消费级订阅强烈建议直连官方原生端点，避免叠加第三方共享反代中转池引发连坐。",
+        };
+
+        const disProxyBad = isDisconnectWarn;
+        const disHoldBad = isDisconnectWarn && !state.holdEnabled;
+        const dis403Bad = isDisconnectWarn;
+        const disHasIssue = disProxyBad || disHoldBad || dis403Bad;
+        const gDisconnect = {
+          part: "tool",
+          id: "g-disconnect",
+          icon: ICONS.disconnect,
+          prefix: "经验防护",
+          prefixKind: "warn-exp",
+          redline: false,
+          title: "Clash 断连回传 Cookie 403 防护",
+          status: disHasIssue ? "danger" : "ok",
+          statusText: disHasIssue ? "存在漏连" : "防护就绪",
+          summary: disHasIssue
+            ? "检测到 TUN 代理异常、后台有 Claude 进程未盯防，且日志捕获 1 次退出回传 Cookie 403 前兆。"
+            : "代理 TUN 接管在线、防复活盯防就绪、日志 0 次断连回传 Cookie 403。",
+          cols: 3,
+          metrics: [
+            {
+              k: "控制台代理状态",
+              v: disProxyBad ? "TUN 离线 / 代理异常" : "TUN 接管与规则锁死在线",
+              cls: disProxyBad ? "danger" : "ok",
+              boxState: disProxyBad ? "is-danger" : "",
+              btn: disProxyBad
+                ? { label: "前往控制台修复 →", primary: true, toast: ["联动控制台", "即将跳转「控制台」修复 Clash TUN 与代理状态。"] }
+                : { label: "查看控制台", primary: false, disabled: false, toast: ["控制台状态正常", "当前代理引擎、TUN 接管与 Fake-IP 全部在线。"] },
+            },
+            {
+              k: "环境守护（防复活盯防）",
+              v: disHoldBad ? "存在后台进程 · 未开盯防" : state.holdEnabled ? "45s 盯防保护中" : "0 后台残留 · 盯防就绪",
+              cls: disHoldBad ? "warn" : "ok",
+              boxState: disHoldBad ? "is-warn" : "",
+              btn: disHoldBad
+                ? { label: "立即强杀并盯防 45s", primary: true, action: "enableHold" }
+                : { label: state.holdEnabled ? "已开启盯防" : "盯防就绪", primary: false, disabled: true },
+            },
+            {
+              k: "断连回传 Cookie 403",
+              v: dis403Bad ? "近 24h 命中 1 次前兆" : "0 次命中",
+              cls: dis403Bad ? "danger" : "ok",
+              boxState: dis403Bad ? "is-danger" : "",
+              btn: dis403Bad
+                ? { label: "查看日志异常 →", primary: true, action: "openLogs" }
+                : { label: "查看日志异常", primary: false, action: "openLogs" },
+            },
+          ],
+          advice: "切换节点或重启代理前建议先开启防复活盯防，有助于阻断断连瞬间的裸连回传。",
+        };
+
+        const telEnvBad = !isClean && !state.telemetryEnvFixed;
+        const telDirBad = isDisconnectWarn && !state.telemetryDirCleaned;
+        const telAnyBad = telEnvBad || telDirBad;
+        const gTelemetry = {
+          part: "tool",
+          id: "g-telemetry",
+          icon: ICONS.telemetry,
+          prefix: "隐私降噪",
+          redline: false,
+          title: "本机遥测开关与缓存清理",
+          status: telAnyBad ? "warn" : "ok",
+          statusText: telAnyBad ? "缺降噪项" : "降噪已全",
+          summary: telAnyBad
+            ? `${telEnvBad ? "settings.json 缺 2 项降噪变量" : "4/4 降噪变量已全"}，${telDirBad ? "telemetry 目录存在 42 KB 待传缓存" : "telemetry 目录 0 B"}。`
+            : "4/4 隐私降噪环境变量均已写入 settings.json，待传 telemetry 目录为 0 B。",
+          cols: 2,
+          metrics: [
+            {
+              k: "settings.json 4 项降噪开关",
+              v: telEnvBad ? "仅 2 / 4（缺 TELEMETRY & BUG_COMMAND）" : "4 / 4 已全部开启",
+              cls: telEnvBad ? "warn" : "ok",
+              boxState: telEnvBad ? "is-warn" : "",
+              btn: telEnvBad
+                ? { label: "一键补齐 4/4 开关", primary: true, action: "fixTelEnv" }
+                : { label: "配置已完整", primary: false, disabled: true },
+            },
+            {
+              k: "~/.claude/telemetry 待传目录",
+              v: telDirBad ? "待传 3 个文件 (42 KB)" : "0 文件 (0 B · 无需清理)",
+              cls: telDirBad ? "warn" : "ok",
+              boxState: telDirBad ? "is-warn" : "",
+              btn: telDirBad
+                ? { label: "一键清空待传遥测", primary: true, action: "cleanTelDir" }
+                : { label: "目录已干净", primary: false, disabled: true },
+            },
+          ],
+          advice: "属于预防性隐私降噪（直接风控权重较低）：补齐开关前会自动保存首次基线，随时可一键撤回。",
+        };
+
+        return [gWindow, gAuto, gCloud, gMix, gEndpoint, gDisconnect, gTelemetry];
+      }
+
+      // 严格 100 分权重总分制（24+16+16+12+10+10+8+4 = 100，实名护城河额外 +5 缓冲；每项带通俗标题+简述）
+      function computeRiskScore() {
+        const isRealLocal = state.mode === "real-local";
+        const isVerifiedRisk = state.mode === "verified-risk";
+        const isStale7d = state.mode === "stale-7d";
+        const isDisconnectWarn = state.mode === "disconnect-warn";
+        const isClean = state.mode === "all-clean";
+
+        let score = 100;
+        const rows = [];
+
+        if (isVerifiedRisk) {
+          score -= 24;
+          rows.push({
+            title: "归属地与出口跨洲错配（权重 24 分）",
+            desc: "账号属地 US 与当前出口 SYD(澳) 跨洲，建议尽快切回美区稳定节点",
+            delta: "-24",
+            tone: "danger",
+          });
+          score -= 12;
+          rows.push({
+            title: "云端命中后台观察标（权重 12 分）",
+            desc: "对话仍可用，但账号已进观察队列，容错率下降",
+            delta: "-12",
+            tone: "warn",
+          });
+        }
+        if (!isClean) {
+          score -= 10;
+          rows.push({
+            title: "CLI 与桌面端混登不同组织（权重 16 分）",
+            desc: "CLI (7aacf131) 与桌面端日志 (a4722ea6) 不一致，存在跨端残留风险",
+            delta: "-10",
+            tone: "warn",
+          });
+        }
+        if (isDisconnectWarn) {
+          score -= 8;
+          rows.push({
+            title: "断连退出回传 Cookie 403 风险（权重 8 分）",
+            desc: "代理离线/未开盯防且日志命中退出回传前兆，易暴露真实网络",
+            delta: "-8",
+            tone: "danger",
+          });
+        }
+        if (!isClean && !state.telemetryEnvFixed) {
+          score -= 3;
+          rows.push({
+            title: "隐私遥测降噪开关未补齐（权重 4 分）",
+            desc: "settings.json 缺少 2 项降噪变量，可一键补齐并支持撤回",
+            delta: "-3",
+            tone: "muted",
+          });
+        }
+        if (isDisconnectWarn && !state.telemetryDirCleaned) {
+          score -= 1;
+          rows.push({
+            title: "待传遥测目录有残留（权重 4 分）",
+            desc: "telemetry 目录含 42 KB 待传文件，可一键清空",
+            delta: "-1",
+            tone: "muted",
+          });
+        }
+        if (!isRealLocal) {
+          score = Math.min(100, score + 5);
+          rows.push({
+            title: "已通过 Persona 实名认证（护城河缓冲）",
+            desc: "已过 72h 稳定期，账号抗误杀能力显著高于白号",
+            delta: "+5",
+            tone: "ok",
+          });
+        }
+
+        let blindSpotNote = "";
+        if (isRealLocal) {
+          if (score > 85) score = 85;
+          blindSpotNote = "当前仅基于本地数据评估（封顶 85）；云端核验后可补全官方警告、KYC 与真实属地，评分更真实完整";
+          rows.push({
+            title: "尚未完成云端核验（存在云端盲区）",
+            desc: "暂无法读取官方静默标、KYC 与隐藏属地，本地评估上限封顶 85 分",
+            delta: "封顶 85",
+            tone: "muted",
+          });
+        } else if (isStale7d) {
+          if (score > 85) score = 85;
+          blindSpotNote = "上次云端核验已超过 7 天（12 天前）；重新核验可刷新实时状态，评分更准确";
+          rows.push({
+            title: "云端核验已超 7 天时效",
+            desc: "属地绑定永久有效，但云端状态为 12 天前旧快照，建议重验刷新",
+            delta: "封顶 85",
+            tone: "muted",
+          });
+        }
+
+        score = Math.max(0, Math.min(100, score));
+        let levelCls = "s-safe";
+        let levelTxt = "低危稳健";
+        let barColor = "var(--success)";
+        if (score < 45) {
+          levelCls = "s-crit";
+          levelTxt = "高危警报";
+          barColor = "var(--danger)";
+        } else if (score < 70) {
+          levelCls = "s-mid";
+          levelTxt = "中高风险";
+          barColor = "#fb923c";
+        } else if (score < 85) {
+          levelCls = "s-watch";
+          levelTxt = "建议优化";
+          barColor = "var(--warning)";
+        }
+        return { score, levelCls, levelTxt, barColor, rows, blindSpotNote };
+      }
+
+      function renderGroupList(groups) {
+        const skValid = extractSk(state.skInputVal);
+        return groups
+          .map((g) => {
+            const isOpen = state.openGroupId === g.id;
+            const iconCls = g.status === "danger" ? "is-danger" : g.status === "warn" ? "is-warn" : "";
+            const stCls =
+              g.status === "danger"
+                ? "st-danger"
+                : g.status === "warn"
+                ? "st-warn"
+                : g.status === "pending"
+                ? "st-pending"
+                : "st-ok";
+
+            let detailHtml = "";
+            if (isOpen) {
+              if (g.isSkPanel) {
+                detailHtml = `
+                  <div class="audit-detail">
+                    <div class="sk-inline-box">
+                      <div class="sk-row">
+                        <input
+                          id="skInput"
+                          class="sk-input"
+                          type="text"
+                          autocomplete="off"
+                          spellcheck="false"
+                          value="${state.skInputVal.replace(/"/g, "&quot;")}"
+                          placeholder="粘贴一次性 sessionKey（sk-ant-sid...）或浏览器右键 Copy as cURL 整段"
+                          oninput="handleSkInput(this.value)"
+                        />
+                        <button class="guard-btn guard-btn-primary guard-btn-sm" id="btnVerifyCloud" type="button" ${skValid ? "" : "disabled"} onclick="runCloudVerify()">开始核验</button>
+                      </div>
+                      <div class="sk-sub-row">
+                        <span style="color:${skValid ? "var(--success)" : "var(--text-3)"}">
+                          ${
+                            skValid
+                              ? `已提取有效 sessionKey（${skValid.slice(0, 14)}••••${skValid.slice(-4)}），其余内容已忽略且绝不落盘`
+                              : "经 Clash(7890) 只读查询一次并绑定档案，同步回填顶部对话可用、警告与 Persona/Portal KYC，明文用完即焚"
+                          }
+                        </span>
+                        <div style="display:flex;align-items:center;gap:12px;flex-shrink:0">
+                          <button class="text-btn" type="button" onclick="fillDemoSk()">填入示例测试</button>
+                          <button class="text-btn" type="button" onclick="toggleHowSk()">怎么 10 秒复制？ ${state.showHowSk ? "▴" : "▾"}</button>
+                        </div>
+                      </div>
+                      ${
+                        state.showHowSk
+                          ? `<div class="sk-how-box">在已登录 <span class="mono">claude.ai</span> 的浏览器按 <strong>F12 → Network（网络）</strong>，刷新后右键任意请求点 <strong>Copy as cURL</strong>，整段粘贴到上方输入框即可自动提取并丢弃其余内容。</div>`
+                          : ""
+                      }
+                    </div>
+                  </div>
+                `;
+              } else {
+                const readonlyHtml = g.readonlyMetrics
+                  ? `<div class="readonly-strip ${g.readonlyCols === 3 ? "cols-3" : ""}">
+                      ${g.readonlyMetrics
+                        .map(
+                          (rm) => `
+                        <div class="readonly-box ${rm.boxState || ""}">
+                          <span class="k">${rm.k}</span>
+                          <span class="v ${rm.cls || ""}">${rm.v}</span>
+                        </div>
+                      `
+                        )
+                        .join("")}
+                    </div>`
+                  : "";
+                detailHtml = `
+                  <div class="audit-detail tabular">
+                    ${readonlyHtml}
+                    <div class="metric-strip ${g.cols === 1 ? "cols-1" : g.cols === 2 ? "cols-2" : ""}">
+                      ${g.metrics
+                        .map(
+                          (m, idx) => `
+                        <div class="metric-box ${m.boxState || ""}">
+                          <div>
+                            <div class="metric-top"><span class="k">${m.k}</span></div>
+                            <div class="v ${m.cls}" style="margin-top:4px">${m.v}</div>
+                          </div>
+                          ${
+                            m.btn
+                              ? `<div class="metric-act">
+                                  <button
+                                    class="guard-btn ${m.btn.primary ? "guard-btn-primary" : "guard-btn-flat"} guard-btn-xs"
+                                    type="button"
+                                    ${m.btn.disabled ? "disabled" : ""}
+                                    onclick="handleMetricBtn('${g.id}', ${idx})"
+                                  >${m.btn.label}</button>
+                                </div>`
+                              : ""
+                          }
+                        </div>
+                      `
+                        )
+                        .join("")}
+                    </div>
+                    <div class="advice-bar">
+                      <span><strong>${g.part === "tool" ? "说明：" : "避坑提示："}</strong>${g.advice}</span>
+                      ${g.allowReverify ? `<button class="text-btn" style="flex-shrink:0" type="button" onclick="reverifyCloud()">重验 sk</button>` : ""}
+                    </div>
+                  </div>
+                `;
+              }
+            }
+
+            return `
+              <div class="audit-group ${isOpen ? "is-open" : ""} ${g.status === "danger" ? "is-danger-row" : ""}">
+                <div class="audit-row" onclick="toggleGroup('${g.id}')">
+                  <div class="audit-left">
+                    <!-- 第 6 点：参考控制台的 30x30 灰色图标块，彻底移除左侧状态圆点 -->
+                    <div class="guard-icon-box ${iconCls}">${g.icon}</div>
+                    <div class="audit-text">
+                      <!-- 第 2 点：官方红线/经验预警放在标题正左侧 -->
+                      <div class="audit-title-line">
+                        <span class="prefix-tag ${g.redline ? "redline" : g.prefixKind === "warn-exp" ? "warn-exp" : "privacy-low"}"><span class="pt-dot"></span>${g.prefix}</span>
+                        <span class="audit-title">${g.title}</span>
+                      </div>
+                      <div class="audit-summary">${g.summary}</div>
+                    </div>
+                  </div>
+                  <div class="audit-right">
+                    <span class="status-pill ${stCls}">${g.statusText}</span>
+                    <span class="chev">${isOpen ? "▴" : "▾"}</span>
+                  </div>
+                </div>
+                ${detailHtml}
+              </div>
+            `;
+          })
+          .join("");
+      }
+
+      function render() {
+        document.getElementById("demoRealLocal").classList.toggle("active", state.mode === "real-local");
+        document.getElementById("demoVerifiedRisk").classList.toggle("active", state.mode === "verified-risk");
+        document.getElementById("demoStale7d").classList.toggle("active", state.mode === "stale-7d");
+        document.getElementById("demoDisconnectWarn").classList.toggle("active", state.mode === "disconnect-warn");
+        document.getElementById("demoAllClean").classList.toggle("active", state.mode === "all-clean");
+
+        document.getElementById("tabAudit").classList.toggle("active", state.subView === "audit");
+        document.getElementById("tabLogs").classList.toggle("active", state.subView === "logs");
+        document.getElementById("viewAudit").classList.toggle("hidden", state.subView !== "audit");
+        document.getElementById("viewLogs").classList.toggle("hidden", state.subView !== "logs");
+
+        document.getElementById("kycExplainBox").classList.toggle("hidden", !state.showKycExplain);
+        document.getElementById("guideDrawer").classList.toggle("hidden", !state.guideOpen);
+        document.getElementById("weightTableBox").classList.toggle("hidden", !state.weightTableOpen);
+        document.getElementById("weightChevron").textContent = state.weightTableOpen ? "收起 ▴" : "展开 ▾";
+
+        const all = getAllGroups();
+        const userGroups = all.filter((g) => g.part === "user");
+        const toolGroups = all.filter((g) => g.part === "tool");
+
+        const issues = all.filter((g) => g.status === "danger" || g.status === "warn");
+        const hasDanger = all.some((g) => g.status === "danger");
+
+        const isRealLocal = state.mode === "real-local";
+        const isVerifiedRisk = state.mode === "verified-risk";
+        const isStale7d = state.mode === "stale-7d";
+        const isDisconnectWarn = state.mode === "disconnect-warn";
+        const isClean = state.mode === "all-clean";
+
+        // 诚实边界：未输 sk 时标「预计续费 ~12-22」（本地推算）；输 sk 后同步官方准确到期日「到期 2026-12-22」
+        document.getElementById("subToggleTxt").textContent = state.subShowExpire
+          ? isRealLocal
+            ? "预计续费 ~12-22"
+            : "到期 2026-12-22"
+          : "订阅 33 天";
+        document.getElementById("metaMerchant").textContent = "Stripe 直付";
+        document.getElementById("metaRegAge").textContent = "注册 33 天";
+        document.getElementById("metaLocalAge").textContent = "本机 28 天";
+
+        // 第 5 点（图 4）：核验 sk 后顶部清晰展示账户属地（US），未核验标「属地 待核」
+        const geoBadge = document.getElementById("metaGeoBadge");
+        if (isRealLocal) {
+          geoBadge.className = "geo-pill-mini";
+          geoBadge.textContent = "属地 待核";
+        } else {
+          geoBadge.className = "geo-pill-mini is-verified";
+          geoBadge.textContent = "属地 US";
+        }
+
+        // 第 1 点（图 2）：未核验/超7天时展示高辨识度可点击柔蓝提示，引导用户一键云端核验
+        const ageTag = document.getElementById("verifyAgeTag");
+        const ageTxt = document.getElementById("verifyAgeTxt");
+        if (isRealLocal) {
+          ageTag.className = "verify-age is-prompt tabular";
+          ageTag.innerHTML = `<span class="pulse-blue-dot"></span><span>本地估上限85 · 补验云端更准 →</span>`;
+          ageTag.disabled = false;
+        } else if (isStale7d) {
+          ageTag.className = "verify-age is-prompt tabular";
+          ageTag.innerHTML = `<span class="pulse-blue-dot"></span><span>12天前核验 · 重验更新更准 →</span>`;
+          ageTag.disabled = false;
+        } else {
+          ageTag.className = "verify-age tabular";
+          ageTag.textContent = `刚刚同步${state.verifyCount > 1 ? ` (第 ${state.verifyCount} 次)` : ""}`;
+          ageTag.disabled = true;
+        }
+
+        const risk = computeRiskScore();
+        const scoreBtn = document.getElementById("scorePillBtn");
+        scoreBtn.className = `score-pill ${risk.levelCls} tabular`;
+        document.getElementById("scorePillTxt").textContent = isRealLocal
+          ? `${risk.score} 分 · 本地估`
+          : `${risk.score} 分 · ${risk.levelTxt}`;
+
+        // 第 1 点（图 1）：防封宝典评分卡右上角「本地评估」旁加蓝色可点击「立即云端核验 →」，文案明确写清核验后评分更真实完整
+        const needCloudCta = isRealLocal || isStale7d;
+        document.getElementById("drawerScoreCard").innerHTML = `
+          <div class="score-head">
+            <div>
+              <div style="font-size:11.5px;color:var(--text-3)">当前账户防御参考分（基准 100 · 非官方黑盒分）</div>
+              <div style="display:flex;align-items:baseline;gap:8px;margin-top:4px">
+                <span class="score-big" style="color:${risk.barColor}">${risk.score}</span>
+                <span style="font-size:12px;color:var(--text-2)">/ 100 · <strong>${risk.levelTxt}</strong></span>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+              <span class="score-pill ${risk.levelCls}" style="cursor:default">${isRealLocal ? "本地评估" : isStale7d ? "超 7 天衰减" : "本地+云端综合"}</span>
+              ${
+                needCloudCta
+                  ? `<button class="guard-btn guard-btn-primary guard-btn-xs" type="button" onclick="jumpCloudFromDrawer()">立即云端核验 →</button>`
+                  : `<button class="guard-btn guard-btn-flat guard-btn-xs" type="button" onclick="jumpCloudFromDrawer()">重验 sk</button>`
+              }
+            </div>
+          </div>
+          <div class="score-track"><div class="score-bar" style="width:${risk.score}%;background:${risk.barColor}"></div></div>
+          ${
+            needCloudCta
+              ? `<div style="font-size:11.5px;color:var(--text-2);background:rgba(0,111,238,0.08);border:1px solid rgba(51,142,247,0.28);border-radius:7px;padding:7px 9px;display:flex;align-items:center;justify-content:space-between;gap:8px">
+                  <span>${isRealLocal ? "当前仅基于本地数据评估（封顶 85）；<strong>云端核验后可补全官方警告、KYC 与真实属地，评分更真实完整</strong>。" : "上次云端核验已超 7 天（12 天前）；<strong>重新核验可刷新实时状态，评分更准确</strong>。"}</span>
+                  <button class="text-btn" style="flex-shrink:0" type="button" onclick="jumpCloudFromDrawer()">去核验 →</button>
+                </div>`
+              : ""
+          }
+          <div class="score-deduct-list">
+            ${
+              risk.rows.length > 0
+                ? risk.rows
+                    .map((r) => {
+                      const col =
+                        r.tone === "danger"
+                          ? "var(--danger-bright)"
+                          : r.tone === "warn"
+                          ? "var(--warning)"
+                          : r.tone === "ok"
+                          ? "var(--success)"
+                          : "var(--text-3)";
+                      return `
+                        <div class="score-deduct-item">
+                          <div style="min-width:0">
+                            <div class="score-deduct-title">${r.title}</div>
+                            <div class="score-deduct-desc">${r.desc}</div>
+                          </div>
+                          <span class="mono" style="font-size:12px;font-weight:700;color:${col};white-space:nowrap;flex-shrink:0">${r.delta}</span>
+                        </div>`;
+                    })
+                    .join("")
+                : `<div class="score-deduct-item"><div><div class="score-deduct-title">全部检查项均无扣分</div><div class="score-deduct-desc">本地环境与云端状态均处于稳健区间</div></div><span class="mono" style="color:var(--success);font-weight:700">100</span></div>`
+            }
+          </div>
+        `;
+
+        const topBtn = document.getElementById("btnTopSkAction");
+        topBtn.textContent = isRealLocal ? "云端核验" : "重验 sk";
+        topBtn.className = isRealLocal || isStale7d
+          ? "guard-btn guard-btn-primary guard-btn-sm"
+          : "guard-btn guard-btn-flat guard-btn-sm";
+
+        // 第 2 点（图 3）：顶部 4 格副标题全部改为高价值中文说明/风险定性/触发解读！
+        const stChat = document.getElementById("stChat");
+        const stChatSub = document.getElementById("stChatSub");
+        const stWarn = document.getElementById("stWarn");
+        const stWarnSub = document.getElementById("stWarnSub");
+        const stPersona = document.getElementById("stPersona");
+        const stPersonaSub = document.getElementById("stPersonaSub");
+        const stPortal = document.getElementById("stPortal");
+        const stPortalSub = document.getElementById("stPortalSub");
+
+        if (isRealLocal) {
+          stChat.className = "pstat-v muted";
+          stChat.textContent = "待 sk 实证";
+          stChatSub.textContent = "本地 0 封号 · 待云端实证";
+          stWarn.className = "pstat-v muted";
+          stWarn.textContent = "待 sk 实证";
+          stWarnSub.textContent = "后台隐性观察标 · 容错率预警";
+          stPersona.className = "pstat-v muted";
+          stPersona.textContent = "待 sk 实证";
+          stPersonaSub.textContent = "敏感/付费抽检 · 过审抗风险提升";
+          stPortal.className = "pstat-v muted";
+          stPortal.textContent = "本地 0 拦截";
+          stPortalSub.textContent = "风控强制挂起 · 触发即风险极高";
+        } else if (isStale7d) {
+          stChat.className = "pstat-v muted";
+          stChat.textContent = "对话可用（12 天前）";
+          stChatSub.textContent = "核验超 7 天，建议重验刷新";
+          stWarn.className = "pstat-v muted";
+          stWarn.textContent = "0 警告（12 天前）";
+          stWarnSub.textContent = "上次无后台观察标 · 建议重验";
+          stPersona.className = "pstat-v muted";
+          stPersona.textContent = "已通过（12 天前）";
+          stPersonaSub.textContent = "已过实名 · 抗风险提升 (+5)";
+          stPortal.className = "pstat-v muted";
+          stPortal.textContent = "无挂起（12 天前）";
+          stPortalSub.textContent = "风险极高项 · 本地持续 0 拦截";
+        } else if (isVerifiedRisk) {
+          // 第 2 点（图 2）：正常态统一「绿点 + 白色主字」，只有异常态才给文字标色！
+          stChat.className = "pstat-v";
+          stChat.innerHTML = `<span class="guard-dot"></span><span>对话可用</span>`;
+          stChatSub.textContent = "对话畅通 · 无封禁限制";
+          stWarn.className = "pstat-v warn";
+          stWarn.innerHTML = `<span class="guard-dot warn"></span><span>1 条静默监控</span>`;
+          stWarnSub.textContent = "已进后台观察 · 疑跨区/高频诱发";
+          stPersona.className = "pstat-v";
+          stPersona.innerHTML = `<span class="guard-dot"></span><span>已通过 (verified)</span>`;
+          stPersonaSub.textContent = "已过实名 · 抗误杀能力提升 (+5)";
+          stPortal.className = "pstat-v";
+          stPortal.innerHTML = `<span class="guard-dot"></span><span>无挂起 (clear)</span>`;
+          stPortalSub.textContent = "未被风控挂起 · 正常放行";
+        } else {
+          stChat.className = "pstat-v";
+          stChat.innerHTML = `<span class="guard-dot"></span><span>对话可用</span>`;
+          stChatSub.textContent = "对话畅通 · 无封禁限制";
+          stWarn.className = "pstat-v";
+          stWarn.innerHTML = `<span class="guard-dot"></span><span>0 警告 · 干净</span>`;
+          stWarnSub.textContent = "无官方警告与后台观察标";
+          stPersona.className = "pstat-v";
+          stPersona.innerHTML = `<span class="guard-dot"></span><span>已通过 (verified)</span>`;
+          stPersonaSub.textContent = "已过实名 · 抗误杀能力提升 (+5)";
+          stPortal.className = "pstat-v";
+          stPortal.innerHTML = `<span class="guard-dot"></span><span>无挂起 (clear)</span>`;
+          stPortalSub.textContent = "未被风控挂起 · 正常放行";
+        }
+
+        const q5 = isRealLocal ? 22 : isVerifiedRisk ? 34 : isStale7d ? 28 : 18;
+        const q7 = isRealLocal ? 72 : isVerifiedRisk ? 64 : isStale7d ? 55 : 42;
+        document.getElementById("acct5hTxt").textContent = `${q5}%`;
+        document.getElementById("acct5hFill").style.width = `${q5}%`;
+        document.getElementById("acct7dTxt").textContent = `${q7}%`;
+        document.getElementById("acct7dFill").style.width = `${q7}%`;
+        // 第 2 点（图 1）：精简更新时间放归属/出口行最右侧，砍掉底部多余缓存行
+        const geoRoute = document.getElementById("acctGeoRoute");
+        const qStamp = document.getElementById("acctQuotaStamp");
+        if (isRealLocal) {
+          geoRoute.textContent = "属地待核 · 出口 US";
+          geoRoute.style.color = "var(--text-3)";
+          qStamp.textContent = "9天前";
+          qStamp.title = "本地缓存 · 9 天前采样";
+        } else if (isVerifiedRisk) {
+          geoRoute.textContent = "归属 US · 出口 SYD";
+          geoRoute.style.color = "var(--danger-bright)";
+          qStamp.textContent = "刚刚";
+          qStamp.title = "云端核验 · 刚刚同步";
+        } else if (isStale7d) {
+          geoRoute.textContent = "归属 US · 出口 US";
+          geoRoute.style.color = "var(--text-3)";
+          qStamp.textContent = "12天前";
+          qStamp.title = "云端缓存 · 12 天前核验";
+        } else {
+          geoRoute.textContent = "归属 US · 出口 US";
+          geoRoute.style.color = "var(--text-3)";
+          qStamp.textContent = "刚刚";
+          qStamp.title = "云端核验 · 刚刚同步";
+        }
+
+        const sideBadge = document.getElementById("sideBadge");
+        const acctDot = document.getElementById("acctDot");
+        const acctStatusText = document.getElementById("acctStatusText");
+        if (hasDanger) {
+          sideBadge.className = "nav-badge nb-danger tabular";
+          sideBadge.textContent = String(issues.length);
+          acctDot.className = "guard-dot danger";
+          acctStatusText.style.color = "var(--danger-bright)";
+          acctStatusText.textContent = `${issues.length} 项待处理`;
+        } else if (issues.length > 0) {
+          sideBadge.className = "nav-badge nb-warn tabular";
+          sideBadge.textContent = String(issues.length);
+          acctDot.className = "guard-dot warn";
+          acctStatusText.style.color = "var(--warning)";
+          acctStatusText.textContent = `${issues.length} 项待处理`;
+        } else {
+          sideBadge.className = "nav-badge nb-ok tabular";
+          sideBadge.textContent = "OK";
+          acctDot.className = "guard-dot";
+          acctStatusText.style.color = "var(--text-2)";
+          acctStatusText.textContent = "状态安全";
+        }
+
+        const segLogBadge = document.getElementById("segLogBadge");
+        const pulseDot = document.getElementById("pulseDot");
+        const pulseCount = document.getElementById("pulseCount");
+        const pulseDesc = document.getElementById("pulseDesc");
+        if (state.unreadLogs > 0 && !isClean) {
+          segLogBadge.classList.remove("hidden");
+          segLogBadge.textContent = String(state.unreadLogs);
+          pulseDot.className = "guard-dot warn";
+          pulseCount.style.color = "var(--warning)";
+          pulseCount.textContent = `${state.unreadLogs} 未读`;
+          pulseDesc.textContent = isDisconnectWarn
+            ? "捕获 1 条退出回传 Cookie 403 高危前兆 + 1 条 CF 盾；7 条 OAuth 403 已降噪。"
+            : "403 消歧：1 条 CF 入口盾（非封号）；7 条背景 OAuth 403 已自动降噪。";
+        } else {
+          segLogBadge.classList.add("hidden");
+          pulseDot.className = "guard-dot";
+          pulseCount.style.color = "var(--text-3)";
+          pulseCount.textContent = "0 未读";
+          pulseDesc.textContent = "近 24 小时无未读异常；7 条背景 OAuth 403 已静默降噪。";
+        }
+
+        document.getElementById("partUserCard").innerHTML = renderGroupList(userGroups);
+        document.getElementById("partToolCard").innerHTML = renderGroupList(toolGroups);
+        renderLogs();
+      }
+
+      function renderLogs() {
+        const list = LOGS.filter((l) => {
+          if (!state.showDenoised && l.denoised) return false;
+          if (state.logFilter === "all") return true;
+          return l.cat === state.logFilter;
+        });
+
+        document.getElementById("logListCard").innerHTML = list
+          .map((l) => {
+            const unread = l.unread && state.unreadLogs > 0;
+            const exp = state.expandedLogId === l.id;
+            return `
+              <div class="log-item" onclick="toggleLog('${l.id}')">
+                <div class="log-top">
+                  <div class="log-title">
+                    <span class="guard-chip ${l.chipCls}">${l.chip}${unread ? " · 未读" : ""}</span>
+                    <span>${l.title}</span>
+                  </div>
+                  <span class="mono tabular" style="font-size:11px;color:var(--text-3)">${l.time}</span>
+                </div>
+                <div class="log-desc">${l.desc}</div>
+                ${exp ? `<div class="log-raw">${l.raw}</div>` : ""}
+              </div>
+            `;
+          })
+          .join("");
+      }
+
+      function toggleSubDateMode() {
+        state.subShowExpire = !state.subShowExpire;
+        render();
+      }
+
+      function toggleKycExplain() {
+        state.showKycExplain = !state.showKycExplain;
+        render();
+      }
+
+      function openGuideDrawer() {
+        state.guideOpen = true;
+        render();
+      }
+
+      function closeGuideDrawer() {
+        state.guideOpen = false;
+        render();
+      }
+
+      function jumpCloudFromDrawer() {
+        state.guideOpen = false;
+        focusCloudGroup();
+      }
+
+      function toggleWeightTable() {
+        state.weightTableOpen = !state.weightTableOpen;
+        render();
+      }
+
+      function focusCloudGroup() {
+        if (state.mode !== "real-local") state.mode = "real-local";
+        state.subView = "audit";
+        state.openGroupId = "g-cloud";
+        render();
+        setTimeout(() => document.getElementById("skInput")?.focus(), 40);
+      }
+
+      // 第 8 点：手风琴单开互斥逻辑
+      function toggleGroup(id) {
+        state.openGroupId = state.openGroupId === id ? null : id;
+        render();
+      }
+
+      function handleMetricBtn(groupId, metricIdx) {
+        const g = getAllGroups().find((x) => x.id === groupId);
+        const btn = g?.metrics?.[metricIdx]?.btn;
+        if (!btn) return;
+        if (btn.action === "openLogs") {
+          state.subView = "logs";
+          render();
+          return;
+        }
+        if (btn.action === "enableHold") {
+          state.holdEnabled = true;
+          render();
+          showToast("已开启 45s 防复活盯防", "后台 Claude 进程已清空，切代理/重连期间绝不裸奔回传。");
+          return;
+        }
+        if (btn.action === "fixTelEnv") {
+          state.telemetryEnvFixed = true;
+          render();
+          showToast("已一键补齐 4/4 降噪开关", "已写入 settings.json（保留首次基线可撤回）。");
+          return;
+        }
+        if (btn.action === "cleanTelDir") {
+          state.telemetryDirCleaned = true;
+          render();
+          showToast("已清空待传遥测目录", "已清理 ~/.claude/telemetry 下的 3 个待传文件 (42 KB)。");
+          return;
+        }
+        if (btn.toast) showToast(btn.toast[0], btn.toast[1]);
+      }
+
+      function handleSkInput(val) {
+        state.skInputVal = val;
+        const btn = document.getElementById("btnVerifyCloud");
+        const valid = extractSk(val);
+        if (btn) btn.disabled = !valid;
+        const sub = btn?.closest(".sk-inline-box")?.querySelector(".sk-sub-row span");
+        if (sub) {
+          sub.style.color = valid ? "var(--success)" : "var(--text-3)";
+          sub.textContent = valid
+            ? `已提取有效 sessionKey（${valid.slice(0, 14)}••••${valid.slice(-4)}），其余内容已忽略且绝不落盘`
+            : "经 Clash(7890) 只读查询一次并绑定档案，同步回填顶部对话可用、警告与 Persona/Portal KYC，明文用完即焚";
+        }
+      }
+
+      function fillDemoSk() {
+        state.skInputVal =
+          "curl 'https://claude.ai/api/organizations' -H 'cookie: sessionKey=sk-ant-sid01-DemoOnlyExampleToken9942a8f1'";
+        render();
+      }
+
+      function toggleHowSk() {
+        state.showHowSk = !state.showHowSk;
+        render();
+      }
+
+      function runCloudVerify() {
+        state.skInputVal = "";
+        state.verifyCount += 1;
+        // 演示：第 1 次核验发现跨洲错配与静默标；第 2 次及以上重验模拟切回美区后状态实时覆盖刷新为全部安全
+        if (state.verifyCount >= 2) {
+          state.mode = "all-clean";
+          state.openGroupId = "g-cloud";
+          render();
+          showToast(
+            `第 ${state.verifyCount} 次重验完成（状态已覆盖更新）`,
+            "变化项：归属地 US×SJC 已一致、静默监控标已清零、5h/7d 额度已刷新（明文 sk 已焚毁）。"
+          );
+        } else {
+          state.mode = "verified-risk";
+          state.openGroupId = "g-cloud";
+          render();
+          showToast(
+            "第 1 次云端核验完成（明文已清零）",
+            "已回填顶部对话状态、Persona 已通过 KYC、Portal 无挂起，并检出跨洲错配；再次点「重验 sk」可体验覆盖刷新。"
+          );
+        }
+      }
+
+      function reverifyCloud() {
+        state.mode = "real-local";
+        state.openGroupId = "g-cloud";
+        render();
+      }
+
+      function setLogFilter(f, btn) {
+        state.logFilter = f;
+        document.querySelectorAll(".filter-pill").forEach((p) => p.classList.remove("active"));
+        btn.classList.add("active");
+        renderLogs();
+      }
+
+      function toggleLog(id) {
+        state.expandedLogId = state.expandedLogId === id ? null : id;
+        renderLogs();
+      }
+
+      document.getElementById("demoRealLocal").addEventListener("click", () => {
+        state.mode = "real-local";
+        state.telemetryEnvFixed = false;
+        state.telemetryDirCleaned = true;
+        state.holdEnabled = false;
+        state.subView = "audit";
+        state.openGroupId = null;
+        render();
+      });
+      document.getElementById("demoVerifiedRisk").addEventListener("click", () => {
+        state.mode = "verified-risk";
+        state.subView = "audit";
+        state.openGroupId = null;
+        render();
+      });
+      document.getElementById("demoStale7d").addEventListener("click", () => {
+        state.mode = "stale-7d";
+        state.subView = "audit";
+        state.openGroupId = null;
+        render();
+      });
+      document.getElementById("demoDisconnectWarn").addEventListener("click", () => {
+        state.mode = "disconnect-warn";
+        state.telemetryEnvFixed = false;
+        state.telemetryDirCleaned = false;
+        state.holdEnabled = false;
+        state.subView = "audit";
+        state.openGroupId = "g-disconnect";
+        render();
+      });
+      document.getElementById("demoAllClean").addEventListener("click", () => {
+        state.mode = "all-clean";
+        state.subView = "audit";
+        state.openGroupId = null;
+        render();
+      });
+
+      document.getElementById("tabAudit").addEventListener("click", () => {
+        state.subView = "audit";
+        render();
+      });
+      document.getElementById("tabLogs").addEventListener("click", () => {
+        state.subView = "logs";
+        render();
+      });
+      document.getElementById("pulseCard").addEventListener("click", () => {
+        state.subView = "logs";
+        render();
+      });
+      document.getElementById("btnRescan").addEventListener("click", () => {
+        showToast("本地只读审计已刷新", "已重扫 ~/.claude.json、备份残留、settings.json、.jsonl 与 5 个桌面日志。");
+      });
+      document.getElementById("chkDenoised").addEventListener("change", (e) => {
+        state.showDenoised = e.target.checked;
+        renderLogs();
+      });
+      document.getElementById("btnMarkRead").addEventListener("click", () => {
+        state.unreadLogs = 0;
+        LOGS.forEach((l) => (l.unread = false));
+        render();
+        showToast("已全部标为已读", "未读角标已同步清零。");
+      });
+      document.getElementById("btnTheme").addEventListener("click", () => {
+        const root = document.getElementById("appRoot");
+        root.setAttribute("data-theme", root.getAttribute("data-theme") === "dark" ? "light" : "dark");
+      });
+
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("embed") === "1") document.getElementById("appRoot").classList.add("is-embed");
+      if (params.get("mode")) state.mode = params.get("mode");
+      if (params.has("open")) state.openGroupId = params.get("open") || null;
+      if (params.get("guide") === "1") state.guideOpen = true;
+
+      render();
+    </script>
+  </body>
+</html>

@@ -1,3 +1,4 @@
+pub mod account_audit;
 pub mod config;
 pub mod killswitch;
 pub mod logger;
@@ -10,6 +11,7 @@ pub mod rollback;
 pub mod startup_audit;
 pub mod state;
 pub mod telemetry;
+pub mod updater;
 pub mod watchdog;
 
 use crate::config::{
@@ -689,6 +691,7 @@ async fn run_preflight_checks(
     if let Ok(mut snap) = state.snapshot.write() {
         *snap = bundle.snapshot.clone();
     }
+    let _ = app.emit("guard://preflight-updated", bundle.report.clone());
     let _ = app.emit("guard://snapshot", bundle.snapshot);
     Ok(bundle.report)
 }
@@ -1275,7 +1278,8 @@ fn spawn_deep_node_audit_task(
             && !original_node.eq_ignore_ascii_case("未创建")
         {
             let _ = select_proxy_in_group(&ep, "Claude-Fixed", &original_node).await;
-            tokio::time::sleep(Duration::from_millis(200)).await;
+            // 留足 550ms 让 Mihomo 完成切回后的隧道稳定，避免紧接着的复检撞上冷握手超时
+            tokio::time::sleep(Duration::from_millis(550)).await;
         }
 
         let final_prog = DeepAuditProgress {
@@ -1499,6 +1503,17 @@ async fn start_kill_hold_cmd(
 
 #[tauri::command]
 fn release_kill_hold_cmd(app: AppHandle, state: State<'_, AppState>) -> KillHoldSnapshot {
+    // 熔断激活期间的事务盯防锁与防火墙出站阻断联动，不允许绕过熔断单独拆掉盯防锁造成“解锁了但防火墙仍封锁”的割裂状态
+    let ks_active = state
+        .killswitch
+        .read()
+        .map(|k| k.active)
+        .unwrap_or(false);
+    if ks_active {
+        if let Ok(mut kh) = state.kill_hold.write() {
+            return kh.snapshot_and_sweep(Instant::now());
+        }
+    }
     release_kill_hold_internal(&app, &state, "用户手动解除防复活持续盯防锁")
 }
 
@@ -1580,14 +1595,22 @@ async fn force_release_killswitch(
     if let Ok(mut guard) = state.killswitch.write() {
         *guard = ks.clone();
     }
-    let hold_secs = state
-        .config
-        .read()
-        .map(|c| c.kill_hold_seconds)
-        .unwrap_or(45);
-    release_kill_hold_tx(&app, &state, Some(hold_secs));
+    // 解除熔断时同步彻底释放熔断事务盯防锁；仅当仍有残留进程存活时才衔接短时倒计时盯防，0 进程时直接干净放行
+    let post_hold = if bg_procs > 0 {
+        Some(
+            state
+                .config
+                .read()
+                .map(|c| c.kill_hold_seconds)
+                .unwrap_or(45),
+        )
+    } else {
+        None
+    };
+    release_kill_hold_tx(&app, &state, post_hold);
     if let Ok(mut snap) = state.snapshot.write() {
         snap.kill_switch_active = false;
+        recompute_snapshot_health_after_ks_clear(&mut snap);
         let _ = app.emit("guard://snapshot", snap.clone());
     }
     Ok(ks)
@@ -1898,14 +1921,10 @@ async fn cleanup_all_guard_firewall_rules_cmd(
         ks.firewall_applied = false;
         ks.reason = msg.clone();
     }
-    let hold_secs = state
-        .config
-        .read()
-        .map(|c| c.kill_hold_seconds)
-        .unwrap_or(45);
-    release_kill_hold_tx(&app, &state, Some(hold_secs));
+    release_kill_hold_tx(&app, &state, None);
     if let Ok(mut snap) = state.snapshot.write() {
         snap.kill_switch_active = false;
+        recompute_snapshot_health_after_ks_clear(&mut snap);
         let _ = app.emit("guard://snapshot", snap.clone());
     }
     Ok(msg)
@@ -2280,6 +2299,55 @@ fn release_kill_hold_internal(
     hs
 }
 
+fn recompute_snapshot_health_after_ks_clear(snap: &mut GuardSnapshot) {
+    if snap.kill_switch_active {
+        snap.health_level = "danger".into();
+        snap.status_label = "已自动熔断".into();
+        return;
+    }
+    let must_fail = snap.must_total.saturating_sub(snap.must_passed);
+    if snap.node_down {
+        snap.health_level = "danger".into();
+        snap.status_label = "节点不可用".into();
+    } else if must_fail > 0 {
+        snap.health_level = "warn".into();
+        snap.status_label = format!("{must_fail} 项待办");
+    } else if snap.node_drift_warn {
+        snap.health_level = "warn".into();
+        snap.status_label = "落地 IP 静默漂移".into();
+    } else {
+        snap.health_level = "ok".into();
+        snap.status_label = "守护正常".into();
+    }
+}
+
+/// 当网络急救或系统撤回已清空本工具防火墙规则时，同步复位内存中的熔断态与事务盯防锁，杜绝“规则已删但界面仍假红熔断”
+fn sync_killswitch_cleared_if_firewall_gone(app: &AppHandle, state: &AppState, reason: &str) {
+    let was_active = state
+        .killswitch
+        .read()
+        .map(|k| k.active)
+        .unwrap_or(false);
+    if !was_active {
+        return;
+    }
+    if has_active_guard_firewall_rules() {
+        return;
+    }
+    if let Ok(mut ks) = state.killswitch.write() {
+        ks.active = false;
+        ks.firewall_applied = false;
+        ks.reason = reason.to_string();
+    }
+    release_kill_hold_tx(app, state, None);
+    if let Ok(mut snap) = state.snapshot.write() {
+        snap.kill_switch_active = false;
+        recompute_snapshot_health_after_ks_clear(&mut snap);
+        let _ = app.emit("guard://snapshot", snap.clone());
+    }
+    logger::log_info("killswitch", format!("同步复位熔断与事务盯防态: {reason}"));
+}
+
 fn merge_killswitch_and_log_triggers(state: &AppState, snap: &mut GuardSnapshot) {
     if let Ok(ks) = state.killswitch.read() {
         snap.kill_switch_active = ks.active;
@@ -2502,8 +2570,9 @@ fn spawn_background_engines(app: AppHandle) {
         let mut last_emitted = KillHoldSnapshot::default();
         let mut extend_times: u32 = 0;
         let mut unkillable_logged = false;
+        let mut last_ks_active = false;
         loop {
-            let sleep_ms = if last_emitted.active && !last_emitted.tx_locked {
+            let sleep_ms = if last_emitted.active && (!last_emitted.tx_locked || last_ks_active) {
                 KILL_HOLD_POLL_INTERVAL_MS
             } else {
                 1000
@@ -2513,6 +2582,13 @@ fn spawn_background_engines(app: AppHandle) {
             let Some(state) = app_kh.try_state::<AppState>() else {
                 continue;
             };
+
+            let ks_active_now = state
+                .killswitch
+                .read()
+                .map(|k| k.active)
+                .unwrap_or(false);
+            last_ks_active = ks_active_now;
 
             let now = Instant::now();
             let mut cur_snap = if let Ok(mut kh) = state.kill_hold.write() {
@@ -2524,7 +2600,7 @@ fn spawn_background_engines(app: AppHandle) {
             if !cur_snap.active {
                 extend_times = 0;
                 unkillable_logged = false;
-            } else if !cur_snap.tx_locked {
+            } else if !cur_snap.tx_locked || ks_active_now {
                 let procs = tokio::task::spawn_blocking(list_claude_processes)
                     .await
                     .unwrap_or_default();
@@ -2538,7 +2614,16 @@ fn spawn_background_engines(app: AppHandle) {
                         .unwrap_or(0);
                     if killed > 0 {
                         unkillable_logged = false;
-                        if extend_times < 6 {
+                        if cur_snap.tx_locked {
+                            // 熔断事务锁下累计拦截次数，但不额外叠倒计时
+                            cur_snap = if let Ok(mut kh) = state.kill_hold.write() {
+                                let t_now = Instant::now();
+                                kh.record_tx_respawn_blocked(killed);
+                                kh.snapshot_and_sweep(t_now)
+                            } else {
+                                cur_snap
+                            };
+                        } else if extend_times < 6 {
                             extend_times += 1;
                             cur_snap = if let Ok(mut kh) = state.kill_hold.write() {
                                 let t_now = Instant::now();
@@ -3258,9 +3343,15 @@ fn spawn_background_engines(app: AppHandle) {
             let cfg = st.config.read().map(|c| c.clone()).unwrap_or_default();
             let bg_procs = list_claude_processes().len() as u32;
             let mut bundle = run_all_preflight_checks(&cfg, bg_procs).await;
+            persist_baseline_if_needed(
+                &st,
+                &bundle.snapshot.current_node,
+                bundle.detected_landing_sig.as_deref(),
+                bundle.detected_org_id.as_deref(),
+            );
             merge_killswitch_and_log_triggers(&st, &mut bundle.snapshot);
             if let Ok(mut rep) = st.last_report.write() {
-                *rep = bundle.report;
+                *rep = bundle.report.clone();
             }
             if let Ok(mut ts) = st.last_preflight_at.write() {
                 *ts = Some(Instant::now());
@@ -3268,6 +3359,8 @@ fn spawn_background_engines(app: AppHandle) {
             if let Ok(mut snap) = st.snapshot.write() {
                 *snap = bundle.snapshot.clone();
             }
+            // 同步广播完整 17 项体检报告与快照，杜绝后台 15 分钟全量巡检完成后控制台出口 IP / 状态不更新
+            let _ = app_audit.emit("guard://preflight-updated", bundle.report);
             let _ = app_audit.emit("guard://snapshot", bundle.snapshot);
         }
     });
@@ -3344,46 +3437,284 @@ fn acquire_single_instance_guard() -> Option<SingleInstanceGuard> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 /// 查询系统基线快照与 6 项可撤回改动状态（免付费墙，任何激活状态均可查看）
+/// 从当前 AppState 构造账户审计运行时代理上下文（同步控制台真实状态，绝不硬编码 7890）
+fn build_runtime_guard_context(
+    state: &State<'_, AppState>,
+) -> crate::account_audit::RuntimeGuardContext {
+    let snap = state.snapshot.read().ok().map(|s| s.clone());
+    let report = state.last_report.read().ok().map(|r| r.clone());
+    let tun_online = report
+        .as_ref()
+        .and_then(|r| r.items.iter().find(|i| i.id == "node_tun"))
+        .map(|i| i.status == crate::state::CheckStatus::Ok)
+        .unwrap_or(false);
+    let current_node = snap
+        .as_ref()
+        .map(|s| s.current_node.clone())
+        .unwrap_or_default();
+    let rec = if !current_node.is_empty() {
+        get_fresh_verified_record(&current_node)
+    } else {
+        None
+    };
+
+    crate::account_audit::RuntimeGuardContext {
+        clash_online: snap.as_ref().map(|s| s.clash_online).unwrap_or(false),
+        clash_port: snap.as_ref().map(|s| s.clash_port).unwrap_or(7890),
+        tun_online,
+        current_node: if current_node.is_empty() {
+            None
+        } else {
+            Some(current_node)
+        },
+        exit_country: snap
+            .as_ref()
+            .map(|s| s.region_code.clone())
+            .filter(|c| !c.is_empty() && !c.eq_ignore_ascii_case("GL")),
+        exit_colo: None,
+        exit_ip_purity: rec.as_ref().map(|r| r.asn_purity.clone()),
+        exit_is_datacenter: rec
+            .as_ref()
+            .map(|r| matches!(r.risk_level.as_str(), "hosting" | "proxy" | "abuser"))
+            .unwrap_or(false),
+        drift_count_24h: if snap.as_ref().map(|s| s.node_drift_warn).unwrap_or(false) {
+            2
+        } else {
+            0
+        },
+        bg_claude_procs: snap.as_ref().map(|s| s.bg_claude_procs).unwrap_or(0),
+        kill_hold_active: snap.as_ref().map(|s| s.kill_hold_active).unwrap_or(false),
+        kill_hold_remaining_secs: snap
+            .as_ref()
+            .map(|s| s.kill_hold_remaining_secs)
+            .unwrap_or(0),
+    }
+}
+
+#[tauri::command]
+async fn audit_account_local(
+    state: State<'_, AppState>,
+    profile_id: Option<String>,
+) -> Result<crate::account_audit::AccountAuditReport, String> {
+    let runtime = build_runtime_guard_context(&state);
+    let ctx = crate::account_audit::local_scan::ProfileContext::default_local(
+        profile_id,
+        None,
+        if runtime.clash_online {
+            Some(runtime.clash_port)
+        } else {
+            None
+        },
+    );
+    let cache_path = crate::account_audit::default_audit_cache_path();
+    tokio::task::spawn_blocking(move || {
+        let local = crate::account_audit::local_scan::scan_local_profile(&ctx);
+        let cache = crate::account_audit::load_profile_cloud_cache(&cache_path, &ctx.profile_id);
+        crate::account_audit::build_account_audit_report(local, cache.as_ref(), &runtime)
+    })
+    .await
+    .map_err(|e| format!("账户本地审计任务异常: {e}"))
+}
+
+#[tauri::command]
+async fn verify_account_cloud_with_sk(
+    state: State<'_, AppState>,
+    profile_id: Option<String>,
+    raw_input: String,
+) -> Result<crate::account_audit::AccountAuditReport, String> {
+    let mut runtime = build_runtime_guard_context(&state);
+    if runtime.clash_online {
+        runtime.clash_port = crate::preflight::resolve_active_mixed_port().await;
+    }
+    let ctx = crate::account_audit::local_scan::ProfileContext::default_local(
+        profile_id,
+        None,
+        if runtime.clash_online {
+            Some(runtime.clash_port)
+        } else {
+            None
+        },
+    );
+    let cache_path = crate::account_audit::default_audit_cache_path();
+    crate::account_audit::run_desktop_cloud_verify(&ctx, &cache_path, &raw_input, &runtime)
+        .await
+        .map_err(|e| e.message)
+}
+
+#[tauri::command]
+async fn fix_claude_telemetry_env(
+    state: State<'_, AppState>,
+    profile_id: Option<String>,
+) -> Result<crate::account_audit::AccountAuditActionResult, String> {
+    let cli_dir = dirs::home_dir()
+        .map(|h| h.join(".claude"))
+        .ok_or_else(|| "无法定位用户主目录 ~/.claude".to_string())?;
+    let msg = tokio::task::spawn_blocking(move || {
+        crate::account_audit::apply_claude_privacy_env_fix(&cli_dir)
+    })
+    .await
+    .map_err(|e| format!("执行降噪开关修复异常: {e}"))??;
+    let report = audit_account_local(state, profile_id).await.ok();
+    Ok(crate::account_audit::AccountAuditActionResult {
+        ok: true,
+        action: "fix_claude_telemetry_env".into(),
+        message: msg,
+        report,
+    })
+}
+
+#[tauri::command]
+async fn clean_claude_telemetry_dir(
+    state: State<'_, AppState>,
+    profile_id: Option<String>,
+) -> Result<crate::account_audit::AccountAuditActionResult, String> {
+    let cli_dir = dirs::home_dir()
+        .map(|h| h.join(".claude"))
+        .ok_or_else(|| "无法定位用户主目录 ~/.claude".to_string())?;
+    let (removed, freed) = tokio::task::spawn_blocking(move || {
+        crate::account_audit::clean_claude_telemetry_dir(&cli_dir)
+    })
+    .await
+    .map_err(|e| format!("清理 telemetry 目录异常: {e}"))??;
+    let report = audit_account_local(state, profile_id).await.ok();
+    Ok(crate::account_audit::AccountAuditActionResult {
+        ok: true,
+        action: "clean_claude_telemetry_dir".into(),
+        message: format!("已清空 ~/.claude/telemetry 下 {removed} 个待传项（释放 {freed} B）。"),
+        report,
+    })
+}
+
+#[tauri::command]
+async fn restore_claude_official_endpoint(
+    state: State<'_, AppState>,
+    profile_id: Option<String>,
+) -> Result<crate::account_audit::AccountAuditActionResult, String> {
+    let cli_dir = dirs::home_dir().map(|h| h.join(".claude"));
+    let msg = tokio::task::spawn_blocking(move || {
+        crate::account_audit::restore_claude_official_endpoint(cli_dir.as_deref(), true)
+    })
+    .await
+    .map_err(|e| format!("还原官方端点异常: {e}"))??;
+    let report = audit_account_local(state, profile_id).await.ok();
+    Ok(crate::account_audit::AccountAuditActionResult {
+        ok: true,
+        action: "restore_claude_official_endpoint".into(),
+        message: msg,
+        report,
+    })
+}
+
+#[tauri::command]
+async fn clean_claude_cli_credentials_with_backup(
+    state: State<'_, AppState>,
+    profile_id: Option<String>,
+) -> Result<crate::account_audit::AccountAuditActionResult, String> {
+    let info = tokio::task::spawn_blocking(
+        crate::maintenance::clean_claude_cli_credentials_with_backup,
+    )
+    .await
+    .map_err(|e| format!("备份清理 CLI 凭据任务异常: {e}"))??;
+    let report = audit_account_local(state, profile_id).await.ok();
+    Ok(crate::account_audit::AccountAuditActionResult {
+        ok: true,
+        action: "clean_claude_cli_credentials_with_backup".into(),
+        message: format!(
+            "已先原子备份至 {}（{}）并清理 CLI 登录态与历史备份，重新登录同一主号即可。",
+            info.file_name, info.size_label
+        ),
+        report,
+    })
+}
+
 #[tauri::command]
 async fn inspect_rollback_status_cmd() -> Result<RollbackOverview, String> {
     Ok(inspect_rollback_status().await)
 }
 
-/// 单项精准撤回本工具对系统或 Clash 的改动（免付费墙，用户随时有权还原自己电脑）
+/// 单项精准撤回本工具对系统或 Clash 的改动（用户随时有权还原自己电脑）
 #[tauri::command]
 async fn rollback_single_item_cmd(
+    app: AppHandle,
     state: State<'_, AppState>,
     item_id: String,
 ) -> Result<RollbackActionReport, String> {
     let report = rollback_single_item(&item_id).await;
+    if item_id == "firewall" {
+        sync_killswitch_cleared_if_firewall_gone(
+            &app,
+            &state,
+            "单项撤回已清空防火墙熔断规则，自动同步解除熔断与事务盯防",
+        );
+    }
     if let Ok(mut ts) = state.last_preflight_at.write() {
         *ts = None;
     }
     Ok(report)
 }
 
-/// 一键按安全逆序撤回全部由本工具改动的系统与 Clash 设置（免付费墙）
+/// 一键按安全逆序撤回全部由本工具改动的系统与 Clash 设置
 #[tauri::command]
 async fn rollback_all_changes_cmd(
+    app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<RollbackBatchReport, String> {
     let report = rollback_all_changes().await;
+    sync_killswitch_cleared_if_firewall_gone(
+        &app,
+        &state,
+        "一键全量撤回已清空防火墙熔断规则，自动同步解除熔断与事务盯防",
+    );
     if let Ok(mut ts) = state.last_preflight_at.write() {
         *ts = None;
     }
     Ok(report)
 }
 
-/// 无门槛「一键网络急救」（免付费墙，专治关 TUN 断网、无法导入订阅与防火墙残留）
+/// 无门槛「一键网络急救」（专治关 TUN 断网、无法导入订阅与防火墙残留）
 #[tauri::command]
 async fn run_network_emergency_rescue_cmd(
+    app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<NetworkRescueReport, String> {
     let report = run_network_emergency_rescue().await;
+    sync_killswitch_cleared_if_firewall_gone(
+        &app,
+        &state,
+        "一键网络急救已清空防火墙熔断规则，自动同步解除熔断与事务盯防",
+    );
     if let Ok(mut ts) = state.last_preflight_at.write() {
         *ts = None;
     }
     Ok(report)
+}
+
+/// 检查 GitHub Releases 自动更新（优先复用本机 Clash 动态代理，失败回退直连）
+#[tauri::command]
+async fn check_app_update(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<crate::updater::AppUpdateInfo, String> {
+    let clash_port = state
+        .snapshot
+        .read()
+        .ok()
+        .and_then(|s| if s.clash_online { Some(s.clash_port) } else { None });
+    crate::updater::check_for_app_update(&app, clash_port).await
+}
+
+/// 下载并校验 Ed25519 签名后安装最新版本
+#[tauri::command]
+async fn install_app_update(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let clash_port = state
+        .snapshot
+        .read()
+        .ok()
+        .and_then(|s| if s.clash_online { Some(s.clash_port) } else { None });
+    crate::updater::download_and_install_app_update(&app, clash_port).await
 }
 
 pub fn run() {
@@ -3420,6 +3751,7 @@ pub fn run() {
         ))
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState::new(config_path, initial_cfg.clone()))
         .setup(move |app| {
             let handle = app.handle();
@@ -3441,9 +3773,15 @@ pub fn run() {
                     let _gate = st.preflight_gate.lock().await;
                     let bg_procs = list_claude_processes().len() as u32;
                     let mut bundle = run_all_preflight_checks(&bg_cfg, bg_procs).await;
+                    persist_baseline_if_needed(
+                        &st,
+                        &bundle.snapshot.current_node,
+                        bundle.detected_landing_sig.as_deref(),
+                        bundle.detected_org_id.as_deref(),
+                    );
                     merge_killswitch_and_log_triggers(&st, &mut bundle.snapshot);
                     if let Ok(mut rep) = st.last_report.write() {
-                        *rep = bundle.report;
+                        *rep = bundle.report.clone();
                     }
                     if let Ok(mut ts) = st.last_preflight_at.write() {
                         *ts = Some(Instant::now());
@@ -3451,6 +3789,7 @@ pub fn run() {
                     if let Ok(mut snap) = st.snapshot.write() {
                         *snap = bundle.snapshot.clone();
                     }
+                    let _ = bg_handle.emit("guard://preflight-updated", bundle.report);
                     let _ = bg_handle.emit("guard://snapshot", bundle.snapshot);
                 }
             });
@@ -3596,6 +3935,14 @@ pub fn run() {
             rollback_single_item_cmd,
             rollback_all_changes_cmd,
             run_network_emergency_rescue_cmd,
+            audit_account_local,
+            verify_account_cloud_with_sk,
+            fix_claude_telemetry_env,
+            clean_claude_telemetry_dir,
+            restore_claude_official_endpoint,
+            clean_claude_cli_credentials_with_backup,
+            check_app_update,
+            install_app_update,
         ])
         .run(tauri::generate_context!())
         .expect("启动 FD Claude Guard 时发生错误");
@@ -3727,5 +4074,34 @@ mod window_size_tests {
         assert!(!after.active);
         assert!(!after.tx_locked);
         assert_eq!(after.remaining_secs, 0);
+    }
+
+    /// 回归断言：熔断事务锁期间拦截复活仅累加拦截次数不叠加多余倒计时，且解除熔断后快照健康态立刻准确复位
+    #[test]
+    fn killswitch_tx_hold_blocks_and_recomputes_health_cleanly() {
+        let mut ctrl = crate::process::KillHoldController::default();
+        let t0 = std::time::Instant::now();
+        ctrl.acquire_tx_lock("防裸奔熔断事务锁定", t0);
+        ctrl.record_tx_respawn_blocked(2);
+        let snap_kh = ctrl.snapshot_and_sweep(t0 + std::time::Duration::from_secs(1));
+        assert!(snap_kh.active && snap_kh.tx_locked);
+        assert_eq!(snap_kh.blocked_count, 2);
+        assert_eq!(snap_kh.remaining_secs, 0);
+
+        let mut gs = crate::state::build_initial_snapshot(&crate::config::AppConfig::default());
+        gs.must_passed = 11;
+        gs.must_total = 11;
+        gs.kill_switch_active = false;
+        gs.node_down = false;
+        gs.health_level = "danger".into();
+        gs.status_label = "已自动熔断".into();
+        super::recompute_snapshot_health_after_ks_clear(&mut gs);
+        assert_eq!(gs.health_level, "ok");
+        assert_eq!(gs.status_label, "守护正常");
+
+        gs.must_passed = 10;
+        super::recompute_snapshot_health_after_ks_clear(&mut gs);
+        assert_eq!(gs.health_level, "warn");
+        assert_eq!(gs.status_label, "1 项待办");
     }
 }

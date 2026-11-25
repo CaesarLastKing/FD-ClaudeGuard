@@ -7,9 +7,9 @@ import { Sidebar } from "@/components/Sidebar";
 import { SupportModal } from "@/components/SupportModal";
 import { ToastStack } from "@/components/ToastStack";
 import { WindowChrome } from "@/components/WindowChrome";
-import { ipc } from "@/lib/ipc";
+import { ipc, isTauriRuntime } from "@/lib/ipc";
+import { AccountAuditPage } from "@/pages/AccountAuditPage";
 import { ConsolePage } from "@/pages/ConsolePage";
-import { LogAnalysisPage } from "@/pages/LogAnalysisPage";
 import { MaintenancePage } from "@/pages/MaintenancePage";
 import { NodesTrafficPage } from "@/pages/NodesTrafficPage";
 import { SettingsPage } from "@/pages/SettingsPage";
@@ -23,14 +23,44 @@ export function App() {
   const setConfigFromEvent = useGuardStore((s) => s.setConfigFromEvent);
   const setDeepAuditFromEvent = useGuardStore((s) => s.setDeepAuditFromEvent);
   const setActiveTab = useGuardStore((s) => s.setActiveTab);
+  const setAuditSubTab = useGuardStore((s) => s.setAuditSubTab);
   const setNodesSubTab = useGuardStore((s) => s.setNodesSubTab);
   const setSelectedCheckId = useGuardStore((s) => s.setSelectedCheckId);
   const focusFirstUnhealthyCheck = useGuardStore((s) => s.focusFirstUnhealthyCheck);
   const setPlaybookOpen = useGuardStore((s) => s.setPlaybookOpen);
   const openRiskModal = useGuardStore((s) => s.openRiskModal);
+  const pushToast = useGuardStore((s) => s.pushToast);
 
   useEffect(() => {
     void bootstrap();
+
+    // T-059：仅真实桌面端在启动 3.5s 后静默检查一次更新，发现新版本时温和提示（绝不弹窗打扰或强制重启）
+    let updateTimer: number | null = null;
+    if (isTauriRuntime()) {
+      updateTimer = window.setTimeout(() => {
+        void ipc
+          .checkAppUpdate()
+          .then((info) => {
+            if (info.available && info.latestVersion) {
+              pushToast(
+                `发现新版本 v${info.latestVersion}`,
+                "已通过 GitHub Releases 官方更新通道检测到新版本，可前往「守卫配置」一键验签升级。",
+                "info",
+                {
+                  durationMs: 7000,
+                  action: {
+                    label: "前往更新",
+                    onClick: () => setActiveTab("config"),
+                  },
+                }
+              );
+            }
+          })
+          .catch(() => {
+            // 静默忽略离线或超时错误
+          });
+      }, 3500);
+    }
 
     const onWindowError = (e: ErrorEvent) => {
       void ipc.logFrontendEvent("ERROR", "window.onerror", `${e.message} (${e.filename}:${e.lineno})`);
@@ -60,6 +90,9 @@ export function App() {
     register(
       ipc.listenNavigate((nav) => {
         setActiveTab(nav.tab);
+        if (nav.tab === "audit" && (nav.subTab === "audit" || nav.subTab === "logs")) {
+          setAuditSubTab(nav.subTab);
+        }
         if (nav.tab === "nodes" && (nav.subTab === "quality" || nav.subTab === "traffic")) {
           setNodesSubTab(nav.subTab);
         }
@@ -101,6 +134,9 @@ export function App() {
 
     return () => {
       disposed = true;
+      if (updateTimer !== null) {
+        window.clearTimeout(updateTimer);
+      }
       window.removeEventListener("error", onWindowError);
       window.removeEventListener("unhandledrejection", onUnhandledRejection);
       unsubs.forEach((fn) => fn());
@@ -109,7 +145,9 @@ export function App() {
     bootstrap,
     focusFirstUnhealthyCheck,
     openRiskModal,
+    pushToast,
     setActiveTab,
+    setAuditSubTab,
     setConfigFromEvent,
     setNodesSubTab,
     setPlaybookOpen,
@@ -137,8 +175,8 @@ export function App() {
           <Sidebar />
           <main style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
             {activeTab === "console" && <ConsolePage />}
+            {(activeTab === "audit" || activeTab === "logs") && <AccountAuditPage />}
             {activeTab === "nodes" && <NodesTrafficPage />}
-            {activeTab === "logs" && <LogAnalysisPage />}
             {activeTab === "maintain" && <MaintenancePage />}
             {activeTab === "config" && <SettingsPage />}
           </main>

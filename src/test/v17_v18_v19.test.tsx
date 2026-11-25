@@ -42,11 +42,11 @@ describe("免费开源无锁门禁与核心交互回归（T-057 + 增量 17/18/1
     expect(screen.queryByTestId("nav-lock-config")).not.toBeInTheDocument();
 
     // 4 个副页面全部直接可进，无付费墙门禁
+    fireEvent.click(screen.getByRole("button", { name: /账户审计/ }));
+    expect(screen.queryByTestId("locked-gate-audit")).not.toBeInTheDocument();
+
     fireEvent.click(screen.getByRole("button", { name: /节点流量/ }));
     expect(screen.queryByTestId("locked-gate-nodes")).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: /日志分析/ }));
-    expect(screen.queryByTestId("locked-gate-logs")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /环境维护/ }));
     expect(screen.queryByTestId("locked-gate-maintain")).not.toBeInTheDocument();

@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { Activity, Globe, Home, Loader2, SlidersHorizontal, Wrench } from "lucide-react";
+import { Globe, Home, Loader2, ShieldCheck, SlidersHorizontal, Wrench } from "lucide-react";
 import { ipc } from "@/lib/ipc";
 import { useGuardStore } from "@/stores/guardStore";
 import type { NavTab } from "@/types/guard";
 
 const NAV_ITEMS: Array<{ id: NavTab; label: string; icon: React.ReactNode }> = [
   { id: "console", label: "控制台", icon: <Home size={16} strokeWidth={1.75} /> },
+  { id: "audit", label: "账户审计", icon: <ShieldCheck size={16} strokeWidth={1.75} /> },
   { id: "nodes", label: "节点流量", icon: <Globe size={16} strokeWidth={1.75} /> },
-  { id: "logs", label: "日志分析", icon: <Activity size={16} strokeWidth={1.75} /> },
   { id: "maintain", label: "环境维护", icon: <Wrench size={16} strokeWidth={1.75} /> },
   { id: "config", label: "守卫配置", icon: <SlidersHorizontal size={16} strokeWidth={1.75} /> },
 ];
@@ -17,8 +17,11 @@ export function Sidebar() {
   const setActiveTab = useGuardStore((s) => s.setActiveTab);
   const preflight = useGuardStore((s) => s.preflight);
   const snapshot = useGuardStore((s) => s.snapshot);
+  const accountAudit = useGuardStore((s) => s.accountAudit);
   const config = useGuardStore((s) => s.config);
   const setSnapshot = useGuardStore((s) => s.setSnapshot);
+  const openRiskModal = useGuardStore((s) => s.openRiskModal);
+  const refreshPreflight = useGuardStore((s) => s.refreshPreflight);
   const pushToast = useGuardStore((s) => s.pushToast);
   const [busyKill, setBusyKill] = useState(false);
 
@@ -26,6 +29,7 @@ export function Sidebar() {
   const holdSecs = snapshot.killHoldRemainingSecs ?? 0;
   const holdBlocked = snapshot.killHoldBlockedCount ?? 0;
   const holdTx = Boolean(snapshot.killHoldTxLocked);
+  const ksLinkedHold = Boolean(snapshot.killSwitchActive) && holdActive;
   const defaultHoldSecs = config.killHoldSeconds ?? 45;
 
   const mustAll = preflight.items.filter((x) => x.part === "must");
@@ -130,7 +134,7 @@ export function Sidebar() {
                   {Math.max(1, snapshot.activeFlowAnomalies)}
                 </span>
               )}
-              {item.id === "logs" &&
+              {item.id === "audit" &&
                 (() => {
                   const hasSplit =
                     snapshot.unreadLogCritical !== undefined ||
@@ -139,13 +143,35 @@ export function Sidebar() {
                     ? snapshot.unreadLogCritical ?? 0
                     : snapshot.unreadLogAnomalies;
                   const warn = hasSplit ? snapshot.unreadLogWarnings ?? 0 : 0;
-                  const total = hasSplit ? crit + warn : snapshot.unreadLogAnomalies;
-                  if (total <= 0) return null;
-                  const isCrit = crit > 0;
+                  const logTotal = hasSplit ? crit + warn : snapshot.unreadLogAnomalies;
+                  const auditPending = accountAudit?.pendingIssueCount ?? 0;
+                  const auditDanger = Boolean(accountAudit?.hasDangerIssue);
+                  const total = Math.max(auditPending, logTotal);
+                  const isCrit = crit > 0 || auditDanger;
+                  if (total <= 0) {
+                    return (
+                      <span
+                        data-testid="nav-badge-audit"
+                        className="tabular"
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          minWidth: 20,
+                          textAlign: "center",
+                          padding: "1px 6px",
+                          borderRadius: "var(--r-chip)",
+                          background: "var(--success-soft)",
+                          color: "var(--success)",
+                        }}
+                      >
+                        OK
+                      </span>
+                    );
+                  }
                   return (
                     <span
-                      data-testid="nav-badge-logs"
-                      title={`风险 ${warn} · 异常 ${crit}`}
+                      data-testid="nav-badge-audit"
+                      title={`审计待处理 ${auditPending} · 日志风险 ${warn} · 异常 ${crit}`}
                       className="tabular"
                       style={{
                         fontSize: 11,
@@ -158,7 +184,7 @@ export function Sidebar() {
                         color: isCrit ? "var(--danger-bright)" : "var(--warning)",
                       }}
                     >
-                      {isCrit ? crit : warn}
+                      {crit > 0 ? crit : total}
                     </span>
                   );
                 })()}
@@ -206,7 +232,9 @@ export function Sidebar() {
               }}
             >
               {holdActive
-                ? holdTx
+                ? ksLinkedHold
+                  ? "熔断联动锁定"
+                  : holdTx
                   ? "事务盯防中"
                   : `盯防 ${holdSecs}s`
                 : snapshot.bgClaudeProcs > 0
@@ -216,7 +244,11 @@ export function Sidebar() {
           </div>
           <div style={{ fontSize: 11, color: "var(--text-3)" }}>
             {holdActive
-              ? holdBlocked > 0
+              ? ksLinkedHold
+                ? holdBlocked > 0
+                  ? `防火墙已封锁 · 已拦截 ${holdBlocked} 次复活`
+                  : "随防火墙熔断联动 · 250ms 防复活"
+                : holdBlocked > 0
                 ? `已拦截 ${holdBlocked} 次 Claude 非安全启动`
                 : "250ms 防复活盯防中"
               : snapshot.bgClaudeProcs > 0
@@ -229,9 +261,50 @@ export function Sidebar() {
                 type="button"
                 data-testid="btn-release-kill-hold"
                 disabled={busyKill}
-                className="guard-btn guard-btn-flat guard-btn-xs"
+                className={`guard-btn ${ksLinkedHold ? "guard-btn-danger-soft" : "guard-btn-flat"} guard-btn-xs`}
                 style={{ width: "100%", justifyContent: "center" }}
                 onClick={async () => {
+                  if (ksLinkedHold) {
+                    openRiskModal({
+                      tone: "warn",
+                      badge: "解除熔断与盯防",
+                      title: "确认解除防火墙熔断并释放盯防锁？",
+                      subtitle: "当前防复活盯防与防火墙出站熔断联动生效，解除后将同步清理阻断规则并恢复通信",
+                      rows: [
+                        {
+                          label: "当前保护",
+                          value: "防火墙已封锁 Claude 出站 + 250ms 进程防复活联动锁定中",
+                          tone: "danger",
+                        },
+                        {
+                          label: "环境复核",
+                          value:
+                            mustFail > 0
+                              ? `当前仍有 ${mustFail} 项必须体检未通过，建议确认网络恢复后再放行`
+                              : "当前 11 项必须体检已全部通过，可安全解除熔断与盯防锁",
+                          tone: mustFail > 0 ? "danger" : "ok",
+                        },
+                      ],
+                      primaryLabel: "确认解除熔断并解锁",
+                      onPrimary: async () => {
+                        setBusyKill(true);
+                        try {
+                          await ipc.forceReleaseKillswitch(true);
+                          pushToast(
+                            "已解除熔断与盯防锁",
+                            "防火墙阻断规则与防复活锁已同步释放，正在重跑真实探针复核。",
+                            "ok"
+                          );
+                          await refreshPreflight(true);
+                        } catch (err) {
+                          pushToast("解除熔断失败", String(err), "danger");
+                        } finally {
+                          setBusyKill(false);
+                        }
+                      },
+                    });
+                    return;
+                  }
                   setBusyKill(true);
                   try {
                     const hs = await ipc.releaseKillHold();
@@ -252,7 +325,7 @@ export function Sidebar() {
                 }}
               >
                 {busyKill && <Loader2 size={11} strokeWidth={2} className="guard-spin" />}
-                <span>解除盯防</span>
+                <span>{ksLinkedHold ? "解除熔断并解锁" : "解除盯防"}</span>
               </button>
             </div>
           ) : snapshot.bgClaudeProcs > 0 ? (

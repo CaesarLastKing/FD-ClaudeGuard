@@ -1,5 +1,6 @@
 export type ThemeMode = "dark" | "light";
-export type NavTab = "console" | "nodes" | "logs" | "maintain" | "config";
+export type NavTab = "console" | "audit" | "nodes" | "maintain" | "config" | "logs";
+export type AuditSubTab = "audit" | "logs";
 export type CheckStatus = "ok" | "fail" | "warn";
 export type CheckPart = "must" | "opt";
 
@@ -452,4 +453,270 @@ export interface NetworkRescueReport {
   directConnectivityOk: boolean;
   steps: RescueStepResult[];
   summary: string;
+}
+
+export type GeoConsistency =
+  | "pending"
+  | "match"
+  | "same_continent_diff_country"
+  | "cross_continent_mismatch";
+
+export type AuditDataSource = "local_config" | "official_probe" | "offline_jsonl" | "unknown";
+
+export interface ScoreDeductionItem {
+  id: string;
+  weightMax: number;
+  delta: number;
+  deltaLabel: string;
+  tone: "danger" | "warn" | "muted" | "ok" | string;
+  title: string;
+  desc: string;
+}
+
+export interface ScoreResult {
+  score: number;
+  maxScore: number;
+  level: "safe" | "watch" | "mid_high" | "critical" | string;
+  levelLabel: string;
+  colorToken: "green" | "amber" | "orange" | "red" | string;
+  confidence: "local_only" | "stale_7d" | "full_combined" | "cloud_only" | string;
+  confidenceLabel: string;
+  disclaimer: string;
+  blindSpotNote?: string | null;
+  deductions: ScoreDeductionItem[];
+}
+
+export interface QuotaDisplaySummary {
+  fiveHourPct: number | null;
+  sevenDayPct: number | null;
+  stampShort: string;
+  stampTooltip: string;
+  fiveHourOfflineNote?: string | null;
+  softLocked: boolean;
+  source: AuditDataSource;
+}
+
+export interface BackupAccountRecord {
+  orgPrefix: string;
+  emailMasked?: string | null;
+  planLabel?: string | null;
+  merchantChannel?: string | null;
+  backupCount: number;
+}
+
+export interface CachedUsageSummary {
+  fetchedAtMs?: number | null;
+  fiveHourPct?: number | null;
+  fiveHourResetsAt?: string | null;
+  fiveHourLockedReason?: string | null;
+  sevenDayPct?: number | null;
+  sevenDayResetsAt?: string | null;
+  sevenDayLockedReason?: string | null;
+  cachedExtraUsageDisabledReason?: string | null;
+}
+
+export interface ClaudeJsonSummary {
+  exists: boolean;
+  parseError?: string | null;
+  emailMasked?: string | null;
+  orgUuidPrefix8?: string | null;
+  planLabel?: string | null;
+  billingType?: string | null;
+  merchantChannel?: string | null;
+  accountCreatedAt?: string | null;
+  accountAgeDays?: number | null;
+  subscriptionCreatedAt?: string | null;
+  subscriptionAgeDays?: number | null;
+  firstStartTime?: string | null;
+  localDeviceAgeDays?: number | null;
+  machineIdPrefix8?: string | null;
+  userIdPrefix8?: string | null;
+  cachedUsage?: CachedUsageSummary | null;
+}
+
+export interface CredentialsMetaSummary {
+  exists: boolean;
+  subscriptionType?: string | null;
+  rateLimitTier?: string | null;
+  scopes: string[];
+  expiresAt?: string | null;
+  isExpired?: boolean | null;
+  mcpOauthProviders: string[];
+}
+
+export interface SettingsHygieneSummary {
+  settingsExists: boolean;
+  settingsPath?: string | null;
+  privacyEnvFlags: Record<string, boolean>;
+  privacyEnabledCount: number;
+  privacyMissingKeys: string[];
+  settingsNonOfficialEndpoint?: string | null;
+  systemEnvEndpointConflicts: string[];
+  telemetryFileCount: number;
+  telemetryTotalBytes: number;
+  scheduledTasksCount: number;
+  backupFileCount: number;
+  backupAccounts: BackupAccountRecord[];
+}
+
+export interface WindowBehaviorStats {
+  assistantTurns: number;
+  sidechainTurns: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+}
+
+export interface OfflineBehaviorSummary {
+  projectsDirExists: boolean;
+  filesScanned7d: number;
+  last5h: WindowBehaviorStats;
+  last24h: WindowBehaviorStats;
+  last7d: WindowBehaviorStats;
+  subagentRatio24hPct: number;
+  activeHours24h: number;
+  overnightBotRhythmSuspected: boolean;
+}
+
+export interface LocalLogSample {
+  id: string;
+  category: string;
+  time: string;
+  fileRef: string;
+  rawSanitized: string;
+  count: number;
+}
+
+export interface DesktopLogsSummary {
+  discoveredDirs: string[];
+  scannedLogFiles: number;
+  orgIdPrefixes: string[];
+  accountBannedHits: number;
+  portalVerifyHits: number;
+  crossOrg404Hits: number;
+  oauth403Hits: number;
+  cookie403Hits: number;
+  cfShield403Hits: number;
+  rateLimit429Hits: number;
+  planChangedHits: number;
+  fiveHourSoftLockHits: number;
+  maxSideSessionsSeen: number;
+  highSideSessionHits: number;
+  mcpErrorHits: number;
+  mcpErrorStorm: boolean;
+  disconnectHits: number;
+  recentSamples: LocalLogSample[];
+}
+
+export interface LocalAccountAudit {
+  profileId: string;
+  scannedAtMs: number;
+  claudeJson: ClaudeJsonSummary;
+  credentials: CredentialsMetaSummary;
+  hygiene: SettingsHygieneSummary;
+  behavior: OfflineBehaviorSummary;
+  desktop: DesktopLogsSummary;
+  crossClientOrgMismatch: boolean;
+  allObservedOrgPrefixes: string[];
+}
+
+export interface CloudProbeSnapshot {
+  verifiedAtMs: number;
+  checkedAtIso: string;
+  emailMasked?: string | null;
+  orgIdPrefix8?: string | null;
+  plan: string;
+  merchantChannel?: string | null;
+  workspaceGeo?: string | null;
+  edgeCountry?: string | null;
+  edgeColo?: string | null;
+  accountAgeDays?: number | null;
+  subscriptionAgeDays?: number | null;
+  subscriptionEndsAt?: string | null;
+  chatAvailable: boolean;
+  isBanned: boolean;
+  appealsRedirectEnabled: boolean;
+  hasMonitoringNotice: boolean;
+  activeFlagTypes: string[];
+  warningSummaryZh?: string | null;
+  personaKycStatus?: string | null;
+  personaKycCompletedAt?: string | null;
+  personaKycAgeHours?: number | null;
+  portalHold: boolean;
+  portalState: string;
+  fiveHourPct?: number | null;
+  fiveHourResetsAt?: string | null;
+  sevenDayPct?: number | null;
+  sevenDayResetsAt?: string | null;
+  warnings: string[];
+}
+
+export interface AuditLogFlowItem {
+  id: string;
+  cat: "403" | "net" | "other" | string;
+  denoised: boolean;
+  chipLabel: string;
+  chipTone: "danger" | "warn" | "neutral" | string;
+  title: string;
+  desc: string;
+  timeLabel: string;
+  rawSanitized: string;
+  count: number;
+}
+
+export interface AccountAuditReport {
+  profileId: string;
+  auditedAtMs: number;
+  emailMasked: string;
+  orgIdPrefix8?: string | null;
+  plan: string;
+  merchantChannel: string;
+  accountAgeDays?: number | null;
+  subscriptionAgeDays?: number | null;
+  localDeviceAgeDays?: number | null;
+  subscriptionRenewLabel: string;
+  subscriptionRenewIsEstimated: boolean;
+
+  workspaceGeo?: string | null;
+  exitCountry?: string | null;
+  exitColo?: string | null;
+  exitIpPurity?: string | null;
+  geoConsistency: GeoConsistency;
+
+  cloudVerified: boolean;
+  cloudStale: boolean;
+  cloudAgeDays?: number | null;
+  verifyCount: number;
+  cloudSnapshot?: CloudProbeSnapshot | null;
+
+  quota: QuotaDisplaySummary;
+  scoreResult: ScoreResult;
+  local: LocalAccountAudit;
+  runtimeClashPort: number;
+  runtimeProxyOk: boolean;
+  runtimeBgProcs: number;
+  runtimeKillHoldActive: boolean;
+  runtimeKillHoldSecs: number;
+
+  denoisedOauth403Count: number;
+  logFlowItems: AuditLogFlowItem[];
+  pendingIssueCount: number;
+  hasDangerIssue: boolean;
+}
+
+export interface AccountAuditActionResult {
+  ok: boolean;
+  action: string;
+  message: string;
+  report?: AccountAuditReport | null;
+}
+
+export interface AppUpdateInfo {
+  currentVersion: string;
+  available: boolean;
+  latestVersion?: string | null;
+  publishedAt?: string | null;
+  notes?: string | null;
+  viaProxy: boolean;
+  message: string;
 }

@@ -195,7 +195,7 @@ pub fn build_initial_snapshot(cfg: &AppConfig) -> GuardSnapshot {
         node_down: false,
         node_drift_warn: false,
         must_passed: 0,
-        must_total: 11,
+        must_total: 12,
         opt_passed: 0,
         opt_total: 6,
         clash_version: "正在探测".to_string(),
@@ -376,6 +376,21 @@ pub fn build_m1_preflight_report() -> PreflightReport {
             is_failover: false,
         },
         PreflightItem {
+            id: "claude_endpoint".into(),
+            part: CheckPart::Must,
+            cat: "3. Claude 本机卫生（改 Claude）".into(),
+            icon: "endpoint".into(),
+            mode: "自动一键".into(),
+            title: "官方 API 端点防反代校验".into(),
+            status: CheckStatus::Fail,
+            summary: "正在核对 settings.json 与环境变量是否改写非官方 API 端点...".into(),
+            evidence: "ANTHROPIC_BASE_URL / API_URL: 待检测".into(),
+            guide: "正在执行真实探针检测。".into(),
+            fix_label: None,
+            is_kill_item: false,
+            is_failover: false,
+        },
+        PreflightItem {
             id: "claude_tel".into(),
             part: CheckPart::Must,
             cat: "3. Claude 本机卫生（改 Claude）".into(),
@@ -508,8 +523,8 @@ mod tests {
             .filter(|i| i.part == CheckPart::Opt)
             .collect();
 
-        // 三大纯粹操作边界 11 项必须（改 Clash 5 + 改系统 3 + 改 Claude 3）+ 6 项建议
-        assert_eq!(must_items.len(), 11);
+        // 三大纯粹操作边界 12 项必须（改 Clash 5 + 改系统 3 + 改 Claude 4）+ 6 项建议
+        assert_eq!(must_items.len(), 12);
         assert_eq!(opt_items.len(), 6);
         assert_eq!(
             must_items
@@ -530,8 +545,9 @@ mod tests {
                 .iter()
                 .filter(|i| i.cat.starts_with("3. Claude 本机卫生"))
                 .count(),
-            3
+            4
         );
+        assert!(must_items.iter().any(|i| i.id == "claude_endpoint"));
         assert!(must_items.iter().any(|i| i.id == "node_tun"));
         assert!(must_items.iter().any(|i| i.id == "node_dns"));
         assert!(must_items.iter().any(|i| i.id == "sys_env"));

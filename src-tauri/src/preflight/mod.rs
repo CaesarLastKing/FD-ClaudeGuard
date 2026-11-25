@@ -17,7 +17,9 @@ use crate::state::{
     PreflightReport,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Map, Value};
+#[cfg(test)]
+use serde_json::json;
+use serde_json::Value;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream, UdpSocket};
 use std::path::{Path, PathBuf};
@@ -96,33 +98,8 @@ pub fn is_third_party_base_url(raw: &str) -> bool {
 }
 
 pub fn merge_claude_privacy_settings(existing_json: Option<&str>) -> Result<String, String> {
-    let mut root: Value = match existing_json {
-        Some(raw) if !raw.trim().is_empty() => {
-            serde_json::from_str(raw).map_err(|e| format!("解析现有 settings.json 失败: {e}"))?
-        }
-        _ => json!({}),
-    };
-
-    let obj = root
-        .as_object_mut()
-        .ok_or_else(|| "settings.json 根节点不是 JSON 对象".to_string())?;
-    let env_val = obj
-        .entry("env")
-        .or_insert_with(|| Value::Object(Map::new()));
-    if !env_val.is_object() {
-        *env_val = Value::Object(Map::new());
-    }
-    let env_map = env_val.as_object_mut().expect("env object");
-    env_map.insert(
-        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC".to_string(),
-        Value::String("1".to_string()),
-    );
-    env_map.insert(
-        "DISABLE_ERROR_REPORTING".to_string(),
-        Value::String("1".to_string()),
-    );
-
-    serde_json::to_string_pretty(&root).map_err(|e| format!("序列化 settings.json 失败: {e}"))
+    let (merged, _) = crate::account_audit::patch_settings_json_privacy_4(existing_json)?;
+    Ok(merged)
 }
 
 /// 精准扫描本地 Claude 日志中的「确认封禁 / 强制吊销 / 地区封锁」污染残留
@@ -344,6 +321,7 @@ pub async fn run_all_preflight_checks(cfg: &AppConfig, bg_claude_procs: u32) -> 
         item_location,
         (item_ban, ban_triggered),
         (item_acct, acct_conflict, detected_org_id),
+        (item_endpoint, endpoint_risk),
         item_tel,
         (item_boot, boot_risk),
         item_ntp,
@@ -360,6 +338,7 @@ pub async fn run_all_preflight_checks(cfg: &AppConfig, bg_claude_procs: u32) -> 
         probe_windows_location_privacy(),
         probe_local_ban_contamination(),
         probe_single_account_lock(cfg.bound_primary_org_id.as_deref()),
+        probe_claude_official_endpoint(),
         probe_claude_privacy_settings(),
         async {
             let audit = audit_windows_startup_items(cfg.boot_start);
@@ -380,7 +359,7 @@ pub async fn run_all_preflight_checks(cfg: &AppConfig, bg_claude_procs: u32) -> 
     };
     let item_tz = probe_system_timezone_consistency(&effective_region_for_tz);
 
-    // 严格按「修改对象」三大纯粹边界排序：改 Clash(5) + 改系统(3) + 改 Claude(3) + 建议优化(6)
+    // 严格按「修改对象」三大纯粹边界排序：改 Clash(5) + 改系统(3) + 改 Claude(4) + 建议优化(6)
     let items = vec![
         item_proxy,
         item_group,
@@ -392,6 +371,7 @@ pub async fn run_all_preflight_checks(cfg: &AppConfig, bg_claude_procs: u32) -> 
         item_location,
         item_ban,
         item_acct,
+        item_endpoint,
         item_tel,
         item_boot,
         item_ntp,
@@ -413,7 +393,7 @@ pub async fn run_all_preflight_checks(cfg: &AppConfig, bg_claude_procs: u32) -> 
     if cfg.calm_24h {
         triggered_playbook_ids.push("pb_24h".to_string());
     }
-    if oauth_triggered {
+    if oauth_triggered || endpoint_risk {
         triggered_playbook_ids.push("pb_oauth".to_string());
     }
     if ban_triggered || acct_conflict {
@@ -1188,6 +1168,12 @@ async fn probe_exit_geo(
                 ""
             };
 
+            let bound_geo = crate::account_audit::load_bound_workspace_geo("default");
+            let geo_cross_mismatch = crate::account_audit::evaluate_geo_consistency(
+                bound_geo.as_deref(),
+                Some(&country),
+            ) == crate::account_audit::GeoConsistency::CrossContinentMismatch;
+
             let summary = if !group_ok && (cf_blocked || blocked) {
                 format!("策略组尚未锁死，当前走了默认/直连路由（{country} · {masked}），请先完成上方「策略组与全家桶规则锁死」后再复测")
             } else if cf_blocked {
@@ -1198,6 +1184,11 @@ async fn probe_exit_geo(
                 format!("当前出口命中高危 IP 风险：{asn_purity}（{risk_detail} · {country} · {masked}），禁止启动")
             } else if !anthropic_ok {
                 format!("当前节点无法连通 Anthropic API（{country} · {masked}），请切换可用节点")
+            } else if geo_cross_mismatch {
+                format!(
+                    "账号绑定属地 {} 与当前出口 {country} 跨洲错配（{masked}），建议前往节点流量切回同区节点",
+                    bound_geo.as_deref().unwrap_or("?")
+                )
             } else if landing_drifted {
                 format!("{country} · {asn_purity} · 24h 落地 IP 漂移 {drift_24h} 次预警（{masked}）")
             } else {
@@ -1206,8 +1197,16 @@ async fn probe_exit_geo(
                 )
             };
 
+            let bound_geo_line = match &bound_geo {
+                Some(g) if geo_cross_mismatch => format!(
+                    "\nBound Account Geo vs Exit: 属地 {g} × 出口 {country}（跨洲错配 · 高风险诱因）"
+                ),
+                Some(g) => format!("\nBound Account Geo vs Exit: 属地 {g} × 出口 {country}（一致）"),
+                None => String::new(),
+            };
+
             let evidence = format!(
-                "Source: {source} (via {proxy_url}) | Latency: {elapsed_ms} ms\nExit IP: {masked} ({country} · {})\nASN / Org: {} → {asn_purity} ({risk_detail})\n24h Landing IP Drift: {} (count={drift_24h})\nAnthropic API (api.anthropic.com): {anthropic_label}\nClaude Web (claude.ai/login): {}",
+                "Source: {source} (via {proxy_url}) | Latency: {elapsed_ms} ms\nExit IP: {masked} ({country} · {})\nASN / Org: {} → {asn_purity} ({risk_detail})\n24h Landing IP Drift: {} (count={drift_24h})\nAnthropic API (api.anthropic.com): {anthropic_label}\nClaude Web (claude.ai/login): {}{bound_geo_line}",
                 if blocked { format!("BLOCKED ({FD_ERR_RULE_DRIFT})") } else { "Whitelisted".into() },
                 if asn_org.is_empty() { "Unknown".into() } else { asn_org },
                 if landing_drifted { "DRIFT DETECTED (机场后台切换落地 IP)" } else { "Stable (24h 内未漂移)" },
@@ -1223,7 +1222,7 @@ async fn probe_exit_geo(
                 title: "出口节点合规与真实可达性".into(),
                 status: if !passed {
                     CheckStatus::Fail
-                } else if landing_drifted {
+                } else if geo_cross_mismatch || landing_drifted {
                     CheckStatus::Warn
                 } else {
                     CheckStatus::Ok
@@ -1240,6 +1239,11 @@ async fn probe_exit_geo(
                     "当前出口 IP 命中高危公共代理或滥用标记，极易触发账号风控，请前往「节点流量」切换纯净节点。".into()
                 } else if !anthropic_ok {
                     "当前节点无法连通 api.anthropic.com，请前往「节点流量」切换延迟稳定且可达的合规节点。".into()
+                } else if geo_cross_mismatch {
+                    format!(
+                        "你在「账户审计」已绑定注册属地 {}，但当前出口位于 {country}（跨洲错配），强烈建议前往「节点流量」切回与属地一致的稳定节点。",
+                        bound_geo.as_deref().unwrap_or("?")
+                    )
                 } else if landing_drifted {
                     "同一节点 24 小时内落地 IP 发生静默漂移（机场后台换了出口 IP），建议在「节点流量」重测核验或更换稳定节点。".into()
                 } else if web_cf_challenge {
@@ -1249,13 +1253,15 @@ async fn probe_exit_geo(
                 },
                 fix_label: if !passed {
                     Some("节点不可用，前往「节点流量」手动更换节点 →".into())
+                } else if geo_cross_mismatch {
+                    Some("跨洲错配，前往「节点流量」切回同区节点 →".into())
                 } else if landing_drifted {
                     Some("前往「节点流量」更换稳定节点 →".into())
                 } else {
                     None
                 },
                 is_kill_item: blocked || cf_blocked || high_risk_ip,
-                is_failover: !passed || landing_drifted,
+                is_failover: !passed || geo_cross_mismatch || landing_drifted,
             };
 
             (
@@ -1343,45 +1349,66 @@ pub fn classify_ip_purity_and_risk(
 }
 
 /// 增量 12：极轻量无状态只读探针（绝不带账号 Cookie/Token），校验 api.anthropic.com 可达性并识别 CF 403 拉黑
+/// 遇到单次网络抖动或刚切节点冷握手超时时自动重试 1 次（间隔 450ms），避免健康节点被瞬时毛刺误判不可用
 async fn probe_anthropic_reachability(proxy_url: &str) -> (bool, bool, String) {
     let Ok(proxy) = reqwest::Proxy::all(proxy_url) else {
         return (false, false, "代理配置错误".into());
     };
-    let Ok(client) = reqwest::Client::builder()
-        .proxy(proxy)
-        .timeout(Duration::from_secs(4))
-        .user_agent("FD-Claude-Guard-Probe/0.1")
-        .build()
-    else {
-        return (false, false, "客户端初始化失败".into());
-    };
 
-    match client.get("https://api.anthropic.com/v1/models").send().await {
-        Ok(resp) => {
-            let code = resp.status().as_u16();
-            let cf_mitigated = resp
-                .headers()
-                .get("cf-mitigated")
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or("");
-            let server_hdr = resp
-                .headers()
-                .get("server")
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or("")
-                .to_lowercase();
-            // 无认证头访问 /v1/models 正常返回 401 (authentication_error)，说明 TLS/CF 通道完全畅通；
-            // 若返回 403 且含 Cloudflare 特征则为 IP 被拉黑拦截盾
-            if code == 403 && (!cf_mitigated.is_empty() || server_hdr.contains("cloudflare")) {
-                (false, true, format!("CF 403 已拉黑 (HTTP 403, server={server_hdr})"))
-            } else if code == 401 || code == 200 || code == 400 || code == 404 || code == 405 {
-                (true, false, format!("可达 (TLS 正常 · 无认证响应 HTTP {code} · 非 CF 403)"))
-            } else {
-                (true, false, format!("响应 HTTP {code}"))
+    let mut last_err = String::new();
+    for (attempt, timeout_secs) in [(0usize, 4u64), (1usize, 5u64)] {
+        let Ok(client) = reqwest::Client::builder()
+            .proxy(proxy.clone())
+            .timeout(Duration::from_secs(timeout_secs))
+            .user_agent("FD-Claude-Guard-Probe/0.1")
+            .build()
+        else {
+            return (false, false, "客户端初始化失败".into());
+        };
+
+        match client.get("https://api.anthropic.com/v1/models").send().await {
+            Ok(resp) => {
+                let code = resp.status().as_u16();
+                let cf_mitigated = resp
+                    .headers()
+                    .get("cf-mitigated")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("");
+                let server_hdr = resp
+                    .headers()
+                    .get("server")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("")
+                    .to_lowercase();
+                // 无认证头访问 /v1/models 正常返回 401 (authentication_error)，说明 TLS/CF 通道完全畅通；
+                // 若返回 403 且含 Cloudflare 特征则为 IP 被拉黑拦截盾
+                if code == 403 && (!cf_mitigated.is_empty() || server_hdr.contains("cloudflare")) {
+                    return (false, true, format!("CF 403 已拉黑 (HTTP 403, server={server_hdr})"));
+                }
+                if code == 401 || code == 200 || code == 400 || code == 404 || code == 405 {
+                    return (
+                        true,
+                        false,
+                        format!("可达 (TLS 正常 · 无认证响应 HTTP {code} · 非 CF 403)"),
+                    );
+                }
+                if code >= 500 && attempt == 0 {
+                    last_err = format!("临时服务端错误 HTTP {code}");
+                    tokio::time::sleep(Duration::from_millis(450)).await;
+                    continue;
+                }
+                return (true, false, format!("响应 HTTP {code}"));
+            }
+            Err(e) => {
+                last_err = format!("连接异常: {e}");
+                if attempt == 0 {
+                    tokio::time::sleep(Duration::from_millis(450)).await;
+                }
             }
         }
-        Err(e) => (false, false, format!("连接异常: {e}")),
     }
+
+    (false, false, last_err)
 }
 
 /// 无状态真实探测 claude.ai/login 是否触发 Cloudflare 人机弹盾（用于节点表标注黄色风险盾）
@@ -2764,21 +2791,41 @@ fn scan_claude_logs_for_ban() -> (usize, Vec<String>, bool) {
 
 /// 增量 16：单号卫生锁（防混号与跨 orgId 竞态；仅当实测检出多个不同账号/跨号竞态时拦截，绝不因单号 KYC/auth_error 误杀）
 async fn probe_single_account_lock(bound_primary_org: Option<&str>) -> (PreflightItem, bool, Option<String>) {
-    let audit = tokio::task::spawn_blocking(crate::watchdog::audit_claude_logs_for_accounts)
-        .await
-        .unwrap_or_default();
+    // 与账户审计 100% 同源：同步联合扫描 Desktop 日志与 ~/.claude.json + 历史备份
+    let (audit, local_audit) = tokio::task::spawn_blocking(|| {
+        let log_audit = crate::watchdog::audit_claude_logs_for_accounts();
+        let ctx = crate::account_audit::local_scan::ProfileContext::default_local(None, None, None);
+        let acc_audit = crate::account_audit::local_scan::scan_local_profile(&ctx);
+        (log_audit, acc_audit)
+    })
+    .await
+    .unwrap_or_default();
 
-    let latest_org = audit.unique_org_ids.last().cloned();
-    let multi_orgs = audit.unique_org_ids.len() > 1 || audit.unique_account_ids.len() > 1;
+    let mut merged_orgs: Vec<String> = audit.unique_org_ids.clone();
+    if let Some(ref cli_org) = local_audit.claude_json.org_uuid_prefix8 {
+        if !merged_orgs.iter().any(|x| x.eq_ignore_ascii_case(cli_org)) {
+            merged_orgs.push(cli_org.clone());
+        }
+    }
+    for d_org in &local_audit.desktop.org_id_prefixes {
+        if !merged_orgs.iter().any(|x| x.eq_ignore_ascii_case(d_org)) {
+            merged_orgs.push(d_org.clone());
+        }
+    }
+
+    let cli_org = local_audit.claude_json.org_uuid_prefix8.clone();
+    let cross_client_mismatch = local_audit.cross_client_org_mismatch;
+    let latest_org = cli_org.clone().or_else(|| merged_orgs.last().cloned());
+    let multi_orgs =
+        merged_orgs.len() > 1 || audit.unique_account_ids.len() > 1 || cross_client_mismatch;
     let bound_mismatch = match (bound_primary_org, latest_org.as_deref()) {
-        (Some(bound), Some(cur)) if !bound.is_empty() && bound != cur => true,
+        (Some(bound), Some(cur)) if !bound.is_empty() && !bound.eq_ignore_ascii_case(cur) => true,
         _ => false,
     };
-    let has_cross_race = !audit.cross_account_hits.is_empty();
+    let has_cross_race =
+        !audit.cross_account_hits.is_empty() || local_audit.desktop.cross_org_404_hits > 0;
     let has_restricted_mix = multi_orgs && !audit.restricted_org_ids.is_empty();
 
-    // 仅当真正出现多账号（>=2 个不同 orgId / accountId、与绑定主号不符、或跨号竞态）时才触发单号卫生锁！
-    // 单号自己的 KYC / Verification Portal / OAuth 403 len=164/156 权限暂限绝不触发单号冲突！
     let conflict = multi_orgs || bound_mismatch || has_cross_race;
 
     let bound_display = bound_primary_org
@@ -2788,7 +2835,7 @@ async fn probe_single_account_lock(bound_primary_org: Option<&str>) -> (Prefligh
 
     let summary = if !conflict {
         if latest_org.is_some() {
-            format!("已锁定唯一主号 {bound_display}... · 无多号混登或跨 orgId 竞态")
+            format!("已锁定唯一主号 {bound_display}... · CLI 与桌面端组织一致，无混登或跨 orgId 竞态")
         } else {
             "未检测到多账号混登或跨 orgId 竞态记录 · 单号状态纯净".into()
         }
@@ -2797,13 +2844,19 @@ async fn probe_single_account_lock(bound_primary_org: Option<&str>) -> (Prefligh
     } else if has_restricted_mix {
         format!(
             "[{FD_ERR_LOG_POLLUTE}] 最高危连坐预警：本机混登 {} 个账号且包含已受限/待验证号（{}），极易拖累主力号触发同款审核！",
-            audit.unique_org_ids.len().max(audit.unique_account_ids.len()),
+            merged_orgs.len().max(audit.unique_account_ids.len()),
             audit.restricted_org_ids.join(", ")
+        )
+    } else if cross_client_mismatch {
+        format!(
+            "[{FD_ERR_LOG_POLLUTE}] 跨端混登预警：CLI ({}) 与桌面端日志 ({}) 组织不一致，请清理旧端残留",
+            cli_org.as_deref().unwrap_or("未知"),
+            local_audit.desktop.org_id_prefixes.join(", ")
         )
     } else if multi_orgs {
         format!(
-            "[{FD_ERR_LOG_POLLUTE}] 同一本机日志检出多账号混登（orgId: {} / accountId: {}），需二选一确认",
-            audit.unique_org_ids.len(),
+            "[{FD_ERR_LOG_POLLUTE}] 同一本机检出多账号混登（orgId: {} / accountId: {}），需二选一确认",
+            merged_orgs.len(),
             audit.unique_account_ids.len()
         )
     } else {
@@ -2816,14 +2869,31 @@ async fn probe_single_account_lock(bound_primary_org: Option<&str>) -> (Prefligh
 
     let mut ev_lines = vec![
         format!("Scanned Claude Log Files: {}", audit.scanned_files),
+        format!(
+            "CLI (~/.claude.json) orgId: {} ({})",
+            cli_org.as_deref().unwrap_or("未登录"),
+            local_audit
+                .claude_json
+                .email_masked
+                .as_deref()
+                .unwrap_or("无邮箱记录")
+        ),
+        format!(
+            "Desktop Logs orgIds: {}",
+            if local_audit.desktop.org_id_prefixes.is_empty() {
+                "None".into()
+            } else {
+                local_audit.desktop.org_id_prefixes.join(", ")
+            }
+        ),
         format!("Bound Primary orgId: {bound_display}"),
         format!(
             "Observed Unique orgIds ({}): {}",
-            audit.unique_org_ids.len(),
-            if audit.unique_org_ids.is_empty() {
+            merged_orgs.len(),
+            if merged_orgs.is_empty() {
                 "None".into()
             } else {
-                audit.unique_org_ids.join(", ")
+                merged_orgs.join(", ")
             }
         ),
         format!(
@@ -2835,7 +2905,7 @@ async fn probe_single_account_lock(bound_primary_org: Option<&str>) -> (Prefligh
                 audit.unique_account_ids.join(", ")
             }
         ),
-        format!("Cross-orgId Race Hits: {}", audit.cross_account_hits.len()),
+        format!("Cross-orgId Race Hits: {}", audit.cross_account_hits.len() + local_audit.desktop.cross_org_404_hits),
     ];
     if !audit.restricted_org_ids.is_empty() {
         ev_lines.push(format!(
@@ -2845,7 +2915,7 @@ async fn probe_single_account_lock(bound_primary_org: Option<&str>) -> (Prefligh
     }
     if !audit.auth_403_hits.is_empty() {
         ev_lines.push(format!(
-            "Single-Account KYC/Auth Notice (不计为混号冲突): {} 条，详见日志分析",
+            "Single-Account KYC/Auth Notice (不计为混号冲突): {} 条，详见账户审计日志流",
             audit.auth_403_hits.len()
         ));
     }
@@ -2869,11 +2939,11 @@ async fn probe_single_account_lock(bound_primary_org: Option<&str>) -> (Prefligh
             summary,
             evidence: ev_lines.join("\n"),
             guide: if has_restricted_mix {
-                "最高危连坐警告：同一本机安装目录（含经典 Electron 与微软商店 MSIX 沙箱）内曾登录已触发验证限制/受限的旧号，同时混登了其他主力号，极易触发同机连坐！强烈建议立即点击下方二选一选择「退出登录并原子备份清理污染目录（含 MSIX）」，清理干净后再仅登录单一健康主力号；切勿轻易跳过或绑定。".into()
+                "最高危连坐警告：同一本机安装目录（含经典 Electron、微软商店 MSIX 与 CLI）内曾登录已触发验证限制/受限的旧号，同时混登了其他主力号，极易触发同机连坐！强烈建议立即点击下方分项备份清理污染目录，清理干净后再仅登录单一健康主力号。".into()
             } else if conflict {
-                "检测到多账号混登或跨 orgId 竞态，绝不擅自乱删你的账号目录。点击下方二选一确认：① 退出登录并原子备份清理污染目录（含 MSIX）；② 明确永久更换主力新号且环境干净 → 更新绑定主号。".into()
+                "检测到多账号混登或 CLI 与桌面端组织不一致，绝不擅自乱删你的账号目录。点击下方二选一确认：① 打开透明分项清单备份清理桌面端或 CLI 残留；② 明确永久更换主力新号且环境干净 → 更新绑定主号。".into()
             } else {
-                "通过提取本机全部唯一 orgId 与跨号竞态记录验证当前为纯净单号；单号自身身份验证（KYC）不会误触此锁。".into()
+                "通过联合校验 CLI (~/.claude.json) 与桌面端日志全部唯一 orgId 及跨号竞态记录，确认当前为纯净单号。".into()
             },
             fix_label: if conflict {
                 Some("引导处理单号冲突（二选一确认）".into())
@@ -2888,97 +2958,118 @@ async fn probe_single_account_lock(bound_primary_org: Option<&str>) -> (Prefligh
     )
 }
 
+/// 控制台新增高权重红线：官方 API 端点防反代校验（与账户审计第 5 项 100% 同源）
+async fn probe_claude_official_endpoint() -> (PreflightItem, bool) {
+    let hygiene = tokio::task::spawn_blocking(|| {
+        let cli_dir = dirs::home_dir().map(|h| h.join(".claude"));
+        crate::account_audit::local_scan::scan_settings_and_hygiene(cli_dir.as_deref(), true)
+    })
+    .await
+    .unwrap_or_default();
+
+    let has_settings_override = hygiene.settings_non_official_endpoint.is_some();
+    let has_env_override = !hygiene.system_env_endpoint_conflicts.is_empty();
+    let has_risk = has_settings_override || has_env_override;
+
+    let summary = if !has_risk {
+        "未检出非官方 ANTHROPIC_BASE_URL / API_URL 改写，消费级订阅直连原生官方端点".into()
+    } else if let Some(ref s) = hygiene.settings_non_official_endpoint {
+        format!("检测到 settings.json 改写非官方端点（{s}），消费级订阅易引发连坐")
+    } else {
+        format!(
+            "检测到系统环境变量改写非官方端点（{}），建议一键还原官方端点",
+            hygiene.system_env_endpoint_conflicts.join(" / ")
+        )
+    };
+
+    let evidence = format!(
+        "settings.json ANTHROPIC_BASE_URL / API_URL: {}\nSystem ENV (HKCU/HKLM) API Endpoints: {}",
+        hygiene
+            .settings_non_official_endpoint
+            .as_deref()
+            .unwrap_or("默认官方（未改写）"),
+        if hygiene.system_env_endpoint_conflicts.is_empty() {
+            "0 冲突 · 原生直连".into()
+        } else {
+            hygiene.system_env_endpoint_conflicts.join("; ")
+        }
+    );
+
+    (
+        PreflightItem {
+            id: "claude_endpoint".into(),
+            part: CheckPart::Must,
+            cat: "3. Claude 本机卫生（改 Claude）".into(),
+            icon: "endpoint".into(),
+            mode: "自动一键".into(),
+            title: "官方 API 端点防反代校验".into(),
+            status: if has_risk {
+                CheckStatus::Fail
+            } else {
+                CheckStatus::Ok
+            },
+            summary,
+            evidence,
+            guide: if has_risk {
+                "个人 Pro / Max 消费级订阅叠加第三方共享反代中转池极易引发批量连坐；点击一键还原将在锁定首次基线后移除非官方端点，随时可撤回。".into()
+            } else {
+                "settings.json 与系统环境变量均未指向第三方反代，已直连官方原生端点。".into()
+            },
+            fix_label: if has_risk {
+                Some("一键备份并还原官方原生端点".into())
+            } else {
+                None
+            },
+            is_kill_item: false,
+            is_failover: false,
+        },
+        has_risk,
+    )
+}
+
 fn claude_settings_path() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".claude").join("settings.json"))
 }
 
-fn claude_telemetry_dir() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join(".claude").join("telemetry"))
-}
-
-fn dir_size_bytes(path: &Path) -> u64 {
-    dir_size_bytes_bounded(path, 0)
-}
-
-fn dir_size_bytes_bounded(path: &Path, depth: usize) -> u64 {
-    if depth > 16 {
-        return 0;
-    }
-    let Ok(root_meta) = fs::symlink_metadata(path) else {
-        return 0;
-    };
-    if root_meta.file_type().is_symlink() || !root_meta.is_dir() {
-        return 0;
-    }
-    let Ok(entries) = fs::read_dir(path) else {
-        return 0;
-    };
-    entries
-        .flatten()
-        .map(|e| {
-            let p = e.path();
-            let Ok(meta) = fs::symlink_metadata(&p) else {
-                return 0;
-            };
-            if meta.file_type().is_symlink() {
-                return 0;
-            }
-            if meta.is_dir() {
-                dir_size_bytes_bounded(&p, depth + 1)
-            } else {
-                meta.len()
-            }
-        })
-        .sum()
-}
-
 async fn probe_claude_privacy_settings() -> PreflightItem {
-    let settings_path = claude_settings_path();
-    let telemetry_dir = claude_telemetry_dir();
+    // 与账户审计第 7 项 100% 同源：严格校验 4/4 隐私降噪环境变量 + telemetry/ 待传目录
+    let hygiene = tokio::task::spawn_blocking(|| {
+        let cli_dir = dirs::home_dir().map(|h| h.join(".claude"));
+        crate::account_audit::local_scan::scan_settings_and_hygiene(cli_dir.as_deref(), false)
+    })
+    .await
+    .unwrap_or_default();
 
-    let (disable_nonessential, disable_err) = match &settings_path {
-        Some(p) => match fs::read_to_string(p)
-            .ok()
-            .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
-        {
-            Some(val) => {
-                let env = val.get("env").and_then(|e| e.as_object());
-                let v1 = env
-                    .and_then(|m| m.get("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"))
-                    .and_then(|v| v.as_str())
-                    == Some("1");
-                let v2 = env
-                    .and_then(|m| m.get("DISABLE_ERROR_REPORTING"))
-                    .and_then(|v| v.as_str())
-                    == Some("1");
-                (v1, v2)
-            }
-            None => (false, false),
-        },
-        None => (false, false),
-    };
+    let enabled = hygiene.privacy_enabled_count;
+    let total = crate::account_audit::local_scan::PRIVACY_ENV_KEYS.len();
+    let missing = &hygiene.privacy_missing_keys;
+    let telemetry_bytes = hygiene.telemetry_total_bytes;
 
-    let telemetry_bytes = telemetry_dir
-        .as_deref()
-        .map(dir_size_bytes)
-        .unwrap_or(0);
-
-    let passed = disable_nonessential && disable_err && telemetry_bytes == 0;
+    let passed = missing.is_empty() && telemetry_bytes == 0;
 
     let summary = if passed {
-        "已写入官方降噪环境变量并清空 ~/.claude/telemetry/ 缓存".into()
-    } else if !disable_nonessential || !disable_err {
-        "~/.claude/settings.json 尚未关闭非必要遥测与错误上报".into()
+        format!("已开启 {enabled}/{total} 官方隐私降噪变量并清空 ~/.claude/telemetry/ 缓存")
+    } else if !missing.is_empty() {
+        format!(
+            "~/.claude/settings.json 仅开启 {enabled}/{total}（缺 {}）",
+            missing.join(" & ")
+        )
     } else {
-        format!("隐私开关已开启，但 ~/.claude/telemetry/ 仍有 {telemetry_bytes} B 离线缓存待清")
+        format!("4/4 隐私开关已全，但 ~/.claude/telemetry/ 仍有 {telemetry_bytes} B 离线缓存待清")
     };
 
-    let evidence = format!(
-        "File: ~/.claude/settings.json\nCLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: {}\nDISABLE_ERROR_REPORTING: {}\nTelemetry Cache (~/.claude/telemetry): {} B",
-        if disable_nonessential { "\"1\" (OK)" } else { "Missing" },
-        if disable_err { "\"1\" (OK)" } else { "Missing" },
-        telemetry_bytes
-    );
+    let mut ev_lines = vec!["File: ~/.claude/settings.json".to_string()];
+    for k in crate::account_audit::local_scan::PRIVACY_ENV_KEYS {
+        let ok = hygiene.privacy_env_flags.get(k).copied().unwrap_or(false);
+        ev_lines.push(format!(
+            "{k}: {}",
+            if ok { "\"1\" (OK)" } else { "Missing" }
+        ));
+    }
+    ev_lines.push(format!(
+        "Telemetry Cache (~/.claude/telemetry): {} files ({telemetry_bytes} B)",
+        hygiene.telemetry_file_count
+    ));
 
     PreflightItem {
         id: "claude_tel".into(),
@@ -2993,16 +3084,16 @@ async fn probe_claude_privacy_settings() -> PreflightItem {
             CheckStatus::Fail
         },
         summary,
-        evidence,
+        evidence: ev_lines.join("\n"),
         guide: if passed {
-            "官方隐私降噪环境变量与离线遥测清理已实测生效；未触碰账号登录态与聊天记录。".into()
+            "4 项官方隐私降噪环境变量与离线遥测清理均已实测生效；未触碰账号登录态与聊天记录。".into()
         } else {
-            "仅无损合并写入 ~/.claude/settings.json 官方降噪开关并清空 ~/.claude/telemetry/ 缓存，绝不碰账号登录态与聊天记录。".into()
+            "仅无损合并写入 ~/.claude/settings.json 的 4 项降噪开关（自动保存首次基线可撤回）并清空 ~/.claude/telemetry/ 缓存，绝不碰登录态与自定义 hooks。".into()
         },
         fix_label: if passed {
             None
         } else {
-            Some("一键写入隐私降噪并清空缓存".into())
+            Some("一键补齐 4/4 隐私降噪并清空缓存".into())
         },
         is_kill_item: false,
         is_failover: false,
@@ -3653,7 +3744,14 @@ pub async fn execute_fix_item(
     match item_id {
         "claude_tel" => {
             fix_claude_privacy_and_telemetry()?;
-            message = "已无损写入官方隐私降噪环境变量并清空 ~/.claude/telemetry/ 缓存（未碰登录态）。".into();
+            message = "已无损补齐 4/4 官方隐私降噪变量（已保存首次基线可撤回）并清空 ~/.claude/telemetry/ 缓存。".into();
+        }
+        "claude_endpoint" => {
+            let cli_dir = dirs::home_dir().map(|h| h.join(".claude"));
+            message = crate::account_audit::restore_claude_official_endpoint(
+                cli_dir.as_deref(),
+                true,
+            )?;
         }
         "claude_ban" => {
             let info = backup_and_clean_claude_dirs()?;
@@ -4148,6 +4246,14 @@ pub async fn execute_one_click_fix_all(
                     fixed_ids.push("claude_tel".to_string());
                 }
             }
+            "claude_endpoint" => {
+                let cli_dir = dirs::home_dir().map(|h| h.join(".claude"));
+                if crate::account_audit::restore_claude_official_endpoint(cli_dir.as_deref(), true)
+                    .is_ok()
+                {
+                    fixed_ids.push("claude_endpoint".to_string());
+                }
+            }
             "sys_env" => {
                 let active_port = resolve_active_mixed_port().await;
                 if fix_system_proxy_and_env(active_port).is_ok() {
@@ -4198,29 +4304,11 @@ pub async fn execute_one_click_fix_all(
 }
 
 fn fix_claude_privacy_and_telemetry() -> Result<(), String> {
-    let settings_path =
-        claude_settings_path().ok_or_else(|| "无法定位用户主目录 ~/.claude".to_string())?;
-    if let Some(parent) = settings_path.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("创建 ~/.claude 目录失败: {e}"))?;
-    }
-    let existing = fs::read_to_string(&settings_path).ok();
-    let merged = merge_claude_privacy_settings(existing.as_deref())?;
-    fs::write(&settings_path, merged).map_err(|e| format!("写入 settings.json 失败: {e}"))?;
-
-    if let Some(tel_dir) = claude_telemetry_dir() {
-        if tel_dir.exists() {
-            if let Ok(entries) = fs::read_dir(&tel_dir) {
-                for entry in entries.flatten() {
-                    let p = entry.path();
-                    if p.is_dir() {
-                        let _ = fs::remove_dir_all(&p);
-                    } else {
-                        let _ = fs::remove_file(&p);
-                    }
-                }
-            }
-        }
-    }
+    let cli_dir = dirs::home_dir()
+        .map(|h| h.join(".claude"))
+        .ok_or_else(|| "无法定位用户主目录 ~/.claude".to_string())?;
+    let _ = crate::account_audit::apply_claude_privacy_env_fix(&cli_dir)?;
+    let _ = crate::account_audit::clean_claude_telemetry_dir(&cli_dir)?;
     Ok(())
 }
 
@@ -5285,6 +5373,8 @@ mod tests {
         assert_eq!(val["env"]["CUSTOM_FLAG"], "keep");
         assert_eq!(val["env"]["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"], "1");
         assert_eq!(val["env"]["DISABLE_ERROR_REPORTING"], "1");
+        assert_eq!(val["env"]["DISABLE_TELEMETRY"], "1");
+        assert_eq!(val["env"]["DISABLE_BUG_COMMAND"], "1");
     }
 
     #[test]
@@ -5439,8 +5529,8 @@ mod tests {
         for item in &bundle.report.items {
             println!("[{:?}] {} => {}", item.status, item.id, item.summary);
         }
-        assert_eq!(bundle.report.items.len(), 17);
-        assert_eq!(bundle.snapshot.must_total, 11);
+        assert_eq!(bundle.report.items.len(), 18);
+        assert_eq!(bundle.snapshot.must_total, 12);
         assert_eq!(bundle.snapshot.opt_total, 6);
         assert!(bundle.snapshot.clash_online);
     }

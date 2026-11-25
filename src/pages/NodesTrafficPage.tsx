@@ -236,6 +236,8 @@ export function NodesTrafficPage() {
   const activeAnomCount = conns.filter((c) => c.anomaly && !ackedFlowIds.includes(c.id)).length;
   const totalAnomCount = conns.filter((c) => c.anomaly).length;
   const shownConns = flowFilter === "anomaly" ? conns.filter((c) => c.anomaly) : conns;
+  const usableNodeCount = nodeReport.nodes.filter((n) => !n.blocked && !n.cfBlocked).length;
+  const unusableInListCount = Math.max(0, nodeReport.nodes.length - usableNodeCount);
 
   const showTip = (e: MouseEvent<HTMLElement>, text: string) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -424,14 +426,22 @@ export function NodesTrafficPage() {
               </div>
               <div className="guard-card" style={statPadStyle}>
                 <div style={statLblStyle}>受支持可用节点</div>
-                <div style={statNumStyle}>
-                  {nodeReport.nodes.length}
+                <div data-testid="nodes-usable-count" style={statNumStyle}>
+                  {usableNodeCount}
                   <span style={statUnitStyle}>个</span>
                 </div>
+                {unusableInListCount > 0 && (
+                  <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 3 }}>
+                    共评估 {nodeReport.nodes.length} 个（{unusableInListCount} 个不可用）
+                  </div>
+                )}
               </div>
               <div className="guard-card" style={statPadStyle}>
                 <div style={statLblStyle}>已自动屏蔽禁区节点</div>
-                <div style={{ ...statNumStyle, color: "var(--text-2)" }}>
+                <div
+                  data-testid="nodes-blocked-count"
+                  style={{ ...statNumStyle, color: "var(--text-2)" }}
+                >
                   {nodeReport.filteredBlockedCount}
                   <span style={statUnitStyle}>个</span>
                 </div>
@@ -768,7 +778,7 @@ export function NodesTrafficPage() {
                                   </span>
                                 </div>
                                 <div style={{ fontSize: 11, color: evalColor }}>
-                                  {n.cfBlocked ? "拉黑不可用" : n.recommendation}
+                                  {n.recommendation || (n.cfBlocked ? "拉黑不可用" : "可用")}
                                 </div>
                               </div>
                             </td>

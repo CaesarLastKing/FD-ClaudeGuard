@@ -504,12 +504,12 @@ export function HudCard({ initialConfig, initialSnapshot, onGoConsole }: HudCard
     : mustFail > 0
     ? `前往控制台处理 ${mustFail} 项待办 →`
     : logOnlyFocus
-    ? `前往日志分析查看（${logTileLabel}） →`
+    ? `前往账户审计查看日志（${logTileLabel}） →`
     : "前往控制台安全启动 Claude →";
   const ctaTargetTab: NavTab = snapshot.nodeDown
     ? "nodes"
     : logOnlyFocus
-    ? "logs"
+    ? "audit"
     : "console";
 
   // 贴边收起态（Tauri 原生窗口模式直接全窗渲染 20x84px 耳标）
@@ -774,7 +774,7 @@ export function HudCard({ initialConfig, initialSnapshot, onGoConsole }: HudCard
                 ? `点击前往日志分析（风险 ${logWarnCount} · 异常 ${logCritCount}）`
                 : "点击前往日志分析"
             }
-            onClick={() => handleNavigate("logs", null, false)}
+            onClick={() => handleNavigate("audit", "logs", false)}
           >
             <div className="hm-top">
               <span>日志</span>

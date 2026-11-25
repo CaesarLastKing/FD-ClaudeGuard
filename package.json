@@ -1,7 +1,7 @@
 {
   "name": "fd-claude-guard",
   "private": true,
-  "version": "0.2.9",
+  "version": "0.3.0",
   "description": "FD Claude 安全启动器 (FD Claude Guard) - Windows Claude Desktop & CLI 安全护航与防封启动器",
   "type": "module",
   "scripts": {

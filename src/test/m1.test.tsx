@@ -28,12 +28,12 @@ describe("FD Claude Guard M1 核心功能与设计红线验收", () => {
   it("渲染 5 大导航且必须项默认诚实锁定启动（绝不伪造绿灯）", async () => {
     render(<App />);
 
-    for (const label of ["控制台", "节点流量", "日志分析", "环境维护", "守卫配置"]) {
+    for (const label of ["控制台", "账户审计", "节点流量", "环境维护", "守卫配置"]) {
       expect(screen.getByRole("button", { name: new RegExp(label) })).toBeInTheDocument();
     }
 
     await waitFor(() => {
-      expect(screen.getByText(/一键处理全部 \(11\)/)).toBeInTheDocument();
+      expect(screen.getByText(/一键处理全部 \(12\)/)).toBeInTheDocument();
     });
     expect(screen.queryByRole("button", { name: /安全启动 Claude/ })).not.toBeInTheDocument();
     // 回归 ISS-009：未通过且无自动修复按钮时绝不显示绿色通过文案，且必须保留 AI 排障包导出按钮
@@ -71,11 +71,13 @@ describe("FD Claude Guard M1 核心功能与设计红线验收", () => {
     });
   });
 
-  it("日志分析模拟高并发 429 异常后跳转安全守则抽屉，展开 8 大守则并触发高亮闪烁定位", async () => {
+  it("账户审计实时取证台模拟高并发 429 异常后跳转安全守则抽屉，展开 8 大守则并触发高亮闪烁定位", async () => {
     render(<App />);
 
-    fireEvent.click(screen.getByRole("button", { name: /日志分析/ }));
-    fireEvent.click(screen.getByRole("button", { name: /\+ 模拟高并发 429 异常/ }));
+    fireEvent.click(screen.getByRole("button", { name: /账户审计/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /实时异常日志流/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /打开完整取证日志台/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /\+ 模拟高并发 429 异常/ }));
     fireEvent.click(await screen.findByRole("button", { name: /查看联动安全守则/ }));
 
     expect(await screen.findByRole("dialog", { name: /Claude 账号安全守则/ })).toBeInTheDocument();

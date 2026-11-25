@@ -778,19 +778,33 @@ pub async fn probe_dual_ai_via_proxy(node_name: &str, proxy_port: u16) -> DualAi
     };
 
     // 并发探测 Anthropic API + claude.ai 网页防盾 + Gemini 无状态入口（不带任何账号 Cookie / Token）
+    // Anthropic API 遇到单次网络抖动或冷握手超时自动重试 1 次（间隔 450ms），避免健康节点被瞬时毛刺误杀为离线
     let claude_api_fut = async {
-        let t0 = Instant::now();
-        match client.get("https://api.anthropic.com/v1/models").send().await {
-            Ok(resp) => {
-                let rtt = t0.elapsed().as_millis().min(9999) as u32;
-                let status = resp.status().as_u16();
-                let body = resp.text().await.unwrap_or_default();
-                let snippet: String = body.chars().take(600).collect();
-                let (st, lbl, blocked) = classify_claude_probe_response(status, &snippet);
-                (st, lbl, blocked, Some(rtt))
+        let mut last_res = ("unknown", "Claude 待测", false, None);
+        for attempt in 0..2 {
+            let t0 = Instant::now();
+            match client.get("https://api.anthropic.com/v1/models").send().await {
+                Ok(resp) => {
+                    let rtt = t0.elapsed().as_millis().min(9999) as u32;
+                    let status = resp.status().as_u16();
+                    let body = resp.text().await.unwrap_or_default();
+                    let snippet: String = body.chars().take(600).collect();
+                    let (st, lbl, blocked) = classify_claude_probe_response(status, &snippet);
+                    last_res = (st, lbl, blocked, Some(rtt));
+                    // 拿到明确非 5xx HTTP 响应立即返回，无需无谓重试
+                    if status < 500 {
+                        return last_res;
+                    }
+                }
+                Err(_) => {
+                    last_res = ("unknown", "Claude 待测", false, None);
+                }
             }
-            Err(_) => ("unknown", "Claude 待测", false, None),
+            if attempt == 0 {
+                tokio::time::sleep(Duration::from_millis(450)).await;
+            }
         }
+        last_res
     };
 
     let claude_web_fut = async {
@@ -1945,14 +1959,12 @@ pub async fn build_node_report_with_options(force_reprobe: bool) -> NodeReport {
         None
     };
 
-    let mut filtered_blocked_count = 0usize;
     let mut valid_candidates: Vec<(String, String)> = Vec::new();
     for name in &candidates {
         if name == "DIRECT" || name == "REJECT" || name == "COMPATIBLE" {
             continue;
         }
         if is_blocked_node_name(name) {
-            filtered_blocked_count += 1;
             continue;
         }
         let info = proxies.get(name);
@@ -2305,6 +2317,8 @@ pub async fn build_node_report_with_options(force_reprobe: bool) -> NodeReport {
             format!("{cc}{ip_part} · {asn_purity} · 24h {drift_cnt} 漂移")
         });
 
+    let filtered_blocked_count = count_blocked_region_nodes(&proxies, &candidates, &nodes);
+
     NodeReport {
         connected: true,
         endpoint: ep.display_label(),
@@ -2315,6 +2329,55 @@ pub async fn build_node_report_with_options(force_reprobe: bool) -> NodeReport {
         nodes,
         current_exit_summary,
     }
+}
+
+/// 真实统计「已自动屏蔽禁区节点」总数（去重）：
+/// 1) 订阅全量代理中因名称命中 HK/MO/CN/RU 等禁区而被覆写脚本自动剔除出 Claude-Fixed 的节点；
+/// 2) 当前策略组中按名称命中的禁区节点；
+/// 3) 虽名称看似合规（如挂名台湾）但经深度实测真实出口落入禁区（如 HK）的落地禁区节点。
+pub fn count_blocked_region_nodes(
+    proxies: &HashMap<String, Value>,
+    group_candidates: &[String],
+    evaluated_nodes: &[NodeItem],
+) -> usize {
+    let mut blocked_names = std::collections::HashSet::<String>::new();
+
+    for (name, info) in proxies {
+        if name == "DIRECT" || name == "REJECT" || name == "COMPATIBLE" || name == "GLOBAL" {
+            continue;
+        }
+        let node_type = info
+            .get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Proxy");
+        if matches!(
+            node_type,
+            "Selector" | "URLTest" | "Fallback" | "LoadBalance" | "Direct" | "Reject" | "Compatible" | "Pass" | "Relay"
+        ) {
+            continue;
+        }
+        if is_blocked_node_name(name) {
+            blocked_names.insert(name.clone());
+        }
+    }
+
+    for name in group_candidates {
+        if name != "DIRECT" && name != "REJECT" && name != "COMPATIBLE" && is_blocked_node_name(name)
+        {
+            blocked_names.insert(name.clone());
+        }
+    }
+
+    for n in evaluated_nodes {
+        if n.claude_status == "blocked"
+            || is_blocked_country(&n.region_code)
+            || n.claude_label.contains("禁区")
+        {
+            blocked_names.insert(n.name.clone());
+        }
+    }
+
+    blocked_names.len()
 }
 
 pub fn compute_node_score_weighted(
@@ -2537,5 +2600,76 @@ mod tests {
             r"C:\ProgramData\clash-verge-service\users\66b64146261caec4e13cfb7f76e58232ba78a886800d00e4b1b6a57caf845b19\runtime",
         );
         assert!(!is_valid_clash_verge_config_dir(&sandbox));
+    }
+
+    #[test]
+    fn counts_both_subscription_name_blocked_and_measured_landing_blocked_nodes_without_double_count() {
+        let mut proxies: HashMap<String, Value> = HashMap::new();
+        // 订阅中被 Script.js 提前踢出 Claude-Fixed 的 2 个真实香港节点
+        proxies.insert("🇭🇰香港1".into(), serde_json::json!({ "type": "Vless" }));
+        proxies.insert("🇭🇰香港2".into(), serde_json::json!({ "type": "Vless" }));
+        // 策略组本身不应被计入节点数
+        proxies.insert("香港自动选择".into(), serde_json::json!({ "type": "URLTest" }));
+        proxies.insert("🇺🇸美国2|流媒体AI".into(), serde_json::json!({ "type": "Vless" }));
+        proxies.insert("🇨🇳台湾1|流媒体AI".into(), serde_json::json!({ "type": "AnyTLS" }));
+
+        let group_candidates = vec!["🇺🇸美国2|流媒体AI".to_string(), "🇨🇳台湾1|流媒体AI".to_string()];
+        let evaluated = vec![
+            NodeItem {
+                name: "🇺🇸美国2|流媒体AI".into(),
+                region_code: "US".into(),
+                region_label: "美国 · Vless".into(),
+                node_type: "Vless".into(),
+                delay_ms: Some(142),
+                jitter_ms: 5,
+                drop_rate_pct: 0.0,
+                blocked: false,
+                is_current: true,
+                score: 98,
+                recommendation: "推荐主节点".into(),
+                asn_purity: "ISP 住宅".into(),
+                asn_short: "ISP 住宅".into(),
+                anthropic_probe: "Claude ✓".into(),
+                cf_blocked: false,
+                claude_status: "ok".into(),
+                claude_label: "Claude ✓".into(),
+                gemini_status: "ok".into(),
+                gemini_label: "AGY ✓".into(),
+                dual_ai_ok: true,
+                drift_count_24h: 0,
+                risk_level: "isp".into(),
+                risk_detail: "无代理标记".into(),
+                web_cf_challenge: false,
+            },
+            NodeItem {
+                name: "🇨🇳台湾1|流媒体AI".into(),
+                region_code: "HK".into(),
+                region_label: "香港 · AnyTLS".into(),
+                node_type: "AnyTLS".into(),
+                delay_ms: Some(117),
+                jitter_ms: 7,
+                drop_rate_pct: 0.0,
+                blocked: true,
+                is_current: false,
+                score: 35,
+                recommendation: "禁区不可用".into(),
+                asn_purity: "ISP 住宅".into(),
+                asn_short: "落地禁区".into(),
+                anthropic_probe: "落地禁区（禁止使用）".into(),
+                cf_blocked: true,
+                claude_status: "blocked".into(),
+                claude_label: "落地禁区".into(),
+                gemini_status: "ok".into(),
+                gemini_label: "AGY ✓".into(),
+                dual_ai_ok: false,
+                drift_count_24h: 0,
+                risk_level: "isp".into(),
+                risk_detail: "无代理标记".into(),
+                web_cf_challenge: false,
+            },
+        ];
+
+        // 2 个订阅香港节点 + 1 个假台湾落地香港节点 = 3 个（策略组不计入）
+        assert_eq!(count_blocked_region_nodes(&proxies, &group_candidates, &evaluated), 3);
     }
 }

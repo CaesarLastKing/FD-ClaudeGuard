@@ -31,6 +31,7 @@ export function NetworkRescueRollbackPanel({ compact = false }: NetworkRescueRol
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [rescueReport, setRescueReport] = useState<NetworkRescueReport | null>(null);
 
+  const snapshot = useGuardStore((s) => s.snapshot);
   const pushToast = useGuardStore((s) => s.pushToast);
   const openRiskModal = useGuardStore((s) => s.openRiskModal);
   const refreshPreflight = useGuardStore((s) => s.refreshPreflight);
@@ -49,11 +50,13 @@ export function NetworkRescueRollbackPanel({ compact = false }: NetworkRescueRol
 
   useEffect(() => {
     void loadOverview();
-  }, [loadOverview]);
+  }, [loadOverview, snapshot.killSwitchActive]);
 
   const busy = busyKey !== null;
-  const hasNetworkAlert =
-    (overview?.loopbackDnsAdapters.length ?? 0) > 0 || Boolean(overview?.activeFirewallRules);
+  const hasLoopbackDns = (overview?.loopbackDnsAdapters.length ?? 0) > 0;
+  // 区分「正常熔断保护生效中的防火墙规则」与「非熔断态下的异常残留规则」，避免正常熔断时误报残留故障
+  const hasResidualFirewall = Boolean(overview?.activeFirewallRules) && !snapshot.killSwitchActive;
+  const hasNetworkAlert = hasLoopbackDns || hasResidualFirewall;
 
   const handleRunRescue = async () => {
     setBusyKey("rescue");
@@ -190,15 +193,19 @@ export function NetworkRescueRollbackPanel({ compact = false }: NetworkRescueRol
                 <span style={{ fontSize: 14.5, fontWeight: 600, color: "var(--text-1)" }}>
                   一键网络急救（关代理 / 关 TUN 也能正常上网）
                 </span>
-                <span className="guard-chip guard-chip-ok">免激活永久可用</span>
                 {hasNetworkAlert && (
                   <span className="guard-chip guard-chip-fail">
                     <AlertTriangle size={11} strokeWidth={2} />
                     <span>
-                      {(overview?.loopbackDnsAdapters.length ?? 0) > 0
+                      {hasLoopbackDns
                         ? `检测到死 DNS：${overview?.loopbackDnsAdapters.join("、")}`
                         : "检测到残留防火墙规则"}
                     </span>
+                  </span>
+                )}
+                {!hasNetworkAlert && snapshot.killSwitchActive && overview?.activeFirewallRules && (
+                  <span className="guard-chip guard-chip-warn">
+                    熔断防护生效中（防火墙已封锁 Claude 出站）
                   </span>
                 )}
               </div>

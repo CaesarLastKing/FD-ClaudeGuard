@@ -54,7 +54,7 @@ describe("v0.2.7 日志风险/异常分开统计、OAuth v2 拆分折叠与匿�
     const logTile = screen.getByTestId("hud-tile-log");
     expect(logTile).toHaveClass("is-warn");
     expect(logTile).toHaveTextContent("风险 1");
-    expect(screen.getByText(/前往日志分析查看（风险 1）/)).toBeInTheDocument();
+    expect(screen.getByText(/前往账户审计查看日志（风险 1）/)).toBeInTheDocument();
     first.unmount();
 
     const second = render(
@@ -69,7 +69,7 @@ describe("v0.2.7 日志风险/异常分开统计、OAuth v2 拆分折叠与匿�
     );
     expect(screen.getByTestId("hud-tile-log")).toHaveClass("is-fail");
     expect(screen.getByTestId("hud-tile-log")).toHaveTextContent("风险 1 · 异常 2");
-    expect(screen.getByText(/前往日志分析查看（风险 1 · 异常 2）/)).toBeInTheDocument();
+    expect(screen.getByText(/前往账户审计查看日志（风险 1 · 异常 2）/)).toBeInTheDocument();
     second.unmount();
 
     render(
@@ -87,8 +87,9 @@ describe("v0.2.7 日志风险/异常分开统计、OAuth v2 拆分折叠与匿�
     expect(screen.getByText(/前往控制台安全启动 Claude/)).toBeInTheDocument();
   });
 
-  it("侧边栏日志角标仅风险呈黄、有异常呈红、全部已读隐藏", () => {
+  it("侧边栏账户审计角标仅风险呈黄、有异常呈红、全部已读回绿 OK", () => {
     useGuardStore.setState({
+      accountAudit: null,
       snapshot: makeSnapshot({
         unreadLogAnomalies: 1,
         unreadLogCritical: 0,
@@ -96,11 +97,12 @@ describe("v0.2.7 日志风险/异常分开统计、OAuth v2 拆分折叠与匿�
       }),
     });
     const { rerender } = render(<Sidebar />);
-    const badgeWarn = screen.getByTestId("nav-badge-logs");
+    const badgeWarn = screen.getByTestId("nav-badge-audit");
     expect(badgeWarn).toHaveTextContent("1");
-    expect(badgeWarn.getAttribute("title")).toBe("风险 1 · 异常 0");
+    expect(badgeWarn.getAttribute("title")).toBe("审计待处理 0 · 日志风险 1 · 异常 0");
 
     useGuardStore.setState({
+      accountAudit: null,
       snapshot: makeSnapshot({
         unreadLogAnomalies: 0,
         unreadLogCritical: 0,
@@ -108,7 +110,7 @@ describe("v0.2.7 日志风险/异常分开统计、OAuth v2 拆分折叠与匿�
       }),
     });
     rerender(<Sidebar />);
-    expect(screen.queryByTestId("nav-badge-logs")).not.toBeInTheDocument();
+    expect(screen.getByTestId("nav-badge-audit")).toHaveTextContent("OK");
   });
 
   it("日志分析页 OAuth v2 鉴权折叠 ×5 不显示污染清理红按钮，全部标为已读同步调用 ackLogEvents 并归零", async () => {

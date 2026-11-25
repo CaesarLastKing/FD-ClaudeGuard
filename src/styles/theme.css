@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./account-audit.css";
 
 :root {
   --font-sans: "Segoe UI Variable Text", "Segoe UI Variable Display", "HarmonyOS Sans SC", "MiSans", "PingFang SC", "Microsoft YaHei UI", -apple-system, sans-serif;

@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { Activity, Bell, ShieldAlert, X } from "lucide-react";
+import { Activity, Bell, Download, Loader2, RefreshCw, ShieldAlert, X } from "lucide-react";
 import { CheckIcon } from "@/components/CheckIcon";
 import { ipc } from "@/lib/ipc";
 import { useGuardStore } from "@/stores/guardStore";
-import type { AppConfig } from "@/types/guard";
+import type { AppConfig, AppUpdateInfo } from "@/types/guard";
 
 type BoolConfigKey =
   | "showHud"
@@ -110,9 +110,14 @@ export function SettingsPage() {
   const [sampleOpen, setSampleOpen] = useState(false);
   const [sampleJson, setSampleJson] = useState("");
   const [sampleLoading, setSampleLoading] = useState(false);
+  const [updateChecking, setUpdateChecking] = useState(false);
+  const [updateInstalling, setUpdateInstalling] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
+  const [updateError, setUpdateError] = useState<string | null>(null);
   const config: AppConfig = useGuardStore((s) => s.config);
   const startupAudit = useGuardStore((s) => s.startupAudit);
   const updateConfig = useGuardStore((s) => s.updateConfig);
+  const pushToast = useGuardStore((s) => s.pushToast);
 
   useEffect(() => {
     if (!sampleOpen) return;
@@ -127,6 +132,43 @@ export function SettingsPage() {
 
   const handleToggle = (key: BoolConfigKey, next: boolean, label: string) => {
     void updateConfig({ [key]: next }, label);
+  };
+
+  const handleCheckUpdate = async () => {
+    if (updateChecking || updateInstalling) return;
+    setUpdateChecking(true);
+    setUpdateError(null);
+    try {
+      const info = await ipc.checkAppUpdate();
+      setUpdateInfo(info);
+      pushToast(
+        info.available ? `发现新版本 v${info.latestVersion ?? ""}` : "当前已是最新版本",
+        info.message,
+        info.available ? "info" : "ok"
+      );
+    } catch (err) {
+      const msg = String(err);
+      setUpdateError(msg);
+      pushToast("检查更新失败", msg, "danger");
+    } finally {
+      setUpdateChecking(false);
+    }
+  };
+
+  const handleInstallUpdate = async () => {
+    if (updateInstalling) return;
+    setUpdateInstalling(true);
+    setUpdateError(null);
+    try {
+      const msg = await ipc.installAppUpdate();
+      pushToast("更新包校验通过", msg, "ok");
+    } catch (err) {
+      const msg = String(err);
+      setUpdateError(msg);
+      pushToast("自动更新安装失败", msg, "danger");
+    } finally {
+      setUpdateInstalling(false);
+    }
   };
 
   return (
@@ -147,9 +189,24 @@ export function SettingsPage() {
             守卫配置
           </h1>
           <div style={{ fontSize: 12, color: "var(--text-2)", marginTop: 4 }}>
-            所有自动防护策略默认开启，均可按需手动开关 · 含开机启动项只读风险监测
+            所有自动防护策略默认开启，均可按需手动开关 · 含客户端签名更新与开机启动项监测
           </div>
         </div>
+        <button
+          type="button"
+          data-testid="btn-check-app-update"
+          disabled={updateChecking || updateInstalling}
+          className="guard-btn guard-btn-flat guard-btn-sm"
+          onClick={() => void handleCheckUpdate()}
+          style={{ whiteSpace: "nowrap", flexShrink: 0 }}
+        >
+          {updateChecking ? (
+            <Loader2 size={13.5} className="guard-spin" />
+          ) : (
+            <RefreshCw size={13.5} strokeWidth={1.85} />
+          )}
+          <span>{updateChecking ? "正在检查更新..." : "检查更新"}</span>
+        </button>
       </div>
 
       <div
@@ -161,6 +218,93 @@ export function SettingsPage() {
           gap: 16,
         }}
       >
+        {/* 客户端版本与自动更新卡片 */}
+        <div
+          className="guard-card"
+          data-testid="app-updater-card"
+          style={{
+            padding: "12px 14px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+            flexShrink: 0,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              flexWrap: "wrap",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: 1 }}>
+              <div className="guard-icon-box">
+                <Download size={16} strokeWidth={1.75} />
+              </div>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 14, fontWeight: 500, color: "var(--text-1)" }}>
+                    客户端版本与自动更新
+                  </span>
+                  <span className="guard-chip guard-chip-neutral tabular">
+                    v{updateInfo?.currentVersion ?? "0.3.0"}
+                  </span>
+                  {updateInfo?.available && updateInfo.latestVersion && (
+                    <span className="guard-chip guard-chip-ok tabular">
+                      发现新版本 v{updateInfo.latestVersion}
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontSize: 12, color: "var(--text-2)", marginTop: 2, lineHeight: 1.48 }}>
+                  {updateError
+                    ? `检查更新遇到问题：${updateError}`
+                    : updateInfo
+                    ? updateInfo.message
+                    : "基于 GitHub Releases 官方签发通道（Ed25519 公钥验签），自动复用本机代理并在失败时回退直连。"}
+                </div>
+              </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+              {updateInfo?.available && (
+                <button
+                  type="button"
+                  data-testid="btn-install-app-update"
+                  disabled={updateInstalling}
+                  className="guard-btn guard-btn-primary guard-btn-sm"
+                  onClick={() => void handleInstallUpdate()}
+                  style={{ whiteSpace: "nowrap" }}
+                >
+                  {updateInstalling ? (
+                    <Loader2 size={13.5} className="guard-spin" />
+                  ) : (
+                    <Download size={13.5} strokeWidth={1.9} />
+                  )}
+                  <span>{updateInstalling ? "正在下载并校验签名..." : "一键下载并安装"}</span>
+                </button>
+              )}
+            </div>
+          </div>
+          {updateInfo?.available && updateInfo.notes && (
+            <pre
+              className="font-mono-code"
+              style={{
+                margin: 0,
+                padding: "8px 10px",
+                borderRadius: 8,
+                background: "var(--bg-subtle)",
+                border: "1px solid var(--border)",
+                fontSize: 11.5,
+                color: "var(--text-2)",
+                whiteSpace: "pre-wrap",
+                lineHeight: 1.5,
+              }}
+            >
+              {updateInfo.notes}
+            </pre>
+          )}
+        </div>
         <div>
           <div style={sectionHeaderStyle}>
             <span>桌面悬浮窗、消息提醒与开机保护</span>

@@ -3,8 +3,11 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { DIAG_MANIFEST_MAGIC, FULL_AUDIT_INTERVAL_MS } from "@/lib/protocol";
 import type {
+  AccountAuditActionResult,
+  AccountAuditReport,
   AppConfig,
   AppConfigPatch,
+  AppUpdateInfo,
   BackupInfo,
   BatchFixResult,
   ClaudeConn,
@@ -66,7 +69,7 @@ export const DEFAULT_CONFIG: AppConfig = {
 
 export const FALLBACK_SNAPSHOT: GuardSnapshot = {
   healthLevel: "warn",
-  statusLabel: "11 项待办",
+  statusLabel: "12 项待办",
   currentNode: "等待连接 Mihomo",
   regionCode: "GL",
   exitIpMasked: "待探测出口 IP",
@@ -82,7 +85,7 @@ export const FALLBACK_SNAPSHOT: GuardSnapshot = {
   nodeDown: false,
   nodeDriftWarn: false,
   mustPassed: 0,
-  mustTotal: 11,
+  mustTotal: 12,
   optPassed: 0,
   optTotal: 6,
   clashVersion: "待探测",
@@ -261,6 +264,21 @@ export const FALLBACK_PREFLIGHT: PreflightReport = {
       evidence: "Bound Primary orgId & Cross-orgId Scan: 待审计",
       guide: "绝不擅自乱删：检出混号或 OAuth 403 异常时引导二选一确认（备份重置目录 或 二次确认更换主号）。",
       fixLabel: "引导处理单号冲突（二选一确认）",
+      isKillItem: false,
+      isFailover: false,
+    },
+    {
+      id: "claude_endpoint",
+      part: "must",
+      cat: "3. Claude 本机卫生（改 Claude）",
+      icon: "endpoint",
+      mode: "自动一键",
+      title: "官方 API 端点防反代校验",
+      status: "fail",
+      summary: "尚未核对 settings.json 与环境变量是否改写非官方 API 端点",
+      evidence: "ANTHROPIC_BASE_URL / API_URL: 待检测",
+      guide: "消费级订阅强烈建议直连官方原生端点；点击一键备份后移除非官方端点，随时可撤回。",
+      fixLabel: "一键备份并还原官方原生端点",
       isKillItem: false,
       isFailover: false,
     },
@@ -1413,7 +1431,409 @@ export const ipc = {
     }
     return invoke<NetworkRescueReport>("run_network_emergency_rescue_cmd");
   },
+
+  async auditAccountLocal(profileId?: string): Promise<AccountAuditReport> {
+    if (!isTauriRuntime()) {
+      return buildMockAccountAuditReport(profileId ?? "default");
+    }
+    return invoke<AccountAuditReport>("audit_account_local", {
+      profileId: profileId ?? null,
+    });
+  },
+
+  async verifyAccountCloudWithSk(
+    rawInput: string,
+    profileId?: string
+  ): Promise<AccountAuditReport> {
+    if (!isTauriRuntime()) {
+      mockAccountCloudVerifiedCount += 1;
+      return buildMockAccountAuditReport(profileId ?? "default");
+    }
+    return invoke<AccountAuditReport>("verify_account_cloud_with_sk", {
+      profileId: profileId ?? null,
+      rawInput,
+    });
+  },
+
+  async fixClaudeTelemetryEnv(profileId?: string): Promise<AccountAuditActionResult> {
+    if (!isTauriRuntime()) {
+      mockTelemetryEnvFixed = true;
+      const report = buildMockAccountAuditReport(profileId ?? "default");
+      return {
+        ok: true,
+        action: "fix_claude_telemetry_env",
+        message: "已无损补齐 4/4 隐私降噪环境变量（已锁定首次基线，可随时精准撤回）。",
+        report,
+      };
+    }
+    return invoke<AccountAuditActionResult>("fix_claude_telemetry_env", {
+      profileId: profileId ?? null,
+    });
+  },
+
+  async cleanClaudeTelemetryDir(profileId?: string): Promise<AccountAuditActionResult> {
+    if (!isTauriRuntime()) {
+      mockTelemetryDirBytes = 0;
+      const report = buildMockAccountAuditReport(profileId ?? "default");
+      return {
+        ok: true,
+        action: "clean_claude_telemetry_dir",
+        message: "已清空 ~/.claude/telemetry 待传目录。",
+        report,
+      };
+    }
+    return invoke<AccountAuditActionResult>("clean_claude_telemetry_dir", {
+      profileId: profileId ?? null,
+    });
+  },
+
+  async restoreClaudeOfficialEndpoint(profileId?: string): Promise<AccountAuditActionResult> {
+    if (!isTauriRuntime()) {
+      const report = buildMockAccountAuditReport(profileId ?? "default");
+      return {
+        ok: true,
+        action: "restore_claude_official_endpoint",
+        message: "已备份并还原官方原生 API 端点。",
+        report,
+      };
+    }
+    return invoke<AccountAuditActionResult>("restore_claude_official_endpoint", {
+      profileId: profileId ?? null,
+    });
+  },
+
+  async cleanClaudeCliCredentialsWithBackup(
+    profileId?: string
+  ): Promise<AccountAuditActionResult> {
+    if (!isTauriRuntime()) {
+      const report = buildMockAccountAuditReport(profileId ?? "default");
+      return {
+        ok: true,
+        action: "clean_claude_cli_credentials_with_backup",
+        message: "已先原子备份再清理 CLI 旧凭据与历史备份，重新登录同一主号即可。",
+        report,
+      };
+    }
+    return invoke<AccountAuditActionResult>("clean_claude_cli_credentials_with_backup", {
+      profileId: profileId ?? null,
+    });
+  },
+
+  async checkAppUpdate(): Promise<AppUpdateInfo> {
+    if (!isTauriRuntime()) {
+      return {
+        currentVersion: "0.3.0",
+        available: false,
+        latestVersion: "0.3.0",
+        publishedAt: null,
+        notes: null,
+        viaProxy: false,
+        message: "当前已是最新版本 v0.3.0（浏览器预览模式）。",
+      };
+    }
+    return invoke<AppUpdateInfo>("check_app_update");
+  },
+
+  async installAppUpdate(): Promise<string> {
+    if (!isTauriRuntime()) {
+      return "浏览器预览模式不执行安装包下载。";
+    }
+    return invoke<string>("install_app_update");
+  },
 };
+
+let mockAccountCloudVerifiedCount = 0;
+let mockTelemetryEnvFixed = false;
+let mockTelemetryDirBytes = 0;
+
+export function buildMockAccountAuditReport(profileId = "default"): AccountAuditReport {
+  const verified = mockAccountCloudVerifiedCount > 0;
+  const secondVerify = mockAccountCloudVerifiedCount >= 2;
+  const telMissing = mockTelemetryEnvFixed
+    ? []
+    : ["DISABLE_TELEMETRY", "DISABLE_BUG_COMMAND"];
+  const score = !verified ? 84 : secondVerify ? 98 : 69;
+
+  return {
+    profileId,
+    auditedAtMs: Date.now(),
+    emailMasked: "stev***88@gmail.com",
+    orgIdPrefix8: "7aacf131",
+    plan: "Pro",
+    merchantChannel: "Stripe 直付",
+    accountAgeDays: 33,
+    subscriptionAgeDays: 33,
+    localDeviceAgeDays: 28,
+    subscriptionRenewLabel: verified ? "到期 2026-12-22" : "预计续费 ~12-22",
+    subscriptionRenewIsEstimated: !verified,
+    workspaceGeo: verified ? "US" : null,
+    exitCountry: verified && !secondVerify ? "AU" : "US",
+    exitColo: verified && !secondVerify ? "SYD" : "SJC",
+    exitIpPurity: "住宅段",
+    geoConsistency: !verified
+      ? "pending"
+      : secondVerify
+      ? "match"
+      : "cross_continent_mismatch",
+    cloudVerified: verified,
+    cloudStale: false,
+    cloudAgeDays: verified ? 0 : null,
+    verifyCount: mockAccountCloudVerifiedCount,
+    cloudSnapshot: verified
+      ? {
+          verifiedAtMs: Date.now(),
+          checkedAtIso: new Date().toISOString(),
+          emailMasked: "stev***88@gmail.com",
+          orgIdPrefix8: "7aacf131",
+          plan: "Pro",
+          merchantChannel: "Stripe 直付",
+          workspaceGeo: "US",
+          edgeCountry: secondVerify ? "US" : "AU",
+          edgeColo: secondVerify ? "SJC" : "SYD",
+          accountAgeDays: 33,
+          subscriptionAgeDays: 33,
+          subscriptionEndsAt: "2026-12-22",
+          chatAvailable: true,
+          isBanned: false,
+          appealsRedirectEnabled: false,
+          hasMonitoringNotice: !secondVerify,
+          activeFlagTypes: secondVerify ? [] : ["monitoring_notice"],
+          warningSummaryZh: secondVerify ? null : "后台观察标",
+          personaKycStatus: "verified",
+          personaKycCompletedAt: "2026-10-24T00:00:00Z",
+          personaKycAgeHours: 720,
+          portalHold: false,
+          portalState: "clear",
+          fiveHourPct: secondVerify ? 18 : 34,
+          sevenDayPct: secondVerify ? 42 : 64,
+          warnings: [],
+        }
+      : null,
+    quota: {
+      fiveHourPct: !verified ? 22 : secondVerify ? 18 : 34,
+      sevenDayPct: !verified ? 72 : secondVerify ? 42 : 64,
+      stampShort: verified ? "刚刚" : "9天前",
+      stampTooltip: verified ? "云端核验 · 刚刚同步" : "本地缓存 · 9 天前采样",
+      fiveHourOfflineNote: null,
+      softLocked: false,
+      source: verified ? "official_probe" : "local_config",
+    },
+    scoreResult: {
+      score,
+      maxScore: 100,
+      level: score >= 85 ? "safe" : score >= 70 ? "watch" : "mid_high",
+      levelLabel: score >= 85 ? "低危稳健" : score >= 70 ? "建议优化" : "中高风险",
+      colorToken: score >= 85 ? "green" : score >= 70 ? "amber" : "orange",
+      confidence: verified ? "full_combined" : "local_only",
+      confidenceLabel: verified ? "本地+云端综合" : "本地评估",
+      disclaimer:
+        "防御参考分（非 Anthropic 官方黑盒风控分）；高分不承诺永不封号，低分仅代表存在可优化隐患。",
+      blindSpotNote: verified
+        ? null
+        : "当前仅基于本地数据评估（封顶 85）；云端核验后可补全官方警告、KYC 与真实属地，评分更真实完整",
+      deductions: [
+        ...(verified && !secondVerify
+          ? [
+              {
+                id: "geo_mismatch",
+                weightMax: 24,
+                delta: -24,
+                deltaLabel: "-24",
+                tone: "danger",
+                title: "归属地与出口跨洲错配（权重 24 分）",
+                desc: "账号属地 US 与当前出口 AU(SYD) 跨洲，建议尽快切回美区稳定节点",
+              },
+              {
+                id: "monitoring_notice",
+                weightMax: 12,
+                delta: -12,
+                deltaLabel: "-12",
+                tone: "warn",
+                title: "云端命中后台观察标（权重 12 分）",
+                desc: "对话仍可用，但账号已进观察队列，容错率下降",
+              },
+            ]
+          : []),
+        ...(!secondVerify
+          ? [
+              {
+                id: "multi_account_mix",
+                weightMax: 16,
+                delta: -10,
+                deltaLabel: "-10",
+                tone: "warn",
+                title: "CLI 与桌面端混登不同组织（权重 16 分）",
+                desc: "CLI (7aacf131) 与桌面端日志 (a4722ea6) 不一致，存在跨端残留风险",
+              },
+            ]
+          : []),
+        ...(telMissing.length > 0
+          ? [
+              {
+                id: "telemetry_env_missing",
+                weightMax: 4,
+                delta: -3,
+                deltaLabel: "-3",
+                tone: "muted",
+                title: "隐私遥测降噪开关未补齐（权重 4 分）",
+                desc: `settings.json 缺少 ${telMissing.length} 项降噪变量，可一键补齐并支持撤回`,
+              },
+            ]
+          : []),
+        ...(verified
+          ? [
+              {
+                id: "persona_kyc_buffer",
+                weightMax: 5,
+                delta: 5,
+                deltaLabel: "+5",
+                tone: "ok",
+                title: "已通过 Persona 实名认证（护城河缓冲）",
+                desc: "已过 72h 稳定期，账号抗误杀能力显著高于白号",
+              },
+            ]
+          : [
+              {
+                id: "local_blind_spot_cap",
+                weightMax: 85,
+                delta: 0,
+                deltaLabel: "封顶 85",
+                tone: "muted",
+                title: "尚未完成云端核验（存在云端盲区）",
+                desc: "暂无法读取官方静默标、KYC 与隐藏属地，本地评估上限封顶 85 分",
+              },
+            ]),
+      ],
+    },
+    local: {
+      profileId,
+      scannedAtMs: Date.now(),
+      claudeJson: {
+        exists: true,
+        emailMasked: "stev***88@gmail.com",
+        orgUuidPrefix8: "7aacf131",
+        planLabel: "Pro",
+        billingType: "stripe_subscription",
+        merchantChannel: "Stripe 直付",
+        accountAgeDays: 33,
+        subscriptionAgeDays: 33,
+        localDeviceAgeDays: 28,
+        machineIdPrefix8: "4cfdc2d2",
+        userIdPrefix8: "e084f6b6",
+      },
+      credentials: {
+        exists: true,
+        subscriptionType: "pro",
+        scopes: ["user:inference"],
+        mcpOauthProviders: [],
+      },
+      hygiene: {
+        settingsExists: true,
+        privacyEnvFlags: {
+          DISABLE_TELEMETRY: mockTelemetryEnvFixed,
+          DISABLE_ERROR_REPORTING: true,
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: true,
+          DISABLE_BUG_COMMAND: mockTelemetryEnvFixed,
+        },
+        privacyEnabledCount: mockTelemetryEnvFixed ? 4 : 2,
+        privacyMissingKeys: telMissing,
+        settingsNonOfficialEndpoint: null,
+        systemEnvEndpointConflicts: [],
+        telemetryFileCount: mockTelemetryDirBytes > 0 ? 3 : 0,
+        telemetryTotalBytes: mockTelemetryDirBytes,
+        scheduledTasksCount: 0,
+        backupFileCount: 5,
+        backupAccounts: [
+          {
+            orgPrefix: "7aacf131",
+            emailMasked: "stev***88@gmail.com",
+            planLabel: "Pro",
+            merchantChannel: "Stripe 直付",
+            backupCount: 5,
+          },
+        ],
+      },
+      behavior: {
+        projectsDirExists: true,
+        filesScanned7d: 4,
+        last5h: { assistantTurns: 8, sidechainTurns: 0, inputTokens: 12000, outputTokens: 3000, cacheReadTokens: 8000 },
+        last24h: { assistantTurns: 36, sidechainTurns: 0, inputTokens: 60000, outputTokens: 18000, cacheReadTokens: 40000 },
+        last7d: { assistantTurns: 180, sidechainTurns: 4, inputTokens: 320000, outputTokens: 90000, cacheReadTokens: 210000 },
+        subagentRatio24hPct: 0,
+        activeHours24h: 6,
+        overnightBotRhythmSuspected: false,
+      },
+      desktop: {
+        discoveredDirs: ["LocalAppData"],
+        scannedLogFiles: 5,
+        orgIdPrefixes: secondVerify ? ["7aacf131"] : ["a4722ea6"],
+        accountBannedHits: 0,
+        portalVerifyHits: 0,
+        crossOrg404Hits: 0,
+        oauth403Hits: 7,
+        cookie403Hits: 0,
+        cfShield403Hits: 1,
+        rateLimit429Hits: 0,
+        planChangedHits: 0,
+        fiveHourSoftLockHits: 0,
+        maxSideSessionsSeen: 0,
+        highSideSessionHits: 0,
+        mcpErrorHits: 0,
+        mcpErrorStorm: false,
+        disconnectHits: 10,
+        recentSamples: [],
+      },
+      crossClientOrgMismatch: !secondVerify,
+      allObservedOrgPrefixes: secondVerify ? ["7aacf131"] : ["7aacf131", "a4722ea6"],
+    },
+    runtimeClashPort: 7890,
+    runtimeProxyOk: true,
+    runtimeBgProcs: 0,
+    runtimeKillHoldActive: false,
+    runtimeKillHoldSecs: 0,
+    denoisedOauth403Count: 7,
+    logFlowItems: [
+      {
+        id: "audit-sample-cf_403",
+        cat: "403",
+        denoised: false,
+        chipLabel: "403 消歧 · CF 入口盾",
+        chipTone: "warn",
+        title: "Cloudflare 网页拦截盾（出口节点 IP 问题，非账号封禁）",
+        desc: "main.log 捕获 1 次网页 403 挑战盾，属于节点 IP 弹盾；建议前往「节点流量」切换干净同区节点。",
+        timeLabel: "19:41:18 · main.log:3512",
+        rawSanitized: "[2026-11-25 19:41:18] navigation to https://claude.ai/ failed with status code 403",
+        count: 1,
+      },
+      {
+        id: "audit-sample-disconnect",
+        cat: "net",
+        denoised: false,
+        chipLabel: "代理断连 · x10",
+        chipTone: "neutral",
+        title: "代理长连接瞬时断开（0 次回传 Cookie 403）",
+        desc: "节点短暂抖动导致连接重置，期间未检出高危退出回传 Cookie 403。",
+        timeLabel: "16:05:00 · main.log:3069",
+        rawSanitized: "[2026-11-25 16:05:00] Request failed: net::ERR_CONNECTION_CLOSED",
+        count: 10,
+      },
+      {
+        id: "audit-sample-oauth_403",
+        cat: "403",
+        denoised: true,
+        chipLabel: "已自动降噪 · 背景 OAuth 403 · x7",
+        chipTone: "neutral",
+        title: "客户端背景轮询未开通特性接口返回 OAuth 403 (permission_error)",
+        desc: "结合当前 Pro 套餐事实已归类为正常特性权限边界（非 KYC、非封号），默认静默降噪。",
+        timeLabel: "近期 · main.log",
+        rawSanitized: "authorize returned 403 permission_error (len=164)",
+        count: 7,
+      },
+    ],
+    pendingIssueCount: secondVerify ? 0 : (mockTelemetryEnvFixed ? 1 : 2) + (verified ? 1 : 0),
+    hasDangerIssue: verified && !secondVerify,
+  };
+}
 
 const mockLoopbackDnsAdapters: string[] = ["以太网 (#6)"];
 const mockRollbackItems: RollbackOverview["items"] = [

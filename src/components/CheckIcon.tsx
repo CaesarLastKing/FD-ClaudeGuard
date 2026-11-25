@@ -5,6 +5,7 @@ import {
   CloudUpload,
   EyeOff,
   Globe,
+  Link2,
   Lock,
   MapPinOff,
   Power,
@@ -49,6 +50,8 @@ export function CheckIcon({ name, size = 16 }: CheckIconProps) {
       return <Activity {...props} />;
     case "location":
       return <MapPinOff {...props} />;
+    case "endpoint":
+      return <Link2 {...props} />;
     default:
       return <ShieldCheck {...props} />;
   }

@@ -100,6 +100,17 @@ pub struct FirewallBaseline {
     pub killswitch_applied: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaudeSettingsEnvBaseline {
+    pub captured_at_ms: i64,
+    pub settings_path: String,
+    pub existed_before: bool,
+    /// First-Write-Wins：记录每个被本工具修改过的 `env` 键的原始值（原不存在记为 None）
+    #[serde(default)]
+    pub original_env: BTreeMap<String, Option<String>>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SystemBaseline {
@@ -111,6 +122,8 @@ pub struct SystemBaseline {
     pub sys_webrtc: Option<WebRtcBaseline>,
     pub sys_env: Option<SysEnvBaseline>,
     pub firewall: Option<FirewallBaseline>,
+    #[serde(default)]
+    pub original_claude_settings_env: Option<ClaudeSettingsEnvBaseline>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -671,6 +684,35 @@ pub fn capture_clash_rules_baseline_if_needed(dir: &Path) {
     });
 }
 
+/// 首次修改 `~/.claude/settings.json` 中的 `env` 键（4 项降噪 / 非官方端点）前捕获 First-Write-Wins 基线
+pub fn capture_claude_settings_env_baseline_if_needed(
+    settings_path: &Path,
+    existed_before: bool,
+    original_env_keys: &std::collections::HashMap<String, Option<String>>,
+) {
+    if original_env_keys.is_empty() {
+        return;
+    }
+    update_baseline(|bl| {
+        let entry = bl
+            .original_claude_settings_env
+            .get_or_insert_with(|| ClaudeSettingsEnvBaseline {
+                captured_at_ms: now_ms(),
+                settings_path: settings_path.to_string_lossy().to_string(),
+                existed_before,
+                original_env: BTreeMap::new(),
+            });
+        let mut changed = false;
+        for (k, v) in original_env_keys {
+            if !entry.original_env.contains_key(k) {
+                entry.original_env.insert(k.clone(), v.clone());
+                changed = true;
+            }
+        }
+        changed
+    });
+}
+
 /// 标记本工具写入过防火墙规则或计划任务
 pub fn mark_firewall_touched(helper_task_installed: bool, killswitch_applied: bool) {
     update_baseline(|bl| {
@@ -818,6 +860,7 @@ pub async fn inspect_rollback_status() -> RollbackOverview {
     let loc_touched = bl.sys_location.is_some();
     let webrtc_touched = bl.sys_webrtc.is_some();
     let env_touched = bl.sys_env.is_some();
+    let claude_settings_touched = bl.original_claude_settings_env.is_some();
     let fw_touched = bl.firewall.is_some() || active_fw || helper_exists;
 
     let items = vec![
@@ -924,6 +967,26 @@ pub async fn inspect_rollback_status() -> RollbackOverview {
                 "保持系统原状".into()
             },
             risk_note: "撤回后恢复修改前的环境变量、WinINET 代理与 Claude settings.json 原值。".into(),
+        },
+        RollbackItemStatus {
+            id: "claude_settings".into(),
+            title: "Claude CLI 隐私降噪与官方端点配置（settings.json）".into(),
+            category: "Claude 配置".into(),
+            touched_by_guard: claude_settings_touched,
+            can_rollback: claude_settings_touched,
+            original_summary: match &bl.original_claude_settings_env {
+                Some(s) => format!(
+                    "已记录 {} 个 settings.json env 键修改前原值（首次基线）",
+                    s.original_env.len()
+                ),
+                None => "本工具未修改过 ~/.claude/settings.json".into(),
+            },
+            current_summary: if claude_settings_touched {
+                "已由本工具补齐降噪开关或还原官方端点".into()
+            } else {
+                "保持配置原状".into()
+            },
+            risk_note: "仅精准还原被本工具改动的 env 键，100% 保留你的自定义 hooks 与 permissions。".into(),
         },
         RollbackItemStatus {
             id: "firewall".into(),
@@ -1306,6 +1369,55 @@ fn rollback_sys_env_inner(bl: &SystemBaseline) -> Result<String, String> {
     Ok("已按基线还原修改前的系统代理、环境变量与 Claude settings.json 原值。".into())
 }
 
+fn rollback_claude_settings_inner(bl: &SystemBaseline) -> Result<String, String> {
+    let Some(ref cs) = bl.original_claude_settings_env else {
+        return Ok("本工具未修改过 ~/.claude/settings.json，无需撤回。".into());
+    };
+    let settings_path = PathBuf::from(&cs.settings_path);
+    if settings_path.exists() {
+        let raw = fs::read_to_string(&settings_path)
+            .map_err(|e| format!("读取 settings.json 失败: {e}"))?;
+        let restored = crate::account_audit::rollback_settings_json_env_keys(&raw, &cs.original_env)?;
+        if !cs.existed_before {
+            let is_empty_env_only = serde_json::from_str::<Value>(&restored)
+                .ok()
+                .and_then(|v| v.as_object().cloned())
+                .map(|obj| {
+                    obj.len() <= 1
+                        && obj
+                            .get("env")
+                            .and_then(|e| e.as_object())
+                            .map(|m| m.is_empty())
+                            .unwrap_or(obj.is_empty())
+                })
+                .unwrap_or(false);
+            if is_empty_env_only {
+                let _ = fs::remove_file(&settings_path);
+            } else {
+                fs::write(&settings_path, restored)
+                    .map_err(|e| format!("写回 settings.json 失败: {e}"))?;
+            }
+        } else {
+            fs::write(&settings_path, restored)
+                .map_err(|e| format!("写回 settings.json 失败: {e}"))?;
+        }
+    }
+
+    update_baseline(|b| {
+        if b.original_claude_settings_env.is_some() {
+            b.original_claude_settings_env = None;
+            true
+        } else {
+            false
+        }
+    });
+
+    Ok(format!(
+        "已精准撤回 ~/.claude/settings.json 的 {} 个 env 键并完整保留自定义 hooks/permissions。",
+        cs.original_env.len()
+    ))
+}
+
 fn rollback_firewall_inner() -> Result<String, String> {
     let fw_msg = cleanup_all_guard_firewall_rules()?;
 
@@ -1363,6 +1475,11 @@ pub async fn rollback_single_item(item_id: &str) -> RollbackActionReport {
         "sys_env" => tokio::task::spawn_blocking(move || rollback_sys_env_inner(&bl))
             .await
             .unwrap_or_else(|e| Err(format!("代理与环境变量撤回任务异常: {e}"))),
+        "claude_settings" => {
+            tokio::task::spawn_blocking(move || rollback_claude_settings_inner(&bl))
+                .await
+                .unwrap_or_else(|e| Err(format!("Claude settings.json 撤回任务异常: {e}")))
+        }
         "firewall" => tokio::task::spawn_blocking(rollback_firewall_inner)
             .await
             .unwrap_or_else(|e| Err(format!("防火墙撤回任务异常: {e}"))),
@@ -1398,6 +1515,7 @@ pub async fn rollback_all_changes() -> RollbackBatchReport {
     let order = [
         "firewall",
         "clash_rules",
+        "claude_settings",
         "sys_env",
         "sys_ipv6",
         "sys_location",

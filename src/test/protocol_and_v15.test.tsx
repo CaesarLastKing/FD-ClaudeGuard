@@ -154,7 +154,7 @@ describe("docs/protocol-constants.md 100% 协议常量与 v1.5 增量回归断�
     });
   });
 
-  it("v1.6 三大纯粹操作边界（11 必须 + 6 建议）、运行态 CTA 切换与日志统计/遥测查看闭环", async () => {
+  it("v0.3.0 三大纯粹操作边界（12 必须 + 6 建议）、运行态 CTA 切换与账户审计日志取证闭环", async () => {
     const allOkItems = FALLBACK_PREFLIGHT.items.map((it) => ({
       ...it,
       status: "ok" as const,
@@ -162,7 +162,7 @@ describe("docs/protocol-constants.md 100% 协议常量与 v1.5 增量回归断�
     }));
     const mustCount = allOkItems.filter((x) => x.part === "must").length;
     const optCount = allOkItems.filter((x) => x.part === "opt").length;
-    expect(mustCount).toBe(11);
+    expect(mustCount).toBe(12);
     expect(optCount).toBe(6);
 
     render(<App />);
@@ -175,8 +175,8 @@ describe("docs/protocol-constants.md 100% 协议常量与 v1.5 增量回归断�
       preflight: { ...FALLBACK_PREFLIGHT, items: allOkItems },
       snapshot: {
         ...FALLBACK_SNAPSHOT,
-        mustPassed: 11,
-        mustTotal: 11,
+        mustPassed: 12,
+        mustTotal: 12,
         bgClaudeProcs: 14,
       },
     });
@@ -185,9 +185,11 @@ describe("docs/protocol-constants.md 100% 协议常量与 v1.5 增量回归断�
     );
     expect(screen.queryByTestId("btn-safe-launch-claude")).not.toBeInTheDocument();
 
-    // 切到日志分析：模拟事件带「模拟演示」徽章，点击「遥测 / 设备记录」可展开遥测详情面板
-    fireEvent.click(screen.getByRole("button", { name: /日志分析/ }));
-    fireEvent.click(screen.getByRole("button", { name: /\+ 模拟高并发 429 异常/ }));
+    // 切到账户审计 → 实时异常日志流 → 打开完整取证日志台：模拟事件带「模拟演示」徽章，点击「遥测 / 设备记录」可展开遥测详情面板
+    fireEvent.click(screen.getByRole("button", { name: /账户审计/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /实时异常日志流/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /打开完整取证日志台/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /\+ 模拟高并发 429 异常/ }));
     expect((await screen.findAllByText("模拟演示")).length).toBeGreaterThanOrEqual(1);
 
     fireEvent.click(screen.getByTestId("log-stat-telemetry"));

@@ -117,7 +117,7 @@ export function ConsolePage() {
         label: "守护正常",
         color: "var(--success)",
         cursor: "default" as const,
-        title: "11 项必须项均已实测通过，与悬浮窗守护状态一致",
+        title: `${mustAll.length} 项必须项均已实测通过，与悬浮窗守护状态一致`,
         onClick: undefined,
       };
   const selectedItem = items.find((x) => x.id === selectedId) ?? items[0];
@@ -327,6 +327,47 @@ export function ConsolePage() {
     );
   };
 
+  const openReleaseKillswitchModal = () => {
+    openRiskModal({
+      tone: "warn",
+      badge: "解除自动熔断",
+      title: "确认解除防火墙熔断并释放盯防锁？",
+      subtitle: "解除后将删除 FDClaudeGuard_KillSwitch 防火墙阻断规则并同步解除事务盯防，恢复 Claude 通信",
+      rows: [
+        {
+          label: "当前保护",
+          value: "防火墙已锁死 Claude 全部出站流量（进程防复活盯防联动锁定中）",
+          tone: "danger",
+        },
+        {
+          label: "放行建议",
+          value:
+            mustFail > 0
+              ? `当前仍有 ${mustFail} 项必须体检未通过，建议解除熔断前先修复异常项`
+              : `当前 ${mustAll.length} 项必须体检已全部通过，可安全解除熔断与恢复启动`,
+          tone: mustFail > 0 ? "danger" : "ok",
+        },
+      ],
+      primaryLabel: "确认解除熔断并复测",
+      onPrimary: async () => {
+        setReleasingKs(true);
+        try {
+          await ipc.forceReleaseKillswitch(true);
+          pushToast(
+            "已解除自动熔断与盯防锁",
+            "防火墙阻断规则与事务盯防锁已同步释放，正在重跑真实探针复核。",
+            "ok"
+          );
+          await refreshPreflight(true);
+        } catch (err) {
+          pushToast("解除熔断失败", String(err), "danger");
+        } finally {
+          setReleasingKs(false);
+        }
+      },
+    });
+  };
+
   return (
     <section style={{ display: "flex", flex: 1, minHeight: 0, flexDirection: "column" }}>
       <div
@@ -340,7 +381,7 @@ export function ConsolePage() {
           flexShrink: 0,
         }}
       >
-        <div>
+        <div style={{ minWidth: 0 }}>
           <h1
             style={{
               fontSize: 20,
@@ -353,68 +394,6 @@ export function ConsolePage() {
             }}
           >
             <span>控制台</span>
-            {snapshot.killSwitchActive && (
-              <span
-                data-testid="console-killswitch-status"
-                style={{ display: "inline-flex", alignItems: "center", gap: 6, marginLeft: 4 }}
-              >
-                <span
-                  className="guard-chip guard-chip-fail"
-                  style={{ fontWeight: 600 }}
-                  title="防火墙已锁死 Claude 全部出站流量，请确认代理环境安全后解除熔断"
-                >
-                  已自动熔断
-                </span>
-                <button
-                  type="button"
-                  data-testid="btn-console-release-killswitch"
-                  disabled={releasingKs}
-                  className="guard-btn guard-btn-flat guard-btn-xs"
-                  onClick={() => {
-                    openRiskModal({
-                      tone: "warn",
-                      badge: "解除自动熔断",
-                      title: "确认解除防火墙出站熔断锁？",
-                      subtitle: "解除后将删除 FDClaudeGuard_KillSwitch 防火墙阻断规则，允许重新通信",
-                      rows: [
-                        {
-                          label: "当前状态",
-                          value: "防火墙已自动熔断并阻断 Claude 全部出站流量",
-                          tone: "danger",
-                        },
-                        {
-                          label: "放行建议",
-                          value:
-                            mustFail > 0
-                              ? `当前仍有 ${mustFail} 项必须体检未通过，建议解除熔断前先修复异常项`
-                              : "当前 11 项必须体检已全部通过，可安全解除熔断",
-                          tone: mustFail > 0 ? "danger" : "ok",
-                        },
-                      ],
-                      primaryLabel: "确认解除熔断并复测",
-                      onPrimary: async () => {
-                        setReleasingKs(true);
-                        try {
-                          await ipc.forceReleaseKillswitch(true);
-                          pushToast(
-                            "已解除自动熔断",
-                            "防火墙阻断规则已清理，正在重跑真实探针复核。",
-                            "ok"
-                          );
-                          await refreshPreflight(true);
-                        } catch (err) {
-                          pushToast("解除熔断失败", String(err), "danger");
-                        } finally {
-                          setReleasingKs(false);
-                        }
-                      },
-                    });
-                  }}
-                >
-                  {releasingKs ? "解除中..." : "解除熔断"}
-                </button>
-              </span>
-            )}
           </h1>
           <div
             className="tabular"
@@ -541,14 +520,27 @@ export function ConsolePage() {
                 核验节点中 ({deepAudit.currentIndex}/{deepAudit.total || "?"}) · 暂禁启动
               </span>
             </button>
+          ) : snapshot.killSwitchActive ? (
+            <button
+              type="button"
+              data-testid="btn-console-release-killswitch"
+              className="guard-btn guard-btn-danger-soft"
+              disabled={releasingKs || checking || fixing}
+              onClick={openReleaseKillswitchModal}
+            >
+              {releasingKs ? (
+                <Loader2 size={14} strokeWidth={2} className="guard-spin" />
+              ) : (
+                <Lock size={14} strokeWidth={1.9} />
+              )}
+              <span>{releasingKs ? "正在解除熔断..." : "解除熔断保护"}</span>
+            </button>
           ) : blocked ? (
             <button type="button" className="guard-btn guard-btn-primary" disabled>
               <Lock size={14} strokeWidth={1.9} />
               <span>
-                {snapshot.killSwitchActive
-                  ? "已熔断 · 请先解除熔断"
-                  : snapshot.nodeDown && mustFail === 0
-                  ? "当前节点不可用 · 请更换节点"
+                {snapshot.nodeDown && mustFail === 0
+                  ? "节点不可用 · 请更换"
                   : `请先处理右侧 ${Math.max(1, mustFail)} 项`}
               </span>
             </button>

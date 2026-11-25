@@ -100,6 +100,12 @@ impl KillHoldController {
         self.deadline = Some(base + Duration::from_secs(KILL_HOLD_RESPAWN_EXTEND_SECS));
     }
 
+    /// 熔断事务锁期间命中复活进程并强杀后调用：仅累计拦截次数，不叠加额外倒计时
+    pub fn record_tx_respawn_blocked(&mut self, killed: u32) {
+        let delta = killed.max(1);
+        self.blocked_count = self.blocked_count.saturating_add(delta);
+    }
+
     /// 优雅释放锁（手动解除或点击「安全启动 Claude」前调用）
     pub fn release(&mut self) {
         self.deadline = None;

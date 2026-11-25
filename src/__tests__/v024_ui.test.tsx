@@ -45,11 +45,11 @@ describe("v0.2.4 UI 核心回归门禁", () => {
       playbookOpen: false,
       playbookFocusId: null,
       supportModalOpen: false,
-      preflight: buildPreflightWithMustPassed(11),
+      preflight: buildPreflightWithMustPassed(12),
       snapshot: {
         ...FALLBACK_SNAPSHOT,
-        mustPassed: 11,
-        mustTotal: 11,
+        mustPassed: 12,
+        mustTotal: 12,
         nodeDown: false,
         killSwitchActive: false,
       },
@@ -63,15 +63,15 @@ describe("v0.2.4 UI 核心回归门禁", () => {
   });
 
   describe("T-026 控制台顶栏状态胶囊与去重", () => {
-    it("官方服务降级且本机 11/11 全绿时，不渲染「官方服务异常」，状态胶囊显示「守护正常」", () => {
+    it("官方服务降级且本机 12/12 全绿时，不渲染「官方服务异常」，状态胶囊显示「守护正常」", () => {
       useGuardStore.setState({
-        preflight: buildPreflightWithMustPassed(11),
+        preflight: buildPreflightWithMustPassed(12),
         snapshot: {
           ...FALLBACK_SNAPSHOT,
           anthropicStatusIndicator: "minor",
           anthropicStatusDesc: "Partially Degraded Service",
-          mustPassed: 11,
-          mustTotal: 11,
+          mustPassed: 12,
+          mustTotal: 12,
           nodeDown: false,
           killSwitchActive: false,
         },
@@ -85,13 +85,13 @@ describe("v0.2.4 UI 核心回归门禁", () => {
       expect(statusPill).toHaveTextContent("守护正常");
     });
 
-    it("存在 2 项必须项未通过（9/11）时，状态胶囊显示「2 项待办」", () => {
+    it("存在 2 项必须项未通过（10/12）时，状态胶囊显示「2 项待办」", () => {
       useGuardStore.setState({
-        preflight: buildPreflightWithMustPassed(9),
+        preflight: buildPreflightWithMustPassed(10),
         snapshot: {
           ...FALLBACK_SNAPSHOT,
-          mustPassed: 9,
-          mustTotal: 11,
+          mustPassed: 10,
+          mustTotal: 12,
           nodeDown: false,
           killSwitchActive: false,
         },
@@ -105,11 +105,11 @@ describe("v0.2.4 UI 核心回归门禁", () => {
 
     it("节点不可用（nodeDown = true）时，状态胶囊显示「节点不可用」", () => {
       useGuardStore.setState({
-        preflight: buildPreflightWithMustPassed(11),
+        preflight: buildPreflightWithMustPassed(12),
         snapshot: {
           ...FALLBACK_SNAPSHOT,
-          mustPassed: 11,
-          mustTotal: 11,
+          mustPassed: 12,
+          mustTotal: 12,
           nodeDown: true,
           killSwitchActive: false,
         },
@@ -123,11 +123,11 @@ describe("v0.2.4 UI 核心回归门禁", () => {
 
     it("自动熔断激活（killSwitchActive = true）时，状态胶囊显示「已自动熔断」", () => {
       useGuardStore.setState({
-        preflight: buildPreflightWithMustPassed(11),
+        preflight: buildPreflightWithMustPassed(12),
         snapshot: {
           ...FALLBACK_SNAPSHOT,
-          mustPassed: 11,
-          mustTotal: 11,
+          mustPassed: 12,
+          mustTotal: 12,
           nodeDown: false,
           killSwitchActive: true,
         },

@@ -57,7 +57,7 @@ export function SupportModal() {
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="官方售后与激活支持"
+      aria-label="开源交流与技术支持"
       data-testid="support-modal"
       onClick={(e) => {
         if (e.target === e.currentTarget) setOpen(false);

@@ -7,8 +7,10 @@ import {
   ipc,
 } from "@/lib/ipc";
 import type {
+  AccountAuditReport,
   AppConfig,
   AppConfigPatch,
+  AuditSubTab,
   BackupInfo,
   DeepAuditProgress,
   GuardSnapshot,
@@ -63,7 +65,10 @@ interface GuardStore {
   exitingClaude: boolean;
   switchingNodeName: string | null;
   activeTab: NavTab;
+  auditSubTab: AuditSubTab;
   nodesSubTab: "quality" | "traffic";
+  accountAudit: AccountAuditReport | null;
+  accountAuditLoading: boolean;
   selectedCheckId: string;
   playbookOpen: boolean;
   playbookFocusId: string | null;
@@ -88,7 +93,10 @@ interface GuardStore {
   switchNode: (name: string, forceIgnoreRisk?: boolean) => Promise<void>;
   updateConfig: (patch: AppConfigPatch, toastLabel?: string) => Promise<void>;
   setActiveTab: (tab: NavTab) => void;
+  setAuditSubTab: (sub: AuditSubTab) => void;
   setNodesSubTab: (sub: "quality" | "traffic") => void;
+  refreshAccountAudit: (silent?: boolean) => Promise<void>;
+  setAccountAudit: (report: AccountAuditReport) => void;
   setSelectedCheckId: (id: string) => void;
   focusFirstUnhealthyCheck: () => void;
   setPlaybookOpen: (open: boolean) => void;
@@ -145,7 +153,10 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
   exitingClaude: false,
   switchingNodeName: null,
   activeTab: "console",
+  auditSubTab: "audit",
   nodesSubTab: "quality",
+  accountAudit: null,
+  accountAuditLoading: false,
   selectedCheckId: "node_proxy",
   playbookOpen: false,
   playbookFocusId: null,
@@ -160,13 +171,14 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
   async bootstrap() {
     set({ checking: true });
     try {
-      const [config, preflight, startupAudit, nodeReport, deepAudit] =
+      const [config, preflight, startupAudit, nodeReport, deepAudit, accountAudit] =
         await Promise.all([
           ipc.getConfig(),
           ipc.runPreflightChecks(false),
           ipc.auditStartupItems(),
           ipc.getNodesAndQuality(),
           ipc.getDeepAuditStatus(),
+          ipc.auditAccountLocal().catch(() => null),
         ]);
       const snapshot = await ipc.getSnapshot();
       applyThemeToDom(config.theme);
@@ -180,6 +192,7 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
         startupAudit,
         nodeReport,
         deepAudit,
+        accountAudit,
         ackedLogIds: Array.isArray(config.ackedLogIds) ? config.ackedLogIds : [],
         selectedCheckId: firstFail?.id ?? "node_proxy",
         initialized: true,
@@ -430,10 +443,45 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
   },
 
   setActiveTab(tab) {
+    if (tab === "logs") {
+      set({ activeTab: "audit", auditSubTab: "logs" });
+      void get().refreshAccountAudit(true);
+      return;
+    }
     set({ activeTab: tab });
     if (tab === "nodes") {
       void get().refreshNodes();
+    } else if (tab === "audit") {
+      void get().refreshAccountAudit(true);
     }
+  },
+
+  setAuditSubTab(sub) {
+    set({ auditSubTab: sub });
+  },
+
+  async refreshAccountAudit(silent = false) {
+    set({ accountAuditLoading: true });
+    try {
+      const report = await ipc.auditAccountLocal();
+      set({ accountAudit: report, accountAuditLoading: false });
+      if (!silent) {
+        get().pushToast(
+          "本地只读审计已刷新",
+          "已重扫 ~/.claude.json、备份残留、settings.json、离线行为与桌面端日志。",
+          "ok"
+        );
+      }
+    } catch (err) {
+      set({ accountAuditLoading: false });
+      if (!silent) {
+        get().pushToast("账户审计刷新失败", String(err), "danger");
+      }
+    }
+  },
+
+  setAccountAudit(report) {
+    set({ accountAudit: report });
   },
 
   setNodesSubTab(sub) {
@@ -579,7 +627,18 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
   },
 
   setPreflightFromEvent(report) {
+    const prevGeo = get().preflight.items.find((x) => x.id === "node_geo");
+    const nextGeo = report.items.find((x) => x.id === "node_geo");
+    const geoChanged =
+      prevGeo?.status !== nextGeo?.status || prevGeo?.summary !== nextGeo?.summary;
     set({ preflight: report });
+    // 后台 15 分钟全量巡检或节点事件触发出口状态变更时，同步静默刷新节点表，保证控制台与节点流量页同源
+    if (get().initialized && (geoChanged || get().activeTab === "nodes")) {
+      void ipc
+        .getNodesAndQuality(false)
+        .then((nodeReport) => set({ nodeReport }))
+        .catch(() => {});
+    }
   },
 
   setConfigFromEvent(cfg) {
