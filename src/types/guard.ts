@@ -264,23 +264,6 @@ export interface KillHoldSnapshot {
   reason: string;
 }
 
-export interface LicenseStatus {
-  commercialFeatureEnabled: boolean;
-  licensed: boolean;
-  activatedAt?: string | null;
-  batchId?: string | null;
-  installIdShort?: string | null;
-  machineFpShort?: string | null;
-  apiEndpoint?: string | null;
-}
-
-export interface ActivateLicenseResult {
-  licensed: boolean;
-  activatedAt: string;
-  batchId: string;
-  message: string;
-}
-
 export interface KillSwitchState {
   active: boolean;
   ruleName: string;

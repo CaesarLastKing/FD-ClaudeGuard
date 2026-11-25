@@ -37,12 +37,6 @@ describe("v0.2.7 日志风险/异常分开统计、OAuth v2 拆分折叠与匿�
       config: { ...DEFAULT_CONFIG },
       snapshot: makeSnapshot({}),
       ackedLogIds: [],
-      licenseStatus: {
-        commercialFeatureEnabled: true,
-        licensed: true,
-        activatedAt: "2026-11-25",
-        batchId: "TEST",
-      },
     });
   });
 

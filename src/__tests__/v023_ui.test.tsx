@@ -24,20 +24,10 @@ describe("v0.2.3 UI 核心回归门禁", () => {
       riskModal: null,
       playbookOpen: false,
       playbookFocusId: null,
-      licenseModalOpen: false,
       supportModalOpen: false,
       preflight: FALLBACK_PREFLIGHT,
       snapshot: { ...FALLBACK_SNAPSHOT },
       config: { ...DEFAULT_CONFIG },
-      licenseStatus: {
-        commercialFeatureEnabled: true,
-        licensed: true,
-        activatedAt: "2026-11-24T00:00:00Z",
-        batchId: "V023-TEST",
-        installIdShort: "test0230",
-        machineFpShort: "fp0230",
-        apiEndpoint: "https://example.invalid/api/v1/activate",
-      },
     });
   });
 

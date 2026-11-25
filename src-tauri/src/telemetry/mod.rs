@@ -33,6 +33,45 @@ const DAILY_MAX_EVENTS: u32 = 10;
 /// 单机每日 L2 主动遥测最大请求批次数硬上限
 const DAILY_MAX_BATCHES: u32 = 3;
 
+/// 生成匿名短安装标识（纯本地 FNV-1a 哈希，不采集任何硬件/个人明文信息，完全脱离商业授权）
+pub fn anonymous_install_short_id() -> String {
+    static CACHED: OnceLock<String> = OnceLock::new();
+    CACHED
+        .get_or_init(|| {
+            let base = dirs::data_local_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join("FDClaudeGuard");
+            let id_path = base.join("inst.id");
+            let seed = fs::read_to_string(&id_path)
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| {
+                    let now = chrono::Local::now().timestamp_nanos_opt().unwrap_or(0);
+                    let pid = std::process::id();
+                    let generated = format!("oss-{now:x}-{pid:x}");
+                    let _ = fs::create_dir_all(&base);
+                    let _ = fs::write(&id_path, &generated);
+                    generated
+                });
+            let mut hash: u64 = 0xcbf29ce484222325;
+            for b in seed.as_bytes() {
+                hash ^= *b as u64;
+                hash = hash.wrapping_mul(0x100000001b3);
+            }
+            format!("{hash:016x}")[..8].to_string()
+        })
+        .clone()
+}
+
+/// 可选匿名遥测/排障服务端点（仅在显式配置环境变量 `FD_TELEMETRY_API_URL` 时启用；开源版默认不外发）
+pub fn telemetry_api_endpoint() -> Option<String> {
+    std::env::var("FD_TELEMETRY_API_URL")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TelemetryDedupStore {

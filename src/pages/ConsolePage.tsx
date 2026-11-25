@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BookOpen, ChevronRight, KeyRound, Loader2, Lock, Play, Power, RefreshCw } from "lucide-react";
+import { BookOpen, ChevronRight, Loader2, Lock, Play, Power, RefreshCw } from "lucide-react";
 import { CheckIcon } from "@/components/CheckIcon";
 import { ipc } from "@/lib/ipc";
 import { FULL_AUDIT_INTERVAL_MS } from "@/lib/protocol";
@@ -11,9 +11,6 @@ const MUST_CATEGORIES = [
   "2. Windows 系统环境（改系统）",
   "3. Claude 本机卫生（改 Claude）",
 ] as const;
-
-/** 未激活免费体验态仅公开展示 3 项基础连通探针（左右标题与状态全公开），其余核心防封项左右均隐藏 */
-const FREE_PREVIEW_CHECK_IDS = new Set(["node_proxy", "node_tun", "sys_ipv6"]);
 
 export function ConsolePage() {
   const preflight = useGuardStore((s) => s.preflight);
@@ -34,10 +31,6 @@ export function ConsolePage() {
   const openRiskModal = useGuardStore((s) => s.openRiskModal);
   const openCleanModal = useGuardStore((s) => s.openCleanModal);
   const pushToast = useGuardStore((s) => s.pushToast);
-  const licenseStatus = useGuardStore((s) => s.licenseStatus);
-  const setLicenseModalOpen = useGuardStore((s) => s.setLicenseModalOpen);
-
-  const isLicensed = !licenseStatus.commercialFeatureEnabled || licenseStatus.licensed;
 
   const [exportingDiag, setExportingDiag] = useState(false);
   const [releasingKs, setReleasingKs] = useState(false);
@@ -79,38 +72,8 @@ export function ConsolePage() {
   const optAll = items.filter((x) => x.part === "opt");
   const optOk = optAll.filter((x) => x.status === "ok").length;
 
-  const isItemLocked = (id: string) => !isLicensed && !FREE_PREVIEW_CHECK_IDS.has(id);
-  const freeItems = items.filter((x) => FREE_PREVIEW_CHECK_IDS.has(x.id));
-  const freeOkCount = freeItems.filter((x) => x.status === "ok").length;
-  const lockedCount = items.length - freeItems.length;
-  const mustLockedCount = mustAll.filter((x) => !FREE_PREVIEW_CHECK_IDS.has(x.id)).length;
-
-  // 为未激活隐藏项分配稳定编号，确保前端在任何模式下都不泄漏原始检测项目名称
-  const lockedOrderMap = new Map<string, string>();
-  let hiddenCursor = 0;
-  for (const it of items) {
-    if (!FREE_PREVIEW_CHECK_IDS.has(it.id)) {
-      hiddenCursor += 1;
-      lockedOrderMap.set(it.id, String(hiddenCursor).padStart(2, "0"));
-    }
-  }
-  const getDisplayTitle = (it: PreflightItem) =>
-    isItemLocked(it.id)
-      ? `核心防封深度检测项 #${lockedOrderMap.get(it.id) ?? "00"}`
-      : it.title;
-
   const blocked = mustFail > 0 || snapshot.killSwitchActive || snapshot.nodeDown;
-  const guardStatusPill = !isLicensed
-    ? {
-        dotClass: "guard-dot",
-        dotStyle: { background: "var(--text-3)" } as React.CSSProperties,
-        label: "体验模式",
-        color: "var(--text-2)",
-        cursor: "pointer" as const,
-        title: "免费基础体验模式，点击输入激活密钥解锁全量守护",
-        onClick: () => setLicenseModalOpen(true),
-      }
-    : snapshot.killSwitchActive
+  const guardStatusPill = snapshot.killSwitchActive
     ? {
         dotClass: "guard-dot danger",
         dotStyle: undefined,
@@ -158,12 +121,11 @@ export function ConsolePage() {
         onClick: undefined,
       };
   const selectedItem = items.find((x) => x.id === selectedId) ?? items[0];
-  const selectedLocked = selectedItem ? isItemLocked(selectedItem.id) : false;
   const isAcctHighRisk =
     selectedItem?.id === "claude_acct" &&
     selectedItem.status === "fail" &&
     (selectedItem.summary.includes("最高危连坐") || selectedItem.summary.includes("受限"));
-  const hitCount = isLicensed ? snapshot.triggeredPlaybookIds.length : 0;
+  const hitCount = snapshot.triggeredPlaybookIds.length;
 
   const handleExportDiag = async (itemId: string) => {
     setExportingDiag(true);
@@ -305,27 +267,20 @@ export function ConsolePage() {
   };
 
   const renderCheckRow = (it: PreflightItem) => {
-    const locked = isItemLocked(it.id);
-    const displayTitle = getDisplayTitle(it);
-    const boxCls = locked
-      ? "guard-icon-box"
-      : it.status === "fail"
-      ? "guard-icon-box is-fail"
-      : it.status === "warn"
-      ? "guard-icon-box is-warn"
-      : "guard-icon-box";
-    const chip = locked ? (
-      <span className="guard-chip guard-chip-mode" data-testid={`check-locked-chip-${it.id}`}>
-        <Lock size={10} strokeWidth={2} />
-        <span>已隐藏</span>
-      </span>
-    ) : it.status === "fail" ? (
-      <span className="guard-chip guard-chip-fail">未通过</span>
-    ) : it.status === "warn" ? (
-      <span className="guard-chip guard-chip-warn">风险提示</span>
-    ) : (
-      <span className="guard-chip guard-chip-ok">已通过</span>
-    );
+    const boxCls =
+      it.status === "fail"
+        ? "guard-icon-box is-fail"
+        : it.status === "warn"
+        ? "guard-icon-box is-warn"
+        : "guard-icon-box";
+    const chip =
+      it.status === "fail" ? (
+        <span className="guard-chip guard-chip-fail">未通过</span>
+      ) : it.status === "warn" ? (
+        <span className="guard-chip guard-chip-warn">风险提示</span>
+      ) : (
+        <span className="guard-chip guard-chip-ok">已通过</span>
+      );
 
     return (
       <div
@@ -343,45 +298,16 @@ export function ConsolePage() {
       >
         <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
           <div className={boxCls}>
-            {locked ? <Lock size={14} strokeWidth={1.85} /> : <CheckIcon name={it.icon} />}
+            <CheckIcon name={it.icon} />
           </div>
           <div style={{ minWidth: 0 }}>
-            {locked ? (
-              <div
-                data-testid={`check-locked-title-${it.id}`}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  fontSize: 13.5,
-                  fontWeight: 500,
-                  color: "var(--text-3)",
-                  lineHeight: 1.3,
-                }}
-              >
-                <span>{displayTitle}</span>
-                <span
-                  aria-hidden="true"
-                  style={{
-                    display: "inline-block",
-                    width: 64,
-                    height: 10,
-                    borderRadius: 4,
-                    background:
-                      "repeating-linear-gradient(-45deg, rgba(128,128,140,0.20), rgba(128,128,140,0.20) 4px, rgba(128,128,140,0.06) 4px, rgba(128,128,140,0.06) 8px)",
-                    border: "1px solid var(--border)",
-                  }}
-                />
-              </div>
-            ) : (
-              <div style={{ fontSize: 14, fontWeight: 500, color: "var(--text-1)", lineHeight: 1.3 }}>
-                {displayTitle}
-              </div>
-            )}
+            <div style={{ fontSize: 14, fontWeight: 500, color: "var(--text-1)", lineHeight: 1.3 }}>
+              {it.title}
+            </div>
             <div
               style={{
                 fontSize: 12,
-                color: locked ? "var(--text-3)" : "var(--text-2)",
+                color: "var(--text-2)",
                 marginTop: 2,
                 whiteSpace: "nowrap",
                 overflow: "hidden",
@@ -389,7 +315,7 @@ export function ConsolePage() {
                 maxWidth: 320,
               }}
             >
-              {locked ? "输入激活密钥后公开检测内容与实测状态" : it.summary}
+              {it.summary}
             </div>
           </div>
         </div>
@@ -427,18 +353,7 @@ export function ConsolePage() {
             }}
           >
             <span>控制台</span>
-            {licenseStatus.commercialFeatureEnabled && !isLicensed && (
-              <button
-                type="button"
-                data-testid="console-license-chip"
-                onClick={() => setLicenseModalOpen(true)}
-                className="guard-chip guard-chip-mode"
-                style={{ cursor: "pointer", fontWeight: 500 }}
-              >
-                未激活 · 点击激活
-              </button>
-            )}
-            {isLicensed && snapshot.killSwitchActive && (
+            {snapshot.killSwitchActive && (
               <span
                 data-testid="console-killswitch-status"
                 style={{ display: "inline-flex", alignItems: "center", gap: 6, marginLeft: 4 }}
@@ -513,81 +428,51 @@ export function ConsolePage() {
               flexWrap: "wrap",
             }}
           >
-            <span>
-              {isLicensed
-                ? `启动前实测体检 · 事件实时监听中 · ${auditCountdownLabel}`
-                : "免费基础体验体检"}
-            </span>
-            {isLicensed ? (
-              <>
-                {config.calm24h && (
-                  <button
-                    type="button"
-                    className="guard-chip guard-chip-mode"
-                    style={{ cursor: "pointer" }}
-                    onClick={() => setActiveTab("config")}
-                    title="已开启 24h 冷静保护期，点击前往守卫配置调整"
-                  >
-                    24h 冷静期
-                  </button>
-                )}
-                {deepAudit.running && (
-                  <span
-                    data-testid="console-deep-audit-badge"
-                    className="guard-chip guard-chip-warn tabular"
-                    style={{ display: "inline-flex", alignItems: "center", gap: 5 }}
-                    title={deepAudit.message}
-                  >
-                    <Loader2 size={10} strokeWidth={2.2} className="guard-spin" />
-                    <span>
-                      核验节点 {deepAudit.currentIndex}/{deepAudit.total || "?"}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => void cancelDeepNodeAudit()}
-                      style={{
-                        border: "none",
-                        background: "transparent",
-                        color: "inherit",
-                        fontSize: 10.5,
-                        textDecoration: "underline",
-                        cursor: "pointer",
-                        padding: 0,
-                        marginLeft: 2,
-                      }}
-                    >
-                      停止
-                    </button>
-                  </span>
-                )}
-              </>
-            ) : (
-              <>
-                <span className="guard-chip guard-chip-ok">
-                  基础体验 {freeOkCount}/{freeItems.length}
+            <span>{`启动前实测体检 · 事件实时监听中 · ${auditCountdownLabel}`}</span>
+            {config.calm24h && (
+              <button
+                type="button"
+                className="guard-chip guard-chip-mode"
+                style={{ cursor: "pointer" }}
+                onClick={() => setActiveTab("config")}
+                title="已开启 24h 冷静保护期，点击前往守卫配置调整"
+              >
+                24h 冷静期
+              </button>
+            )}
+            {deepAudit.running && (
+              <span
+                data-testid="console-deep-audit-badge"
+                className="guard-chip guard-chip-warn tabular"
+                style={{ display: "inline-flex", alignItems: "center", gap: 5 }}
+                title={deepAudit.message}
+              >
+                <Loader2 size={10} strokeWidth={2.2} className="guard-spin" />
+                <span>
+                  核验节点 {deepAudit.currentIndex}/{deepAudit.total || "?"}
                 </span>
-                <span className="guard-chip guard-chip-mode">
-                  其余 {lockedCount} 项深度体检待解锁
-                </span>
-                {deepAudit.running && (
-                  <span
-                    data-testid="console-deep-audit-badge"
-                    className="guard-chip guard-chip-mode tabular"
-                    style={{ display: "inline-flex", alignItems: "center", gap: 5 }}
-                    title="后台正在预先静默核验节点质量，激活后即可直接查看"
-                  >
-                    <Loader2 size={10} strokeWidth={2.2} className="guard-spin" />
-                    <span>
-                      后台预核验节点 {deepAudit.currentIndex}/{deepAudit.total || "?"}
-                    </span>
-                  </span>
-                )}
-              </>
+                <button
+                  type="button"
+                  onClick={() => void cancelDeepNodeAudit()}
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    color: "inherit",
+                    fontSize: 10.5,
+                    textDecoration: "underline",
+                    cursor: "pointer",
+                    padding: 0,
+                    marginLeft: 2,
+                  }}
+                >
+                  停止
+                </button>
+              </span>
             )}
           </div>
         </div>
 
-        {/* 单一蓝色主 CTA 原则：未激活态统一引导激活解锁；已激活按待办数智能分配唯一蓝主焦点 */}
+        {/* 单一蓝色主 CTA 原则：按待办数智能分配唯一蓝主焦点 */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
           <button
             type="button"
@@ -604,13 +489,7 @@ export function ConsolePage() {
           <button
             type="button"
             className="guard-btn guard-btn-flat guard-btn-sm"
-            onClick={() => {
-              if (!isLicensed) {
-                setLicenseModalOpen(true);
-                return;
-              }
-              setPlaybookOpen(true);
-            }}
+            onClick={() => setPlaybookOpen(true)}
           >
             <BookOpen size={14} strokeWidth={1.85} />
             <span>安全守则</span>
@@ -635,20 +514,10 @@ export function ConsolePage() {
             ) : (
               <RefreshCw size={13} strokeWidth={1.85} />
             )}
-            <span>{checking ? "实测中..." : isLicensed ? "重新实测" : "刷新体验项"}</span>
+            <span>{checking ? "实测中..." : "重新实测"}</span>
           </button>
 
-          {!isLicensed ? (
-            <button
-              type="button"
-              data-testid="btn-batch-fix-all"
-              className="guard-btn guard-btn-primary"
-              onClick={() => setLicenseModalOpen(true)}
-            >
-              <KeyRound size={14} strokeWidth={1.9} />
-              <span>激活解锁全量体检</span>
-            </button>
-          ) : mustFail >= 2 ? (
+          {mustFail >= 2 ? (
             <button
               type="button"
               data-testid="btn-batch-fix-all"
@@ -708,18 +577,10 @@ export function ConsolePage() {
               data-testid="btn-safe-launch-claude"
               className="guard-btn guard-btn-primary"
               disabled={checking || fixing || launching}
-              onClick={() => {
-                if (!isLicensed) {
-                  setLicenseModalOpen(true);
-                  return;
-                }
-                void safeLaunchClaude();
-              }}
+              onClick={() => void safeLaunchClaude()}
             >
               {launching ? (
                 <Loader2 size={14} strokeWidth={2} className="guard-spin" />
-              ) : !isLicensed ? (
-                <Lock size={14} strokeWidth={1.9} />
               ) : (
                 <Play size={14} strokeWidth={1.9} />
               )}
@@ -744,42 +605,28 @@ export function ConsolePage() {
             <div style={partHdStyle}>
               <div style={{ ...partTitleStyle, whiteSpace: "nowrap", flexShrink: 0 }}>
                 <span>一、必须通过</span>
-                {!isLicensed && (
-                  <span className="guard-chip guard-chip-mode tabular">
-                    体验 {freeItems.length}/{mustAll.length}
-                  </span>
-                )}
               </div>
               <span
                 className="tabular"
                 style={{ fontSize: 12, color: "var(--text-3)", textAlign: "right" }}
               >
-                {isLicensed ? (
-                  <>
-                    全部通过{" "}
-                    <span
-                      style={{
-                        fontWeight: 600,
-                        color: mustFail > 0 ? "var(--danger-bright)" : "var(--text-1)",
-                      }}
-                    >
-                      {mustOk}/{mustAll.length}
-                    </span>{" "}
-                    项后，
-                    <span style={{ color: "var(--success)", fontWeight: 500 }}>健康</span>
-                    启动 Claude
-                  </>
-                ) : (
-                  `仅公开 ${freeItems.length} 项基础体验，其余 ${mustLockedCount} 项核心检测名称与状态均已隐藏`
-                )}
+                全部通过{" "}
+                <span
+                  style={{
+                    fontWeight: 600,
+                    color: mustFail > 0 ? "var(--danger-bright)" : "var(--text-1)",
+                  }}
+                >
+                  {mustOk}/{mustAll.length}
+                </span>{" "}
+                项后，
+                <span style={{ color: "var(--success)", fontWeight: 500 }}>健康</span>
+                启动 Claude
               </span>
             </div>
 
             {MUST_CATEGORIES.map((cat) => {
               const catItems = mustAll.filter((x) => x.cat === cat);
-              const hasAnyPublic = catItems.some((x) => FREE_PREVIEW_CHECK_IDS.has(x.id));
-              const catLabel =
-                !isLicensed && !hasAnyPublic ? "3. 核心隐私与防封深度审计（激活后公开）" : cat;
               return (
                 <div key={cat} style={{ marginBottom: 12 }}>
                   <div
@@ -791,7 +638,7 @@ export function ConsolePage() {
                       paddingLeft: 2,
                     }}
                   >
-                    {catLabel}
+                    {cat}
                   </div>
                   <div className="guard-card">{catItems.map(renderCheckRow)}</div>
                 </div>
@@ -804,13 +651,11 @@ export function ConsolePage() {
               <div style={partTitleStyle}>
                 <span>二、建议优化</span>
                 <span className="guard-chip guard-chip-neutral tabular">
-                  {isLicensed ? `${optOk}/${optAll.length}` : "激活后公开"}
+                  {`${optOk}/${optAll.length}`}
                 </span>
               </div>
               <span style={{ fontSize: 12, color: "var(--text-3)" }}>
-                {isLicensed
-                  ? "含启动项、时区与浏览器隐私监测，不阻断启动"
-                  : "输入激活密钥后公开检测内容与实测状态"}
+                含启动项、时区与浏览器隐私监测，不阻断启动
               </span>
             </div>
             <div className="guard-card">{optAll.map(renderCheckRow)}</div>
@@ -834,9 +679,7 @@ export function ConsolePage() {
               <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
                 <div
                   className={
-                    selectedLocked
-                      ? "guard-icon-box"
-                      : selectedItem.status === "fail"
+                    selectedItem.status === "fail"
                       ? "guard-icon-box is-fail"
                       : selectedItem.status === "warn"
                       ? "guard-icon-box is-warn"
@@ -844,11 +687,7 @@ export function ConsolePage() {
                   }
                   style={{ width: 36, height: 36 }}
                 >
-                  {selectedLocked ? (
-                    <Lock size={17} strokeWidth={1.85} />
-                  ) : (
-                    <CheckIcon name={selectedItem.icon} size={17} />
-                  )}
+                  <CheckIcon name={selectedItem.icon} size={17} />
                 </div>
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
@@ -856,35 +695,26 @@ export function ConsolePage() {
                       data-testid="detail-item-title"
                       style={{ fontSize: 16, fontWeight: 600, lineHeight: 1.3, margin: 0 }}
                     >
-                      {getDisplayTitle(selectedItem)}
+                      {selectedItem.title}
                     </h2>
-                    {selectedLocked ? (
-                      <span className="guard-chip guard-chip-mode">
-                        <Lock size={10} strokeWidth={2} />
-                        <span>检测内容与状态已隐藏</span>
-                      </span>
-                    ) : (
-                      <>
-                        <span
-                          className={`guard-chip ${
-                            selectedItem.status === "fail"
-                              ? "guard-chip-fail"
-                              : selectedItem.status === "warn"
-                              ? "guard-chip-warn"
-                              : "guard-chip-ok"
-                          }`}
-                        >
-                          {selectedItem.status === "fail"
-                            ? "必须项 · 未通过"
-                            : selectedItem.status === "warn"
-                            ? selectedItem.part === "must"
-                              ? "必须项 · 风险提示"
-                              : "建议项 · 风险提示"
-                            : "实测通过"}
-                        </span>
-                        <span className="guard-chip guard-chip-mode">{selectedItem.mode}</span>
-                      </>
-                    )}
+                    <span
+                      className={`guard-chip ${
+                        selectedItem.status === "fail"
+                          ? "guard-chip-fail"
+                          : selectedItem.status === "warn"
+                          ? "guard-chip-warn"
+                          : "guard-chip-ok"
+                      }`}
+                    >
+                      {selectedItem.status === "fail"
+                        ? "必须项 · 未通过"
+                        : selectedItem.status === "warn"
+                        ? selectedItem.part === "must"
+                          ? "必须项 · 风险提示"
+                          : "建议项 · 风险提示"
+                        : "实测通过"}
+                    </span>
+                    <span className="guard-chip guard-chip-mode">{selectedItem.mode}</span>
                   </div>
                   <p
                     style={{
@@ -894,113 +724,48 @@ export function ConsolePage() {
                       lineHeight: 1.55,
                     }}
                   >
-                    {selectedLocked
-                      ? "该项属于核心防封深度实测，具体检测项目、实测状态与修复步骤均已隐藏，输入一次性激活密钥后立即开启。"
-                      : selectedItem.summary}
+                    {selectedItem.summary}
                   </p>
                 </div>
               </div>
 
               <div>
                 <div style={detLblStyle}>真实探针实测数据</div>
-                {selectedLocked ? (
-                  <div
-                    role="button"
-                    tabIndex={0}
-                    data-testid="evidence-mosaic-locked"
-                    aria-label="已锁定的实测数据，点击输入激活密钥解锁"
-                    title="点击输入激活密钥解锁深度实测数据"
-                    className="guide-box is-locked"
-                    onClick={() => setLicenseModalOpen(true)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        setLicenseModalOpen(true);
-                      }
-                    }}
-                  >
-                    <div className="guide-blur-txt" aria-hidden="true">
-                      LOCKED PROBE DATA ████████████████████████████████████████
-                      ████████████████████████████████████████████████████
-                    </div>
-                    <div className="guide-lock-overlay" />
-                  </div>
-                ) : (
-                  <div
-                    className="font-mono-code tabular"
-                    style={{
-                      background: "var(--bg-subtle)",
-                      border: "1px solid var(--border)",
-                      borderRadius: "var(--r-btn)",
-                      padding: "10px 12px",
-                      fontSize: 11.5,
-                      lineHeight: 1.6,
-                      color: "var(--text-2)",
-                      whiteSpace: "pre-wrap",
-                      wordBreak: "break-all",
-                    }}
-                  >
-                    {selectedItem.evidence}
-                  </div>
-                )}
+                <div
+                  className="font-mono-code tabular"
+                  style={{
+                    background: "var(--bg-subtle)",
+                    border: "1px solid var(--border)",
+                    borderRadius: "var(--r-btn)",
+                    padding: "10px 12px",
+                    fontSize: 11.5,
+                    lineHeight: 1.6,
+                    color: "var(--text-2)",
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-all",
+                  }}
+                >
+                  {selectedItem.evidence}
+                </div>
               </div>
 
               <div>
                 <div style={detLblStyle}>处理方式与验证说明</div>
-                {!isLicensed && (selectedLocked || selectedItem.status !== "ok") ? (
-                  /* 增量 19：未激活态纯净毛玻璃斜纹马赛克，前端绝无明文，遮罩内不放居中文字胶囊 */
-                  <div
-                    role="button"
-                    tabIndex={0}
-                    data-testid="guide-mosaic-locked"
-                    aria-label="已加密的处理方案，点击输入激活密钥解锁"
-                    title="点击输入激活密钥解锁清晰处理步骤"
-                    className="guide-box is-locked"
-                    onClick={() => setLicenseModalOpen(true)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        setLicenseModalOpen(true);
-                      }
-                    }}
-                  >
-                    <div className="guide-blur-txt" aria-hidden="true">
-                      AES-256-GCM 密文占位 ████████████████████████████████████████
-                      ████████████████████████████████████████████████████
-                    </div>
-                    <div className="guide-lock-overlay" />
-                  </div>
-                ) : (
-                  <div
-                    data-testid="guide-plaintext"
-                    className="guide-box"
-                    style={isAcctHighRisk ? { borderLeftColor: "var(--danger)" } : undefined}
-                  >
-                    {selectedItem.guide || "该项已通过真实探针验证。"}
-                  </div>
-                )}
+                <div
+                  data-testid="guide-plaintext"
+                  className="guide-box"
+                  style={isAcctHighRisk ? { borderLeftColor: "var(--danger)" } : undefined}
+                >
+                  {selectedItem.guide || "该项已通过真实探针验证。"}
+                </div>
               </div>
 
-              {!selectedLocked && selectedItem.status === "ok" ? (
+              {selectedItem.status === "ok" ? (
                 <div style={{ fontSize: 12, color: "var(--success)", fontWeight: 500 }}>
                   该项已通过真实探针验收，无需额外操作。
                 </div>
-              ) : !isLicensed ? (
-                /* 未激活态唯一行动焦点：高对比白色主按钮，且隐藏底部「导出脱敏问题包给 AI 分析」链接 */
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  <button
-                    type="button"
-                    data-testid="btn-unlock-license-cta"
-                    className="guard-btn guard-btn-secondary"
-                    style={{ padding: 10 }}
-                    onClick={() => setLicenseModalOpen(true)}
-                  >
-                    <KeyRound size={14} strokeWidth={2} />
-                    <span>输入激活密钥 · 解锁步骤并一键处理</span>
-                  </button>
-                </div>
               ) : (
-                /* 已激活态严格保留 ISS-009：只要 status !== "ok" 始终显示排障包导出 */
+                /* 只要 status !== "ok" 始终显示排障包导出 */
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {selectedItem.id === "node_geo" && selectedItem.status === "warn" ? (
                     <>

@@ -4327,9 +4327,9 @@ fn write_clash_override_script() -> Result<String, String> {
     let profiles_dir = dir.join("profiles");
     fs::create_dir_all(&profiles_dir).map_err(|e| format!("创建 profiles 目录失败: {e}"))?;
 
-    // 先做授权解锁验证，再升级为支持 proxy-providers 与 find-process-mode 的新版脚本
-    let unlocked_script = crate::licensing::get_override_script()?;
-    let script_content = upgrade_override_script_compat(&unlocked_script);
+    // 读取内置开源标准覆写脚本，并同步升级为支持 proxy-providers 与 find-process-mode 的兼容形态
+    let base_script = include_str!("../../../clash-scripts/claude-verge-override.js");
+    let script_content = upgrade_override_script_compat(base_script);
     let target = profiles_dir.join("Script.js");
     let registered_script = ensure_global_script_registered_in_profiles_yaml(&dir).unwrap_or(false);
     let reg_note = if registered_script {
@@ -5964,12 +5964,21 @@ items:
     }
 
     #[test]
-    fn batch1_p0_commercial_build_never_embeds_plaintext_override_script() {
-        let src = include_str!("mod.rs");
-        let needle = concat!("include_str!(\"", "../../../clash-scripts/claude-verge-override.js\")");
-        assert!(
-            !src.contains(needle),
-            "禁止在商业版 preflight/mod.rs 中明文 include_str! 嵌入覆写脚本"
+    fn semver_versions_stay_in_sync_across_manifests() {
+        let cargo_ver = env!("CARGO_PKG_VERSION");
+        let pkg_json: serde_json::Value =
+            serde_json::from_str(include_str!("../../../package.json")).expect("valid package.json");
+        let tauri_json: serde_json::Value =
+            serde_json::from_str(include_str!("../../tauri.conf.json")).expect("valid tauri.conf.json");
+        assert_eq!(
+            pkg_json.get("version").and_then(|v| v.as_str()),
+            Some(cargo_ver),
+            "package.json 与 Cargo.toml 版本号必须 100% 一致"
+        );
+        assert_eq!(
+            tauri_json.get("version").and_then(|v| v.as_str()),
+            Some(cargo_ver),
+            "tauri.conf.json 与 Cargo.toml 版本号必须 100% 一致"
         );
     }
 

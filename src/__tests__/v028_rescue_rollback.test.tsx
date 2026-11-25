@@ -49,12 +49,12 @@ describe("v0.2.8 无门槛网络急救与 6 项精准撤回中心回归", () => 
     });
   });
 
-  it("未激活态下付费墙照常锁定高级维护，但「一键网络急救」与「撤回中心」免激活可用", async () => {
-    useGuardStore.setState({
-      licenseStatus: {
-        commercialFeatureEnabled: true,
-        licensed: false,
-      },
+  it("免费开源态下环境维护页直接开放「一键网络急救」与「撤回中心」，点击急救可检出并恢复死 DNS", async () => {
+    vi.spyOn(ipc, "listBackups").mockResolvedValue([]);
+    vi.spyOn(ipc, "inspectClaudeDataRoots").mockResolvedValue({
+      classicDetected: true,
+      msixPackages: [],
+      telemetryExists: false,
     });
     const inspectSpy = vi
       .spyOn(ipc, "inspectRollbackStatus")
@@ -78,8 +78,8 @@ describe("v0.2.8 无门槛网络急救与 6 项精准撤回中心回归", () => 
 
     render(<MaintenancePage />);
 
-    // 未激活门禁卡片应存在
-    expect(screen.getByTestId("locked-gate-maintain")).toBeTruthy();
+    // 开源无锁态不存在付费墙门禁
+    expect(screen.queryByTestId("locked-gate-maintain")).toBeNull();
     // 同时网络急救与撤回中心必须可见
     expect(screen.getByTestId("network-rescue-rollback-panel")).toBeTruthy();
 
@@ -97,15 +97,7 @@ describe("v0.2.8 无门槛网络急救与 6 项精准撤回中心回归", () => 
     expect(inspectSpy).toHaveBeenCalledTimes(2);
   });
 
-  it("已激活态下点击单项撤回打开二次确认弹窗，确认后精准调用 rollbackSingleItem 并更新状态", async () => {
-    useGuardStore.setState({
-      licenseStatus: {
-        commercialFeatureEnabled: true,
-        licensed: true,
-        activatedAt: "2026-11-25",
-        batchId: "TEST",
-      },
-    });
+  it("点击单项撤回打开二次确认弹窗，确认后精准调用 rollbackSingleItem 并更新状态", async () => {
     vi.spyOn(ipc, "listBackups").mockResolvedValue([]);
     vi.spyOn(ipc, "inspectClaudeDataRoots").mockResolvedValue({
       classicDetected: true,

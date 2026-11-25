@@ -5,7 +5,6 @@ import {
   FALLBACK_SNAPSHOT,
   FALLBACK_STARTUP_AUDIT,
   ipc,
-  isTauriRuntime,
 } from "@/lib/ipc";
 import type {
   AppConfig,
@@ -13,7 +12,6 @@ import type {
   BackupInfo,
   DeepAuditProgress,
   GuardSnapshot,
-  LicenseStatus,
   NavTab,
   NodeReport,
   PreflightReport,
@@ -32,17 +30,6 @@ const IDLE_DEEP_AUDIT: DeepAuditProgress = {
   originalNode: "",
   currentNodeVerified: false,
   message: "",
-};
-
-const DEFAULT_LICENSE_STATUS: LicenseStatus = {
-  commercialFeatureEnabled: true,
-  // 真实 Tauri 商业版客户端严格 Fail-Closed（等待后端离线验签返回后再解锁）；浏览器预览保留可读体验
-  licensed: !isTauriRuntime(),
-  activatedAt: null,
-  batchId: null,
-  installIdShort: null,
-  machineFpShort: null,
-  apiEndpoint: null,
 };
 
 const EMPTY_NODES: NodeReport = {
@@ -68,8 +55,6 @@ interface GuardStore {
   startupAudit: StartupAuditReport;
   nodeReport: NodeReport;
   deepAudit: DeepAuditProgress;
-  licenseStatus: LicenseStatus;
-  licenseModalOpen: boolean;
   supportModalOpen: boolean;
   checking: boolean;
   fixing: boolean;
@@ -126,10 +111,7 @@ interface GuardStore {
   setSnapshot: (snap: GuardSnapshot) => void;
   setPreflightFromEvent: (report: PreflightReport) => void;
   setConfigFromEvent: (cfg: AppConfig) => void;
-  setLicenseStatus: (status: LicenseStatus) => void;
-  setLicenseModalOpen: (open: boolean) => void;
   setSupportModalOpen: (open: boolean) => void;
-  activateLicense: (licenseKey: string) => Promise<void>;
 }
 
 function applyThemeToDom(theme: "dark" | "light") {
@@ -155,8 +137,6 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
   startupAudit: FALLBACK_STARTUP_AUDIT,
   nodeReport: EMPTY_NODES,
   deepAudit: IDLE_DEEP_AUDIT,
-  licenseStatus: DEFAULT_LICENSE_STATUS,
-  licenseModalOpen: false,
   supportModalOpen: false,
   checking: false,
   fixing: false,
@@ -180,13 +160,12 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
   async bootstrap() {
     set({ checking: true });
     try {
-      const [config, preflight, startupAudit, nodeReport, licenseStatus, deepAudit] =
+      const [config, preflight, startupAudit, nodeReport, deepAudit] =
         await Promise.all([
           ipc.getConfig(),
           ipc.runPreflightChecks(false),
           ipc.auditStartupItems(),
           ipc.getNodesAndQuality(),
-          ipc.getLicenseStatus(),
           ipc.getDeepAuditStatus(),
         ]);
       const snapshot = await ipc.getSnapshot();
@@ -200,7 +179,6 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
         preflight,
         startupAudit,
         nodeReport,
-        licenseStatus,
         deepAudit,
         ackedLogIds: Array.isArray(config.ackedLogIds) ? config.ackedLogIds : [],
         selectedCheckId: firstFail?.id ?? "node_proxy",
@@ -453,9 +431,7 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
 
   setActiveTab(tab) {
     set({ activeTab: tab });
-    const lic = get().licenseStatus;
-    const isLic = !lic.commercialFeatureEnabled || lic.licensed;
-    if (tab === "nodes" && isLic) {
+    if (tab === "nodes") {
       void get().refreshNodes();
     }
   },
@@ -611,41 +587,7 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
     set({ config: cfg });
   },
 
-  setLicenseStatus(status) {
-    set({ licenseStatus: status });
-  },
-
-  setLicenseModalOpen(open) {
-    set({ licenseModalOpen: open });
-  },
-
   setSupportModalOpen(open) {
     set({ supportModalOpen: open });
-  },
-
-  async activateLicense(licenseKey) {
-    const res = await ipc.activateLicense(licenseKey);
-    const nextStatus = await ipc.getLicenseStatus().catch(() => ({
-      ...get().licenseStatus,
-      licensed: res.licensed,
-      activatedAt: res.activatedAt,
-      batchId: res.batchId,
-    }));
-    set({
-      licenseStatus: {
-        ...nextStatus,
-        licensed: true,
-        activatedAt: res.activatedAt,
-        batchId: res.batchId,
-      },
-    });
-    get().pushToast(
-      "核销激活成功 · 已永久绑定当前安装实例",
-      res.message,
-      "ok",
-      { durationMs: 6000 }
-    );
-    // 激活成功后主动触发一次静默全量复测，避免仅依赖异步广播事件
-    void get().refreshPreflight(true);
   },
 }));

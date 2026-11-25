@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { Activity, Bell, ShieldAlert, X } from "lucide-react";
 import { CheckIcon } from "@/components/CheckIcon";
-import { FeatureLockedGate } from "@/components/FeatureLockedGate";
 import { ipc } from "@/lib/ipc";
 import { useGuardStore } from "@/stores/guardStore";
 import type { AppConfig } from "@/types/guard";
@@ -114,8 +113,6 @@ export function SettingsPage() {
   const config: AppConfig = useGuardStore((s) => s.config);
   const startupAudit = useGuardStore((s) => s.startupAudit);
   const updateConfig = useGuardStore((s) => s.updateConfig);
-  const licenseStatus = useGuardStore((s) => s.licenseStatus);
-  const isLicensed = !licenseStatus.commercialFeatureEnabled || licenseStatus.licensed;
 
   useEffect(() => {
     if (!sampleOpen) return;
@@ -127,22 +124,6 @@ export function SettingsPage() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [sampleOpen]);
-
-  if (!isLicensed) {
-    return (
-      <FeatureLockedGate
-        testId="locked-gate-config"
-        pageTitle="守卫配置"
-        pageSubtitle="休眠唤醒最长 15 秒预阻断 · 防裸奔自启动 · 自动熔断策略 · 开机启动项只读风险审计"
-        description="高级自动守护策略、休眠唤醒/切网预阻断安全窗、Kill-Hold 盯防时长调节以及 Windows 开机启动项顺序审计，需输入激活密钥后开启。"
-        highlights={[
-          "休眠唤醒 / 切网最长 15 秒预阻断安全窗，防止笔记本睡醒瞬间直连偷跑",
-          "自定义 Kill-Hold 防复活盯防时长（30s / 45s / 60s）与防裸奔自动接管策略",
-          "Windows 开机启动项顺序只读监测，及时预警 Claude 抢跑早于代理启动风险",
-        ]}
-      />
-    );
-  }
 
   const handleToggle = (key: BoolConfigKey, next: boolean, label: string) => {
     void updateConfig({ [key]: next }, label);

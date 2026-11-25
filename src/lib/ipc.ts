@@ -3,7 +3,6 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { DIAG_MANIFEST_MAGIC, FULL_AUDIT_INTERVAL_MS } from "@/lib/protocol";
 import type {
-  ActivateLicenseResult,
   AppConfig,
   AppConfigPatch,
   BackupInfo,
@@ -19,7 +18,6 @@ import type {
   KillHoldSnapshot,
   KillReport,
   KillSwitchState,
-  LicenseStatus,
   LogAnalysisReport,
   LogEvent,
   NavigatePayload,
@@ -1233,57 +1231,6 @@ export const ipc = {
   async listenNavigate(cb: (nav: NavigatePayload) => void): Promise<UnlistenFn> {
     if (!isTauriRuntime()) return () => {};
     return listen<NavigatePayload>("guard://navigate", (e) => cb(e.payload));
-  },
-
-  async getLicenseStatus(): Promise<LicenseStatus> {
-    if (!isTauriRuntime()) {
-      if (typeof window !== "undefined") {
-        const params = new URLSearchParams(window.location.search);
-        const licParam = params.get("licensed");
-        if (licParam === "0" || (isQaPreviewMode() && licParam !== "1")) {
-          return {
-            commercialFeatureEnabled: true,
-            licensed: false,
-            activatedAt: null,
-            batchId: null,
-            installIdShort: "qa-inst01",
-            machineFpShort: "qa-fp9981",
-            apiEndpoint: "https://license.fdclaudeguard.workers.dev/api/v1/activate",
-          };
-        }
-      }
-      return {
-        commercialFeatureEnabled: true,
-        licensed: true,
-        activatedAt: "2026-11-24T00:00:00Z",
-        batchId: "PREVIEW",
-        installIdShort: "preview01",
-        machineFpShort: "previewfp",
-        apiEndpoint: "https://license.fdclaudeguard.workers.dev/api/v1/activate",
-      };
-    }
-    return invoke<LicenseStatus>("get_license_status_cmd");
-  },
-
-  async activateLicense(licenseKey: string): Promise<ActivateLicenseResult> {
-    if (!isTauriRuntime()) {
-      const cleaned = licenseKey.trim().toUpperCase();
-      if (!/^FDG-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(cleaned)) {
-        throw new Error("激活密钥格式错误（应为 FDG-XXXX-XXXX-XXXX）");
-      }
-      return {
-        licensed: true,
-        activatedAt: new Date().toISOString(),
-        batchId: "PREVIEW",
-        message: "预览模式核销成功：已解锁清晰方案与自动修复。",
-      };
-    }
-    return invoke<ActivateLicenseResult>("activate_license_cmd", { licenseKey });
-  },
-
-  async listenLicenseChanged(cb: (status: LicenseStatus) => void): Promise<UnlistenFn> {
-    if (!isTauriRuntime()) return () => {};
-    return listen<LicenseStatus>("guard://license-changed", (e) => cb(e.payload));
   },
 
   async listenConfirmExit(cb: (bgProcs: number) => void): Promise<UnlistenFn> {

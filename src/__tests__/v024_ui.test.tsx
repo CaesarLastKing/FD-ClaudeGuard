@@ -44,7 +44,6 @@ describe("v0.2.4 UI 核心回归门禁", () => {
       cleanModal: null,
       playbookOpen: false,
       playbookFocusId: null,
-      licenseModalOpen: false,
       supportModalOpen: false,
       preflight: buildPreflightWithMustPassed(11),
       snapshot: {
@@ -55,15 +54,6 @@ describe("v0.2.4 UI 核心回归门禁", () => {
         killSwitchActive: false,
       },
       config: { ...DEFAULT_CONFIG },
-      licenseStatus: {
-        commercialFeatureEnabled: true,
-        licensed: true,
-        activatedAt: "2026-11-24T00:00:00Z",
-        batchId: "V024-TEST",
-        installIdShort: "test0240",
-        machineFpShort: "fp0240",
-        apiEndpoint: "https://example.invalid/api/v1/activate",
-      },
     });
   });
 

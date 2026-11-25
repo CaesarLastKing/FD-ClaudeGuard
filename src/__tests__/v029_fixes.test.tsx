@@ -6,12 +6,6 @@ import { useGuardStore } from "@/stores/guardStore";
 describe("v0.2.9 真机回归：开机启动项徽章语义校验（T-054）", () => {
   beforeEach(() => {
     useGuardStore.setState({
-      licenseStatus: {
-        commercialFeatureEnabled: false,
-        licensed: true,
-        activatedAt: "2026-11-25",
-        batchId: "OSS",
-      },
       startupAudit: {
         claudeAutostartRisk: true,
         entries: [

@@ -1,6 +1,5 @@
 pub mod config;
 pub mod killswitch;
-pub mod licensing;
 pub mod logger;
 pub mod maintenance;
 pub mod mihomo;
@@ -16,11 +15,6 @@ pub mod watchdog;
 use crate::config::{
     default_config_path, load_config, save_config, should_start_hud_only, AppConfig,
     AppConfigPatch, WindowPos,
-};
-use crate::licensing::{
-    activate_license_online, get_license_status, is_licensed, require_licensed,
-    sanitize_preflight_for_license, sanitize_snapshot_for_license, ActivateLicenseResult,
-    LicenseStatus,
 };
 use crate::killswitch::{
     cleanup_all_guard_firewall_rules, close_mihomo_connection, get_live_claude_connections,
@@ -67,8 +61,9 @@ use crate::watchdog::{
     inspect_local_telemetry, LogEvent, LogStats, TelemetryInspection,
 };
 use crate::telemetry::{
-    build_anonymized_feedback_payload, flush_telemetry_events_if_enabled,
-    submit_anonymous_feedback_report, FeedbackReportResult,
+    anonymous_install_short_id, build_anonymized_feedback_payload,
+    flush_telemetry_events_if_enabled, submit_anonymous_feedback_report, telemetry_api_endpoint,
+    FeedbackReportResult,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::Ordering;
@@ -630,12 +625,11 @@ fn quit_app(app: AppHandle, state: State<'_, AppState>, kill_claude_first: Optio
 
 #[tauri::command]
 fn get_snapshot(state: State<'_, AppState>) -> Result<GuardSnapshot, String> {
-    let mut snap = state
+    let snap = state
         .snapshot
         .read()
         .map_err(|_| "读取快照锁失败".to_string())?
         .clone();
-    sanitize_snapshot_for_license(&mut snap);
     Ok(snap)
 }
 
@@ -678,7 +672,6 @@ async fn run_preflight_checks(
     let bg_procs = list_claude_processes().len() as u32;
 
     let mut bundle = run_all_preflight_checks(&cfg, bg_procs).await;
-    sanitize_preflight_for_license(&mut bundle.report);
     persist_baseline_if_needed(
         &state,
         &bundle.snapshot.current_node,
@@ -686,7 +679,6 @@ async fn run_preflight_checks(
         bundle.detected_org_id.as_deref(),
     );
     merge_killswitch_and_log_triggers(&state, &mut bundle.snapshot);
-    sanitize_snapshot_for_license(&mut bundle.snapshot);
 
     if let Ok(mut rep) = state.last_report.write() {
         *rep = bundle.report.clone();
@@ -702,58 +694,11 @@ async fn run_preflight_checks(
 }
 
 #[tauri::command]
-fn get_license_status_cmd() -> LicenseStatus {
-    get_license_status()
-}
-
-#[tauri::command]
-async fn activate_license_cmd(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    license_key: String,
-) -> Result<ActivateLicenseResult, String> {
-    let res = activate_license_online(&license_key).await?;
-    let status = get_license_status();
-    let _ = app.emit("guard://license-changed", status);
-
-    // 核销解锁成功后立即返回前端关闭弹窗，同时后台立即全量重跑 13 项真实探针并推送完整报告与快照
-    if let Ok(mut ts) = state.last_preflight_at.write() {
-        *ts = None;
-    }
-    let bg_app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        if let Some(st) = bg_app.try_state::<AppState>() {
-            let _gate = st.preflight_gate.lock().await;
-            let cfg = st.config.read().map(|c| c.clone()).unwrap_or_default();
-            let bg_procs = list_claude_processes().len() as u32;
-            let mut bundle = run_all_preflight_checks(&cfg, bg_procs).await;
-            sanitize_preflight_for_license(&mut bundle.report);
-            merge_killswitch_and_log_triggers(&st, &mut bundle.snapshot);
-            sanitize_snapshot_for_license(&mut bundle.snapshot);
-            if let Ok(mut rep) = st.last_report.write() {
-                *rep = bundle.report.clone();
-            }
-            if let Ok(mut ts) = st.last_preflight_at.write() {
-                *ts = Some(Instant::now());
-            }
-            if let Ok(mut snap) = st.snapshot.write() {
-                *snap = bundle.snapshot.clone();
-            }
-            let _ = bg_app.emit("guard://preflight-updated", bundle.report.clone());
-            let _ = bg_app.emit("guard://snapshot", bundle.snapshot.clone());
-            // L1 原则：激活后常规体检结果仅记录本地与刷新界面，不向云端高频发送遥测
-        }
-    });
-    Ok(res)
-}
-
-#[tauri::command]
 async fn fix_preflight_item(
     app: AppHandle,
     state: State<'_, AppState>,
     item_id: String,
 ) -> Result<FixResult, String> {
-    require_licensed()?;
     let _gate = state.preflight_gate.lock().await;
     logger::log_info("fix", format!("开始执行单项修复: item_id={item_id}"));
     let cfg = state
@@ -764,7 +709,6 @@ async fn fix_preflight_item(
     let bg_procs = list_claude_processes().len() as u32;
 
     let mut result = execute_fix_item(&item_id, &cfg, bg_procs).await?;
-    sanitize_preflight_for_license(&mut result.report);
     merge_killswitch_and_log_triggers(&state, &mut result.snapshot);
 
     if let Ok(mut rep) = state.last_report.write() {
@@ -779,9 +723,8 @@ async fn fix_preflight_item(
     let _ = app.emit("guard://snapshot", result.snapshot.clone());
     // L2 低频高价值遥测：仅在自动修复真实失败（!success）且非普通手动步骤引导时才上报故障卡点
     if !result.success && !result.requires_manual_step {
-        let lic = get_license_status();
-        let api_ep = lic.api_endpoint.clone();
-        let inst = lic.install_id_short.unwrap_or_else(|| "anonymous".into());
+        let api_ep = telemetry_api_endpoint();
+        let inst = anonymous_install_short_id();
         let snap_tel = result.snapshot.clone();
         let cfg_tel = cfg.clone();
         let tev = serde_json::json!({
@@ -811,7 +754,6 @@ async fn one_click_fix_all(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<BatchFixResult, String> {
-    require_licensed()?;
     let _gate = state.preflight_gate.lock().await;
     logger::log_info("fix", "开始执行一键处理全部问题");
     let cfg = state
@@ -822,7 +764,6 @@ async fn one_click_fix_all(
     let bg_procs = list_claude_processes().len() as u32;
 
     let mut result = execute_one_click_fix_all(&cfg, bg_procs).await?;
-    sanitize_preflight_for_license(&mut result.report);
     merge_killswitch_and_log_triggers(&state, &mut result.snapshot);
 
     if let Ok(mut rep) = state.last_report.write() {
@@ -847,9 +788,8 @@ async fn one_click_fix_all(
         })
         .map(|i| i.id.clone());
     if let Some(rem_id) = auto_failed_id {
-        let lic = get_license_status();
-        let api_ep = lic.api_endpoint.clone();
-        let inst = lic.install_id_short.unwrap_or_else(|| "anonymous".into());
+        let api_ep = telemetry_api_endpoint();
+        let inst = anonymous_install_short_id();
         let snap_tel = result.snapshot.clone();
         let cfg_tel = cfg.clone();
         let tev = serde_json::json!({
@@ -879,7 +819,6 @@ async fn safe_launch_claude(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
-    require_licensed()?;
     let audit_prog = get_deep_audit_progress();
     if audit_prog.running {
         let msg = format!(
@@ -967,18 +906,6 @@ async fn safe_launch_claude(
 
 #[tauri::command]
 async fn get_nodes_and_quality(force: Option<bool>) -> NodeReport {
-    if !is_licensed() {
-        return NodeReport {
-            connected: false,
-            endpoint: "激活后开启测试".into(),
-            group_name: "Claude-Fixed".into(),
-            current_node: "未激活 · 激活后解锁".into(),
-            total_raw_nodes: 0,
-            filtered_blocked_count: 0,
-            nodes: Vec::new(),
-            current_exit_summary: None,
-        };
-    }
     build_node_report_with_options(force.unwrap_or(false)).await
 }
 
@@ -991,7 +918,6 @@ async fn switch_locked_node(
     name: String,
     force_ignore_risk: bool,
 ) -> Result<SwitchNodeResult, String> {
-    require_licensed()?;
     let _gate = state.preflight_gate.lock().await;
     logger::log_info(
         "nodes",
@@ -1381,7 +1307,6 @@ fn spawn_deep_node_audit_task(
                 let cfg = st.config.read().map(|c| c.clone()).unwrap_or_default();
                 let cur_procs = list_claude_processes().len() as u32;
                 let mut bundle = run_all_preflight_checks(&cfg, cur_procs).await;
-                sanitize_preflight_for_license(&mut bundle.report);
                 persist_baseline_if_needed(
                     &st,
                     &bundle.snapshot.current_node,
@@ -1389,7 +1314,6 @@ fn spawn_deep_node_audit_task(
                     bundle.detected_org_id.as_deref(),
                 );
                 merge_killswitch_and_log_triggers(&st, &mut bundle.snapshot);
-                sanitize_snapshot_for_license(&mut bundle.snapshot);
                 if let Ok(mut rep) = st.last_report.write() {
                     *rep = bundle.report.clone();
                 }
@@ -1419,7 +1343,6 @@ async fn start_deep_node_audit(
     force_all: Option<bool>,
     target_node: Option<String>,
 ) -> Result<DeepAuditProgress, String> {
-    require_licensed()?;
     spawn_deep_node_audit_task(app, force_all.unwrap_or(false), target_node, false)
 }
 
@@ -1438,7 +1361,6 @@ async fn reset_node_drift_baseline(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
-    require_licensed()?;
     let _gate = state.preflight_gate.lock().await;
     let cur_node = state
         .snapshot
@@ -1455,7 +1377,6 @@ async fn reset_node_drift_baseline(
     let cfg = state.config.read().map(|c| c.clone()).unwrap_or_default();
     let bg_procs = list_claude_processes().len() as u32;
     let mut bundle = run_all_preflight_checks(&cfg, bg_procs).await;
-    sanitize_preflight_for_license(&mut bundle.report);
     persist_baseline_if_needed(
         &state,
         &bundle.snapshot.current_node,
@@ -1463,7 +1384,6 @@ async fn reset_node_drift_baseline(
         bundle.detected_org_id.as_deref(),
     );
     merge_killswitch_and_log_triggers(&state, &mut bundle.snapshot);
-    sanitize_snapshot_for_license(&mut bundle.snapshot);
     if let Ok(mut rep) = state.last_report.write() {
         *rep = bundle.report.clone();
     }
@@ -1483,9 +1403,6 @@ async fn get_live_connections(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Vec<ClaudeConn>, String> {
-    if !is_licensed() {
-        return Ok(Vec::new());
-    }
     let conns = get_live_claude_connections().await;
     let live_anom = conns.iter().filter(|c| c.anomaly).count();
     if let Ok(mut snap) = state.snapshot.write() {
@@ -1506,7 +1423,6 @@ async fn close_connection(
     state: State<'_, AppState>,
     id: String,
 ) -> Result<(), String> {
-    require_licensed()?;
     logger::log_warn("traffic", format!("手动掐断连接: id={id}"));
     close_mihomo_connection(&id).await?;
     let live_anom = get_live_claude_connections()
@@ -1529,7 +1445,6 @@ async fn kill_claude_processes(
     state: State<'_, AppState>,
     clean_telemetry: bool,
 ) -> Result<KillReport, String> {
-    require_licensed()?;
     let mut report = tokio::task::spawn_blocking(move || kill_claude_process_tree(clean_telemetry))
         .await
         .map_err(|e| format!("强杀进程任务调度失败: {e}"))?;
@@ -1567,7 +1482,6 @@ async fn start_kill_hold_cmd(
     duration_secs: Option<u32>,
     reason: Option<String>,
 ) -> Result<KillHoldSnapshot, String> {
-    require_licensed()?;
     let _ = tokio::task::spawn_blocking(|| kill_claude_process_tree(false)).await;
     let default_secs = state
         .config
@@ -1594,7 +1508,6 @@ async fn trigger_killswitch(
     state: State<'_, AppState>,
     reason: Option<String>,
 ) -> Result<KillSwitchState, String> {
-    require_licensed()?;
     let anti_flush = state
         .config
         .read()
@@ -1691,12 +1604,6 @@ fn get_killswitch_state(state: State<'_, AppState>) -> Result<KillSwitchState, S
 
 #[tauri::command]
 async fn get_log_analysis(state: State<'_, AppState>) -> Result<LogAnalysisReport, String> {
-    if !is_licensed() {
-        return Ok(LogAnalysisReport {
-            events: Vec::new(),
-            stats: crate::watchdog::LogStats::default(),
-        });
-    }
     let extra = state
         .injected_logs
         .read()
@@ -1721,7 +1628,6 @@ async fn ack_log_events(
     state: State<'_, AppState>,
     ids: Vec<String>,
 ) -> Result<GuardSnapshot, String> {
-    require_licensed()?;
     if !ids.is_empty() {
         if let Ok(mut cfg) = state.config.write() {
             for id in ids {
@@ -1782,7 +1688,6 @@ async fn ack_log_events(
 
 #[tauri::command]
 fn simulate_log_anomaly(app: AppHandle, state: State<'_, AppState>) -> Result<LogEvent, String> {
-    require_licensed()?;
     let ev = LogEvent {
         id: format!("sim-{}", chrono::Local::now().timestamp_millis()),
         rule_id: Some("pb_rate".into()),
@@ -1844,7 +1749,6 @@ fn simulate_log_anomaly(app: AppHandle, state: State<'_, AppState>) -> Result<Lo
 
 #[tauri::command]
 async fn clear_simulated_logs(app: AppHandle, state: State<'_, AppState>) -> Result<usize, String> {
-    require_licensed()?;
     let removed = if let Ok(mut list) = state.injected_logs.write() {
         let len = list.len();
         list.clear();
@@ -1893,7 +1797,6 @@ async fn clear_simulated_logs(app: AppHandle, state: State<'_, AppState>) -> Res
 /// T-303：生成当前环境与 72h 封号前置归因的脱敏载荷预览 JSON（供环境维护弹窗与守卫配置样本预览共用）
 #[tauri::command]
 async fn preview_anonymous_feedback_payload(state: State<'_, AppState>) -> Result<String, String> {
-    require_licensed()?;
     let snap = state
         .snapshot
         .read()
@@ -1914,8 +1817,7 @@ async fn preview_anonymous_feedback_payload(state: State<'_, AppState>) -> Resul
         .read()
         .map(|c| c.acked_log_ids.clone())
         .unwrap_or_default();
-    let lic = get_license_status();
-    let install_short = lic.install_id_short.unwrap_or_else(|| "anonymous".into());
+    let install_short = anonymous_install_short_id();
 
     tokio::task::spawn_blocking(move || {
         let (events, stats) = collect_log_analysis_with_acked(&extra, &acked);
@@ -1937,7 +1839,6 @@ async fn preview_anonymous_feedback_payload(state: State<'_, AppState>) -> Resul
 async fn submit_anonymous_feedback_report_cmd(
     state: State<'_, AppState>,
 ) -> Result<FeedbackReportResult, String> {
-    require_licensed()?;
     let snap = state
         .snapshot
         .read()
@@ -1958,9 +1859,8 @@ async fn submit_anonymous_feedback_report_cmd(
         .read()
         .map(|c| c.acked_log_ids.clone())
         .unwrap_or_default();
-    let lic = get_license_status();
-    let install_short = lic.install_id_short.unwrap_or_else(|| "anonymous".into());
-    let api_endpoint = lic.api_endpoint.clone();
+    let install_short = anonymous_install_short_id();
+    let api_endpoint = telemetry_api_endpoint();
 
     let (events, stats) =
         tokio::task::spawn_blocking(move || collect_log_analysis_with_acked(&extra, &acked))
@@ -1980,7 +1880,6 @@ async fn submit_anonymous_feedback_report_cmd(
 
 #[tauri::command]
 async fn inspect_telemetry_data() -> Result<TelemetryInspection, String> {
-    require_licensed()?;
     tokio::task::spawn_blocking(inspect_local_telemetry)
         .await
         .map_err(|e| format!("遥测扫描调度失败: {e}"))
@@ -2018,7 +1917,6 @@ async fn confirm_primary_org_binding(
     state: State<'_, AppState>,
     org_id: String,
 ) -> Result<PreflightReport, String> {
-    require_licensed()?;
     let updated_cfg = {
         let mut guard = state
             .config
@@ -2057,9 +1955,6 @@ async fn confirm_primary_org_binding(
 
 #[tauri::command]
 async fn list_backups() -> Result<Vec<BackupInfo>, String> {
-    if !is_licensed() {
-        return Ok(Vec::new());
-    }
     tokio::task::spawn_blocking(|| list_backups_in(&backups_dir()))
         .await
         .map_err(|e| format!("读取备份列表失败: {e}"))
@@ -2067,13 +1962,6 @@ async fn list_backups() -> Result<Vec<BackupInfo>, String> {
 
 #[tauri::command]
 async fn inspect_claude_data_roots() -> Result<maintenance::ClaudeDataRootsSummary, String> {
-    if !is_licensed() {
-        return Ok(maintenance::ClaudeDataRootsSummary {
-            classic_detected: false,
-            msix_packages: Vec::new(),
-            telemetry_exists: false,
-        });
-    }
     tokio::task::spawn_blocking(maintenance::inspect_claude_data_roots_summary)
         .await
         .map_err(|e| format!("扫描目录摘要失败: {e}"))
@@ -2081,7 +1969,6 @@ async fn inspect_claude_data_roots() -> Result<maintenance::ClaudeDataRootsSumma
 
 #[tauri::command]
 async fn preview_claude_cleanup_plan_cmd() -> Result<CleanupPlanPreview, String> {
-    require_licensed()?;
     tokio::task::spawn_blocking(preview_claude_cleanup_plan)
         .await
         .map_err(|e| format!("预扫描清理清单失败: {e}"))
@@ -2089,7 +1976,6 @@ async fn preview_claude_cleanup_plan_cmd() -> Result<CleanupPlanPreview, String>
 
 #[tauri::command]
 async fn delete_backup(file_name: String) -> Result<String, String> {
-    require_licensed()?;
     tokio::task::spawn_blocking(move || delete_backup_file_in(&backups_dir(), &file_name))
         .await
         .map_err(|e| format!("删除备份调度失败: {e}"))?
@@ -2097,7 +1983,6 @@ async fn delete_backup(file_name: String) -> Result<String, String> {
 
 #[tauri::command]
 async fn clear_all_backups() -> Result<usize, String> {
-    require_licensed()?;
     tokio::task::spawn_blocking(|| clear_all_backups_in(&backups_dir()))
         .await
         .map_err(|e| format!("清空备份调度失败: {e}"))?
@@ -2109,7 +1994,6 @@ async fn backup_and_clean_claude(
     state: State<'_, AppState>,
     selected_categories: Option<Vec<String>>,
 ) -> Result<BackupInfo, String> {
-    require_licensed()?;
     acquire_kill_hold_tx(&app, &state, "原子备份清理期间防复活锁定");
     logger::log_info(
         "maintenance",
@@ -2151,7 +2035,6 @@ async fn backup_and_clean_claude(
 
 #[tauri::command]
 async fn create_manual_backup() -> Result<BackupInfo, String> {
-    require_licensed()?;
     let info = tokio::task::spawn_blocking(create_manual_backup_snapshot)
         .await
         .map_err(|e| format!("手动备份线程异常: {e}"))??;
@@ -2168,7 +2051,6 @@ async fn restore_backup(
     state: State<'_, AppState>,
     file_name: String,
 ) -> Result<String, String> {
-    require_licensed()?;
     acquire_kill_hold_tx(&app, &state, "原子快照还原期间防复活锁定");
     logger::log_info("maintenance", format!("开始执行异步原子事务快照还原: {file_name}"));
     let fname = file_name.clone();
@@ -2187,7 +2069,6 @@ async fn export_ai_diagnostic_bundle_cmd(
     state: State<'_, AppState>,
     context_item_id: Option<String>,
 ) -> Result<DiagnosticBundleResult, String> {
-    require_licensed()?;
     let cfg = state
         .config
         .read()
@@ -2897,7 +2778,6 @@ fn spawn_background_engines(app: AppHandle) {
                                 .await
                                 .unwrap_or(0);
                             let mut bundle = run_all_preflight_checks(&cfg, cur_procs).await;
-                            sanitize_preflight_for_license(&mut bundle.report);
                             persist_baseline_if_needed(
                                 &state,
                                 &bundle.snapshot.current_node,
@@ -2905,7 +2785,6 @@ fn spawn_background_engines(app: AppHandle) {
                                 bundle.detected_org_id.as_deref(),
                             );
                             merge_killswitch_and_log_triggers(&state, &mut bundle.snapshot);
-                            sanitize_snapshot_for_license(&mut bundle.snapshot);
                             if let Ok(mut rep) = state.last_report.write() {
                                 *rep = bundle.report.clone();
                             }
@@ -2924,7 +2803,6 @@ fn spawn_background_engines(app: AppHandle) {
                             let mut next = snap_cur.clone();
                             drop(snap_cur);
                             merge_killswitch_and_log_triggers(&state, &mut next);
-                            sanitize_snapshot_for_license(&mut next);
                             if let Ok(mut snap_w) = state.snapshot.write() {
                                 *snap_w = next.clone();
                             }
@@ -2986,9 +2864,8 @@ fn spawn_background_engines(app: AppHandle) {
                         let cfg_tel = state.config.read().map(|c| c.clone()).unwrap_or_default();
                         let snap_tel = state.snapshot.read().map(|s| s.clone()).ok();
                         if let Some(snap_tel) = snap_tel {
-                            let lic = get_license_status();
-                            let api_ep = lic.api_endpoint.clone();
-                            let inst = lic.install_id_short.unwrap_or_else(|| "anonymous".into());
+                            let api_ep = telemetry_api_endpoint();
+                            let inst = anonymous_install_short_id();
                             let evs_clone = new_anomalies.clone();
                             tauri::async_runtime::spawn(async move {
                                 flush_telemetry_events_if_enabled(
@@ -3130,9 +3007,8 @@ fn spawn_background_engines(app: AppHandle) {
                                 let _ = app_radar.emit("guard://snapshot", s.clone());
                                 // L2 低频高价值遥测：记录真实运行中热熔断事件
                                 let cfg_tel = state.config.read().map(|c| c.clone()).unwrap_or_default();
-                                let lic = get_license_status();
-                                let api_ep = lic.api_endpoint.clone();
-                                let inst = lic.install_id_short.unwrap_or_else(|| "anonymous".into());
+                                let api_ep = telemetry_api_endpoint();
+                                let inst = anonymous_install_short_id();
                                 let snap_tel = s.clone();
                                 let tev = serde_json::json!({
                                     "category": "tool_diag",
@@ -3181,7 +3057,6 @@ fn spawn_background_engines(app: AppHandle) {
                                 .await
                                 .unwrap_or(0);
                             let mut bundle = run_all_preflight_checks(&cfg, cur_procs).await;
-                            sanitize_preflight_for_license(&mut bundle.report);
                             persist_baseline_if_needed(
                                 &state,
                                 &bundle.snapshot.current_node,
@@ -3189,7 +3064,6 @@ fn spawn_background_engines(app: AppHandle) {
                                 bundle.detected_org_id.as_deref(),
                             );
                             merge_killswitch_and_log_triggers(&state, &mut bundle.snapshot);
-                            sanitize_snapshot_for_license(&mut bundle.snapshot);
                             if let Ok(mut rep) = state.last_report.write() {
                                 *rep = bundle.report.clone();
                             }
@@ -3209,34 +3083,32 @@ fn spawn_background_engines(app: AppHandle) {
 
                 // 1B-3. 实时连接异常轻量同步（复用已发现 ep，避免重复 discover_endpoint）
                 if let Some(ref ep) = ep_opt {
-                    if is_licensed() {
-                        let prev_live_anom = state
-                            .snapshot
-                            .read()
-                            .map(|s| s.live_flow_anomalies)
-                            .unwrap_or(0);
-                        let procs_now = tokio::task::spawn_blocking(|| list_claude_processes().len())
+                    let prev_live_anom = state
+                        .snapshot
+                        .read()
+                        .map(|s| s.live_flow_anomalies)
+                        .unwrap_or(0);
+                    let procs_now = tokio::task::spawn_blocking(|| list_claude_processes().len())
+                        .await
+                        .unwrap_or(0);
+                    if procs_now > 0 || prev_live_anom > 0 {
+                        let live_anom = get_live_claude_connections_on(ep)
                             .await
-                            .unwrap_or(0);
-                        if procs_now > 0 || prev_live_anom > 0 {
-                            let live_anom = get_live_claude_connections_on(ep)
-                                .await
-                                .into_iter()
-                                .filter(|c| c.anomaly)
-                                .count();
-                            if live_anom != prev_live_anom {
-                                let snap_emit = if let Ok(mut snap) = state.snapshot.write() {
-                                    let node_issue =
-                                        usize::from(snap.node_down || snap.node_drift_warn);
-                                    snap.live_flow_anomalies = live_anom;
-                                    snap.active_flow_anomalies = live_anom + node_issue;
-                                    Some(snap.clone())
-                                } else {
-                                    None
-                                };
-                                if let Some(s) = snap_emit {
-                                    let _ = app_radar.emit("guard://snapshot", s);
-                                }
+                            .into_iter()
+                            .filter(|c| c.anomaly)
+                            .count();
+                        if live_anom != prev_live_anom {
+                            let snap_emit = if let Ok(mut snap) = state.snapshot.write() {
+                                let node_issue =
+                                    usize::from(snap.node_down || snap.node_drift_warn);
+                                snap.live_flow_anomalies = live_anom;
+                                snap.active_flow_anomalies = live_anom + node_issue;
+                                Some(snap.clone())
+                            } else {
+                                None
+                            };
+                            if let Some(s) = snap_emit {
+                                let _ = app_radar.emit("guard://snapshot", s);
                             }
                         }
                     }
@@ -3289,8 +3161,8 @@ fn spawn_background_engines(app: AppHandle) {
                 .map(|s| s.must_passed < s.must_total || !s.clash_online)
                 .unwrap_or(true);
 
-            // 仅在已激活且冷启动首轮真实体检完成后才执行防裸奔自动拦截，彻底杜绝冷启动前 3 秒或未激活态误杀 Claude
-            if last_count == 0 && count > 0 && anti_naked && is_licensed() && preflight_ready && env_not_ready {
+            // 仅在冷启动首轮真实体检完成后才执行防裸奔自动拦截，彻底杜绝冷启动前 3 秒误杀 Claude
+            if last_count == 0 && count > 0 && anti_naked && preflight_ready && env_not_ready {
                 let in_kill_hold = state
                     .kill_hold
                     .read()
@@ -3386,9 +3258,7 @@ fn spawn_background_engines(app: AppHandle) {
             let cfg = st.config.read().map(|c| c.clone()).unwrap_or_default();
             let bg_procs = list_claude_processes().len() as u32;
             let mut bundle = run_all_preflight_checks(&cfg, bg_procs).await;
-            sanitize_preflight_for_license(&mut bundle.report);
             merge_killswitch_and_log_triggers(&st, &mut bundle.snapshot);
-            sanitize_snapshot_for_license(&mut bundle.snapshot);
             if let Ok(mut rep) = st.last_report.write() {
                 *rep = bundle.report;
             }
@@ -3402,13 +3272,10 @@ fn spawn_background_engines(app: AppHandle) {
         }
     });
 
-    // 4. P0-5 修复：启动自动静默节点预核验（仅已激活且首检完成后再触发，严禁在未激活态或首检并发期间切用户 Clash 节点）
+    // 4. 启动自动静默节点预核验（首检完成后再触发，严禁在首检并发期间切用户 Clash 节点）
     let app_preaudit = app;
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_millis(4500)).await;
-        if !is_licensed() {
-            return;
-        }
         if let Some(st) = app_preaudit.try_state::<AppState>() {
             let _gate = st.preflight_gate.lock().await;
             drop(_gate);
@@ -3574,9 +3441,7 @@ pub fn run() {
                     let _gate = st.preflight_gate.lock().await;
                     let bg_procs = list_claude_processes().len() as u32;
                     let mut bundle = run_all_preflight_checks(&bg_cfg, bg_procs).await;
-                    sanitize_preflight_for_license(&mut bundle.report);
                     merge_killswitch_and_log_triggers(&st, &mut bundle.snapshot);
-                    sanitize_snapshot_for_license(&mut bundle.snapshot);
                     if let Ok(mut rep) = st.last_report.write() {
                         *rep = bundle.report;
                     }
@@ -3686,8 +3551,6 @@ pub fn run() {
             toggle_hud_window,
             quit_app,
             get_snapshot,
-            get_license_status_cmd,
-            activate_license_cmd,
             run_preflight_checks,
             fix_preflight_item,
             one_click_fix_all,
@@ -3816,7 +3679,6 @@ mod window_size_tests {
             "toggle_hud_window",
             "quit_app",
             "get_snapshot",
-            "get_license_status_cmd",
             "get_deep_audit_status",
             "cancel_deep_node_audit",
             "release_kill_hold_cmd",

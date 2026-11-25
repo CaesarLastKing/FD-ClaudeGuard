@@ -1,17 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, Copy, Headphones, KeyRound, X } from "lucide-react";
+import { Check, Copy, Headphones, X } from "lucide-react";
 import { useGuardStore } from "@/stores/guardStore";
 
 export const OFFICIAL_SUPPORT_QQ = "2568515327";
 
 /**
- * 官方售后支持弹窗（由主窗口顶栏纯图标「售后」耳机按钮唤起）
+ * 开源交流与技术支持弹窗（由主窗口顶栏纯图标耳机按钮唤起）
  */
 export function SupportModal() {
   const open = useGuardStore((s) => s.supportModalOpen);
   const setOpen = useGuardStore((s) => s.setSupportModalOpen);
-  const setLicenseModalOpen = useGuardStore((s) => s.setLicenseModalOpen);
-  const licenseStatus = useGuardStore((s) => s.licenseStatus);
   const pushToast = useGuardStore((s) => s.pushToast);
 
   const [copied, setCopied] = useState(false);
@@ -125,12 +123,12 @@ export function SupportModal() {
                     margin: 0,
                   }}
                 >
-                  官方售后与激活支持
+                  开源交流与技术支持
                 </h3>
-                <span className="guard-chip guard-chip-ok">QQ 客服</span>
+                <span className="guard-chip guard-chip-ok">免费开源</span>
               </div>
               <div style={{ fontSize: 12, color: "var(--text-2)", marginTop: 3, lineHeight: 1.45 }}>
-                获取一次性激活密钥、环境排障协助与版本更新咨询
+                环境排障协助、功能反馈与版本更新交流
               </div>
             </div>
           </div>
@@ -188,7 +186,7 @@ export function SupportModal() {
             }}
           >
             <div>• 添加好友时请备注「FD 启动器」，方便快速响应与协助。</div>
-            <div>• 如遇复杂代理或封号环境问题，激活后可导出脱敏诊断 ZIP 包发给售后快速定位。</div>
+            <div>• 如遇复杂代理或封号环境问题，可导出脱敏诊断 ZIP 包发给开发者快速定位。</div>
           </div>
         </div>
 
@@ -211,20 +209,6 @@ export function SupportModal() {
           >
             关闭
           </button>
-          {!licenseStatus.licensed && (
-            <button
-              type="button"
-              data-testid="btn-support-to-activate"
-              className="guard-btn guard-btn-secondary guard-btn-sm"
-              onClick={() => {
-                setOpen(false);
-                setLicenseModalOpen(true);
-              }}
-            >
-              <KeyRound size={13} strokeWidth={1.9} />
-              <span>去输入激活密钥</span>
-            </button>
-          )}
         </div>
       </div>
     </div>

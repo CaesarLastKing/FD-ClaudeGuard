@@ -1,6 +1,5 @@
 import { useEffect, useState, type MouseEvent } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
-import { FeatureLockedGate } from "@/components/FeatureLockedGate";
 import { ipc } from "@/lib/ipc";
 import { DROP_RATE_REDLINE, extractRegionCode, isSameRegionSwitch } from "@/lib/protocol";
 import { useGuardStore } from "@/stores/guardStore";
@@ -81,9 +80,6 @@ export function NodesTrafficPage() {
   const switchNode = useGuardStore((s) => s.switchNode);
   const openRiskModal = useGuardStore((s) => s.openRiskModal);
   const pushToast = useGuardStore((s) => s.pushToast);
-  const licenseStatus = useGuardStore((s) => s.licenseStatus);
-  const setLicenseModalOpen = useGuardStore((s) => s.setLicenseModalOpen);
-  const isLicensed = !licenseStatus.commercialFeatureEnabled || licenseStatus.licensed;
 
   const loadConns = async () => {
     if (loadingConns) return;
@@ -100,7 +96,7 @@ export function NodesTrafficPage() {
 
   useEffect(() => {
     setHoverTip(null);
-    if (!isLicensed || subTab !== "traffic") return;
+    if (subTab !== "traffic") return;
     let cancelled = false;
     void ipc
       .getLiveConnections()
@@ -111,23 +107,7 @@ export function NodesTrafficPage() {
     return () => {
       cancelled = true;
     };
-  }, [isLicensed, subTab]);
-
-  if (!isLicensed) {
-    return (
-      <FeatureLockedGate
-        testId="locked-gate-nodes"
-        pageTitle="节点流量"
-        pageSubtitle="Claude + Google Antigravity (AGY) 双平台可用性与纯净度评估 · 主备同区容灾 · 12 小时滚动流量监控"
-        description="节点测速、双平台可用性探针、ASN 住宅/机房纯净度打分与实时异常连接掐断功能，需输入一次性激活密钥后开启。"
-        highlights={[
-          "自动剔除 HK / MO / CN / RU 高危禁区节点，并筛除 Cloudflare 403 拉黑废节点",
-          "Claude + Google Antigravity (AGY) 双平台无状态可用性实测与 ISP 住宅纯净度四维综合评分",
-          "同区热备一键切点、跨洲切换防风控提示，以及 12 小时实时异常连接毫秒级掐断",
-        ]}
-      />
-    );
-  }
+  }, [subTab]);
 
   const handleCloseConn = async (id: string) => {
     if (closingConnId) return;
@@ -165,10 +145,6 @@ export function NodesTrafficPage() {
    * 增量 8：严格比对当前节点与目标节点地区前缀（修复 JP -> US 误判同区热备）
    */
   const requestSwitch = (nodeName: string) => {
-    if (!isLicensed) {
-      setLicenseModalOpen(true);
-      return;
-    }
     const curNode = nodeReport.currentNode;
     const sameRegion = isSameRegionSwitch(curNode, nodeName);
     const fromCode = extractRegionCode(curNode);

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Database, Loader2, RefreshCw, Trash2 } from "lucide-react";
-import { FeatureLockedGate } from "@/components/FeatureLockedGate";
 import { ipc } from "@/lib/ipc";
 import { useGuardStore } from "@/stores/guardStore";
 import type { LogAnalysisReport, TelemetryInspection } from "@/types/guard";
@@ -70,8 +69,6 @@ export function LogAnalysisPage() {
   const openCleanModal = useGuardStore((s) => s.openCleanModal);
   const openPlaybookFocus = useGuardStore((s) => s.openPlaybookFocus);
   const pushToast = useGuardStore((s) => s.pushToast);
-  const licenseStatus = useGuardStore((s) => s.licenseStatus);
-  const isLicensed = !licenseStatus.commercialFeatureEnabled || licenseStatus.licensed;
 
   const mountedRef = useRef(true);
   const loadSeqRef = useRef(0);
@@ -119,12 +116,8 @@ export function LogAnalysisPage() {
     }
   }, [pushToast]);
 
-  // 仅在首次挂载/激活解锁时扫描一次；后续仅当未读数严格增大（出现新日志触发）时才自动重扫，标为已读/归零不再重复扫盘
+  // 仅在首次挂载时扫描一次；后续仅当未读数严格增大（出现新日志触发）时才自动重扫，标为已读/归零不再重复扫盘
   useEffect(() => {
-    if (!isLicensed) {
-      prevUnreadRef.current = null;
-      return;
-    }
     if (prevUnreadRef.current === null) {
       prevUnreadRef.current = snapshot.unreadLogAnomalies;
       void loadLogs();
@@ -136,23 +129,7 @@ export function LogAnalysisPage() {
       return;
     }
     prevUnreadRef.current = snapshot.unreadLogAnomalies;
-  }, [isLicensed, snapshot.unreadLogAnomalies, loadLogs]);
-
-  if (!isLicensed) {
-    return (
-      <FeatureLockedGate
-        testId="locked-gate-logs"
-        pageTitle="日志分析"
-        pageSubtitle="24h 未读异常游标 · 本地封号 / OAuth 403 / 跨账号 orgId 深度审计 · 遥测脱敏检视"
-        description="本地 Claude 日志实时扫描、封号/403 权限拒绝特征提取、跨账号 orgId 竞态追踪与遥测缓存只读审计，需输入激活密钥后开启。"
-        highlights={[
-          "精准识别 OAuth 403 permission_error、auth_error 封号痕迹与连续 429 限流异常",
-          "自动定位精确日志文件与行号上下文，联动 8 大防封安全守则并支持一键跳转处置",
-          "内置本地遥测与设备元数据脱敏只读检视器，绝不篡改原始日志文件",
-        ]}
-      />
-    );
-  }
+  }, [snapshot.unreadLogAnomalies, loadLogs]);
 
   const handleSimulate = async () => {
     if (simBusy) return;

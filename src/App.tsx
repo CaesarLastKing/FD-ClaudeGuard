@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 import { HeroUIProvider } from "@heroui/react";
 import { CleanConfirmModal } from "@/components/CleanConfirmModal";
-import { LicenseModal } from "@/components/LicenseModal";
 import { PlaybookDrawer } from "@/components/PlaybookDrawer";
 import { RiskModal } from "@/components/RiskModal";
 import { Sidebar } from "@/components/Sidebar";
@@ -22,7 +21,6 @@ export function App() {
   const setSnapshot = useGuardStore((s) => s.setSnapshot);
   const setPreflightFromEvent = useGuardStore((s) => s.setPreflightFromEvent);
   const setConfigFromEvent = useGuardStore((s) => s.setConfigFromEvent);
-  const setLicenseStatus = useGuardStore((s) => s.setLicenseStatus);
   const setDeepAuditFromEvent = useGuardStore((s) => s.setDeepAuditFromEvent);
   const setActiveTab = useGuardStore((s) => s.setActiveTab);
   const setNodesSubTab = useGuardStore((s) => s.setNodesSubTab);
@@ -58,7 +56,6 @@ export function App() {
     register(ipc.listenSnapshot((snap) => setSnapshot(snap)));
     register(ipc.listenPreflightUpdated((rep) => setPreflightFromEvent(rep)));
     register(ipc.listenConfigChanged((cfg) => setConfigFromEvent(cfg)));
-    register(ipc.listenLicenseChanged((st) => setLicenseStatus(st)));
     register(ipc.listenNodeAuditProgress((prog) => setDeepAuditFromEvent(prog)));
     register(
       ipc.listenNavigate((nav) => {
@@ -119,7 +116,6 @@ export function App() {
     setSelectedCheckId,
     setPreflightFromEvent,
     setSnapshot,
-    setLicenseStatus,
     setDeepAuditFromEvent,
   ]);
 
@@ -150,7 +146,6 @@ export function App() {
         <PlaybookDrawer />
         <RiskModal />
         <CleanConfirmModal />
-        <LicenseModal />
         <SupportModal />
         <ToastStack />
       </div>

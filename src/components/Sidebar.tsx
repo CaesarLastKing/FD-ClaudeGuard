@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { Activity, Globe, Home, Loader2, Lock, SlidersHorizontal, Wrench } from "lucide-react";
+import { Activity, Globe, Home, Loader2, SlidersHorizontal, Wrench } from "lucide-react";
 import { ipc } from "@/lib/ipc";
 import { useGuardStore } from "@/stores/guardStore";
 import type { NavTab } from "@/types/guard";
-
-const FREE_PREVIEW_CHECK_IDS = new Set(["node_proxy", "node_tun", "sys_ipv6"]);
 
 const NAV_ITEMS: Array<{ id: NavTab; label: string; icon: React.ReactNode }> = [
   { id: "console", label: "控制台", icon: <Home size={16} strokeWidth={1.75} /> },
@@ -22,9 +20,6 @@ export function Sidebar() {
   const config = useGuardStore((s) => s.config);
   const setSnapshot = useGuardStore((s) => s.setSnapshot);
   const pushToast = useGuardStore((s) => s.pushToast);
-  const licenseStatus = useGuardStore((s) => s.licenseStatus);
-  const setLicenseModalOpen = useGuardStore((s) => s.setLicenseModalOpen);
-  const isLicensed = !licenseStatus.commercialFeatureEnabled || licenseStatus.licensed;
   const [busyKill, setBusyKill] = useState(false);
 
   const holdActive = Boolean(snapshot.killHoldActive);
@@ -34,9 +29,7 @@ export function Sidebar() {
   const defaultHoldSecs = config.killHoldSeconds ?? 45;
 
   const mustAll = preflight.items.filter((x) => x.part === "must");
-  const mustFail = isLicensed
-    ? mustAll.filter((x) => x.status !== "ok").length
-    : mustAll.filter((x) => FREE_PREVIEW_CHECK_IDS.has(x.id) && x.status !== "ok").length;
+  const mustFail = mustAll.filter((x) => x.status !== "ok").length;
 
   // 节点流量侧边栏角标双重兜底：同步关联 snapshot 唯一真源与控制台 node_geo 状态，确保三方 100% 联动不漏标
   const nodeGeoItem = preflight.items.find((x) => x.id === "node_geo");
@@ -116,18 +109,10 @@ export function Sidebar() {
                     color: mustFail > 0 ? "var(--danger-bright)" : "var(--success)",
                   }}
                 >
-                  {mustFail > 0 ? mustFail : isLicensed ? "OK" : "体验"}
+                  {mustFail > 0 ? mustFail : "OK"}
                 </span>
               )}
-              {!isLicensed && item.id !== "console" && (
-                <Lock
-                  size={12}
-                  strokeWidth={1.9}
-                  data-testid={`nav-lock-${item.id}`}
-                  style={{ color: "var(--text-3)", opacity: 0.72, flexShrink: 0 }}
-                />
-              )}
-              {isLicensed && item.id === "nodes" && hasNodeIssue && (
+              {item.id === "nodes" && hasNodeIssue && (
                 <span
                   data-testid="nav-badge-nodes"
                   className="tabular"
@@ -145,8 +130,7 @@ export function Sidebar() {
                   {Math.max(1, snapshot.activeFlowAnomalies)}
                 </span>
               )}
-              {isLicensed &&
-                item.id === "logs" &&
+              {item.id === "logs" &&
                 (() => {
                   const hasSplit =
                     snapshot.unreadLogCritical !== undefined ||
@@ -279,10 +263,6 @@ export function Sidebar() {
               className="guard-btn guard-btn-flat guard-btn-xs"
               style={{ width: "100%", marginTop: 7 }}
               onClick={async () => {
-                if (!isLicensed) {
-                  setLicenseModalOpen(true);
-                  return;
-                }
                 setBusyKill(true);
                 try {
                   const rep = await ipc.killClaudeProcesses(true);
@@ -312,10 +292,6 @@ export function Sidebar() {
               className="guard-btn guard-btn-flat guard-btn-xs"
               style={{ width: "100%", marginTop: 7, color: "var(--text-2)" }}
               onClick={async () => {
-                if (!isLicensed) {
-                  setLicenseModalOpen(true);
-                  return;
-                }
                 setBusyKill(true);
                 try {
                   const hs = await ipc.startKillHold(defaultHoldSecs, "手动开启防复活持续盯防锁");

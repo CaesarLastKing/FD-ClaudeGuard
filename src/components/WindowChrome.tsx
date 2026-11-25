@@ -81,12 +81,12 @@ export function WindowChrome() {
           data-testid="topbar-quick-toggles"
           style={{ display: "flex", alignItems: "center", gap: 6, padding: "0 10px 0 4px" }}
         >
-          {/* 0. 增量 19：同风格纯图标官方售后入口（耳机图标，弹窗展示 QQ 2568515327） */}
+          {/* 0. 同风格纯图标开源支持入口（耳机图标，弹窗展示交流 QQ） */}
           <button
             type="button"
             data-testid="topbar-btn-support"
-            aria-label="官方售后与激活支持"
-            title="售后与激活支持（QQ: 2568515327）"
+            aria-label="开源交流与技术支持"
+            title="开源交流与技术支持（QQ: 2568515327）"
             onClick={() => setSupportModalOpen(true)}
             className="win-ico-btn is-on"
             style={quickIcoBtnStyle(true)}

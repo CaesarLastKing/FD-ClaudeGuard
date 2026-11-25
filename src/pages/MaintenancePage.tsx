@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { Activity, Loader2, ShieldOff, Trash2, X } from "lucide-react";
-import { FeatureLockedGate } from "@/components/FeatureLockedGate";
 import { NetworkRescueRollbackPanel } from "@/components/NetworkRescueRollbackPanel";
 import { ipc } from "@/lib/ipc";
 import { useGuardStore } from "@/stores/guardStore";
@@ -23,8 +22,6 @@ export function MaintenancePage() {
   const openCleanModal = useGuardStore((s) => s.openCleanModal);
   const pushToast = useGuardStore((s) => s.pushToast);
   const refreshPreflight = useGuardStore((s) => s.refreshPreflight);
-  const licenseStatus = useGuardStore((s) => s.licenseStatus);
-  const isLicensed = !licenseStatus.commercialFeatureEnabled || licenseStatus.licensed;
 
   const busy = busyAction !== null;
 
@@ -34,7 +31,6 @@ export function MaintenancePage() {
   };
 
   useEffect(() => {
-    if (!isLicensed) return;
     let cancelled = false;
     void ipc
       .listBackups()
@@ -51,7 +47,7 @@ export function MaintenancePage() {
     return () => {
       cancelled = true;
     };
-  }, [isLicensed]);
+  }, []);
 
   useEffect(() => {
     if (!reportModalOpen) return;
@@ -63,37 +59,6 @@ export function MaintenancePage() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [reportModalOpen, reportSubmitting]);
-
-  if (!isLicensed) {
-    return (
-      <div
-        style={{
-          display: "flex",
-          flex: 1,
-          minHeight: 0,
-          flexDirection: "column",
-          overflowY: "auto",
-        }}
-      >
-        <div style={{ flexShrink: 0 }}>
-          <FeatureLockedGate
-            testId="locked-gate-maintain"
-            pageTitle="环境维护"
-            pageSubtitle="网络急救与撤回中心永久免费开放 · 高级熔断/快照还原需激活密钥开启"
-            description="紧急防回传断流熔断、Claude 进程树强杀与防复活押运、本地污染目录原子备份/回滚以及一键导出 AI 脱敏诊断包，需输入激活密钥后开启；下方「一键网络急救」与「系统改动撤回中心」免激活随时可用。"
-            highlights={[
-              "4 层紧急熔断：Clash 掐流 + Windows 防火墙封死出站 + 强杀进程树 + 清空离线遥测",
-              "历史快照原子事务备份与回滚（还原前自动建立安全点，支持随时反悔）",
-              "一键打包全量脱敏配置、探针与近 7 天 JSONL 日志导出给 AI 快速排障",
-            ]}
-          />
-        </div>
-        <div style={{ padding: "0 22px 24px", flexShrink: 0 }}>
-          <NetworkRescueRollbackPanel compact />
-        </div>
-      </div>
-    );
-  }
 
   const handleKillAndClean = async () => {
     setBusyAction("kill");
