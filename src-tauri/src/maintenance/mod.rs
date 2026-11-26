@@ -111,7 +111,7 @@ pub fn sanitize_sensitive_text(input: &str) -> String {
     static RE_SUB_PATH: OnceLock<Regex> = OnceLock::new();
 
     let re_email = RE_EMAIL.get_or_init(|| {
-        Regex::new(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}").unwrap()
+        Regex::new(r"[A-Za-z0-9._%+*-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}").unwrap()
     });
     let re_bearer = RE_BEARER
         .get_or_init(|| Regex::new(r"(?i)Bearer\s+[A-Za-z0-9._~+/=-]{8,}").unwrap());
@@ -146,7 +146,17 @@ pub fn sanitize_sensitive_text(input: &str) -> String {
         Regex::new(r"(?i)(/(?:api/v1/client/)?(?:subscribe|sub|link)/)([A-Za-z0-9._~-]{8,})").unwrap()
     });
 
-    let mut out = re_email.replace_all(input, REDACT_PLACEHOLDER).to_string();
+    // 已脱敏邮箱（含 *** 如 yiya***88@qq.com）保留可读后缀，仅对未脱敏明文邮箱打码
+    let mut out = re_email
+        .replace_all(input, |caps: &Captures| {
+            let matched = &caps[0];
+            if matched.contains("***") {
+                matched.to_string()
+            } else {
+                REDACT_PLACEHOLDER.to_string()
+            }
+        })
+        .to_string();
     out = re_bearer
         .replace_all(&out, format!("Bearer {REDACT_PLACEHOLDER}"))
         .to_string();
@@ -2605,5 +2615,20 @@ mod tests {
         }
         let err = verify_zip_integrity(&evil_zip).unwrap_err();
         assert!(err.contains("非法路径穿越"), "实得错误: {err}");
+    }
+
+    #[test]
+    fn sanitize_sensitive_text_preserves_masked_email_and_redacts_plain_email() {
+        let sample = "account=yiya***88@qq.com raw=alice.smith@example.com";
+        let sanitized = sanitize_sensitive_text(sample);
+        assert!(
+            sanitized.contains("yiya***88@qq.com"),
+            "已含 *** 的脱敏邮箱应原样保留便于排障，实得: {sanitized}"
+        );
+        assert!(
+            !sanitized.contains("alice.smith@example.com"),
+            "明文邮箱必须被打码，实得: {sanitized}"
+        );
+        assert!(sanitized.contains(REDACT_PLACEHOLDER));
     }
 }

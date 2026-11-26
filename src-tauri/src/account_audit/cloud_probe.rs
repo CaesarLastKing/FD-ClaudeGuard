@@ -837,6 +837,24 @@ pub fn assemble_cloud_snapshot(
         active_flag_types.push("access_block".into());
         warning_parts_zh.push("访问封锁".into());
     }
+    if let Some(reason) = primary_org
+        .and_then(|o| o.get("api_disabled_reason"))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("out_of_credits"))
+    {
+        let key = format!("api_disabled:{reason}");
+        if !active_flag_types.iter().any(|x| x == &key) {
+            active_flag_types.push(key);
+            warning_parts_zh.push(format!("API 受限({reason})"));
+        }
+    }
+    if check_truthy("billable_usage_paused_until") {
+        if !active_flag_types.iter().any(|x| x == "billable_usage_paused") {
+            active_flag_types.push("billable_usage_paused".into());
+            warning_parts_zh.push("计费额度暂停".into());
+        }
+    }
     if let Some(flags) = primary_org
         .and_then(|o| o.get("active_flags"))
         .and_then(|v| v.as_array())
@@ -857,11 +875,44 @@ pub fn assemble_cloud_snapshot(
                 || lower.contains("hold")
                 || lower.contains("disable")
                 || lower.contains("warn")
+                || lower.contains("verif")
+                || lower.contains("portal")
+                || lower.contains("compliance")
+                || lower.contains("lock")
+                || lower.contains("review")
             {
                 if !active_flag_types.iter().any(|x| x == ftype) {
                     active_flag_types.push(ftype.to_string());
                     warning_parts_zh.push(format!("风控标记({ftype})"));
                 }
+            }
+        }
+    }
+
+    // KYC 状态
+    let kyc_data = kyc_resp.and_then(|r| if r.ok { r.data.as_ref() } else { None });
+    let persona_kyc_status = kyc_data
+        .and_then(|k| k.get("status"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_ascii_lowercase());
+    let kyc_is_blocked = persona_kyc_status.as_deref().is_some_and(|st| {
+        matches!(
+            st,
+            "created"
+                | "pending"
+                | "needs_review"
+                | "marked_for_review"
+                | "required"
+                | "failed"
+                | "rejected"
+        )
+    });
+    if kyc_is_blocked {
+        if let Some(ref st) = persona_kyc_status {
+            let key = format!("kyc_{st}");
+            if !active_flag_types.iter().any(|x| x == &key) {
+                active_flag_types.push(key);
+                warning_parts_zh.push(format!("KYC 待核验/受限({st})"));
             }
         }
     }
@@ -871,13 +922,6 @@ pub fn assemble_cloud_snapshot(
     } else {
         Some(warning_parts_zh.join(" · "))
     };
-
-    // KYC 状态
-    let kyc_data = kyc_resp.and_then(|r| if r.ok { r.data.as_ref() } else { None });
-    let persona_kyc_status = kyc_data
-        .and_then(|k| k.get("status"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.trim().to_ascii_lowercase());
     let persona_kyc_completed_at = kyc_data
         .and_then(|k| k.get("completed_at").or_else(|| k.get("completedAt")))
         .and_then(|v| v.as_str())
@@ -894,22 +938,68 @@ pub fn assemble_cloud_snapshot(
             }
         });
 
-    // Portal 挂起状态
-    let (portal_hold, portal_state) = match portal_resp.and_then(|r| {
-        if r.ok {
-            r.data.as_ref().and_then(|d| d.as_object())
-        } else {
-            None
-        }
-    }) {
-        Some(obj) if obj.contains_key("hold_notice") => {
-            if obj.get("hold_notice").map(|v| v.is_null()).unwrap_or(true) {
-                (false, "clear".into())
-            } else {
-                (true, "hold".into())
+    // Portal 挂起状态（严格遵循不造假绿灯原则：多路探测响应体与错误码，接口不可达/无 hold_notice 诚实返回 unknown 而非 clear）
+    let resp_signals_portal_hold = |resp: Option<&RawHttpResponse>| -> bool {
+        let Some(r) = resp else {
+            return false;
+        };
+        if let Some(ref msg) = r.error_message {
+            let lm = msg.to_ascii_lowercase();
+            if lm.contains("portal.anthropic.com/verify")
+                || lm.contains("can't receive replies")
+                || lm.contains("verification_required")
+            {
+                return true;
             }
         }
-        _ => (false, "clear".into()),
+        if let Some(ref d) = r.data {
+            if let Some(obj) = d.as_object() {
+                if let Some(hn) = obj.get("hold_notice") {
+                    if !hn.is_null() {
+                        return true;
+                    }
+                }
+            }
+            if let Ok(s) = serde_json::to_string(d) {
+                let ls = s.to_ascii_lowercase();
+                if ls.contains("portal.anthropic.com/verify")
+                    || ls.contains("can't receive replies")
+                    || ls.contains("verification_required")
+                    || ls.contains("account_restricted")
+                {
+                    return true;
+                }
+            }
+        }
+        false
+    };
+
+    let multi_resp_portal_hold = resp_signals_portal_hold(portal_resp)
+        || resp_signals_portal_hold(chat_resp)
+        || resp_signals_portal_hold(Some(orgs_resp))
+        || resp_signals_portal_hold(account_resp)
+        || resp_signals_portal_hold(kyc_resp);
+
+    let (portal_hold, portal_state) = if multi_resp_portal_hold {
+        (true, "hold".into())
+    } else {
+        match portal_resp.and_then(|r| {
+            if r.ok {
+                r.data.as_ref().and_then(|d| d.as_object())
+            } else {
+                None
+            }
+        }) {
+            Some(obj) if obj.contains_key("hold_notice") => {
+                if obj.get("hold_notice").map(|v| v.is_null()).unwrap_or(true) {
+                    (false, "clear".into())
+                } else {
+                    (true, "hold".into())
+                }
+            }
+            // 接口 404/不可达/返回 HTML 或不含 hold_notice 字段时，绝不伪造 clear 绿灯
+            _ => (false, "unknown".into()),
+        }
     };
 
     // 对话域可读性
@@ -1283,5 +1373,130 @@ mod tests {
         assert_eq!(cfg.lines().count(), 2);
         assert!(cfg.contains("header = \"Cookie: sessionKey=sk-ant-sid01-abc"));
         assert!(cfg.contains("proxy = \"http://user:p\\\"w@127.0.0.1:7897--output evil\""));
+    }
+
+    #[test]
+    fn portal_probe_never_fake_clears_and_detects_chat_body_kyc_and_flags() {
+        let base_orgs = RawHttpResponse {
+            ok: true,
+            status_code: 200,
+            cf_ray: Some("8f123456-SJC".into()),
+            data: Some(json!([{
+                "uuid": "ce65bc28-1111-2222-3333-444455556666",
+                "capabilities": ["chat", "claude_pro"],
+                "billing_type": "stripe_subscription"
+            }])),
+            ..Default::default()
+        };
+
+        // 1. portal_resp 返回 404 / None 时，严禁假绿 clear，必须诚实返回 unknown
+        let portal_404 = RawHttpResponse {
+            ok: false,
+            status_code: 404,
+            error_message: Some("Not Found".into()),
+            ..Default::default()
+        };
+        let snap_unknown = assemble_cloud_snapshot(
+            &base_orgs,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(&portal_404),
+            None,
+            true,
+            1_795_500_000_000,
+        )
+        .unwrap();
+        assert!(!snap_unknown.portal_hold);
+        assert_eq!(snap_unknown.portal_state, "unknown");
+
+        // 2. 仅当 portal_resp 200 OK 且明确返回 hold_notice: null 时才返回 clear
+        let portal_explicit_clear = RawHttpResponse {
+            ok: true,
+            status_code: 200,
+            data: Some(json!({ "hold_notice": null })),
+            ..Default::default()
+        };
+        let snap_clear = assemble_cloud_snapshot(
+            &base_orgs,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(&portal_explicit_clear),
+            None,
+            true,
+            1_795_500_000_000,
+        )
+        .unwrap();
+        assert!(!snap_clear.portal_hold);
+        assert_eq!(snap_clear.portal_state, "clear");
+
+        // 3. chat_resp 返回 403 且正文含 portal.anthropic.com/verify 或 can't receive replies 时，必须识别为 portal_hold=true
+        let chat_portal_403 = RawHttpResponse {
+            ok: false,
+            status_code: 403,
+            data: Some(json!({
+                "error": {
+                    "type": "permission_error",
+                    "message": "Your account can't receive replies from Claude. Visit https://portal.anthropic.com/verify"
+                }
+            })),
+            ..Default::default()
+        };
+        let snap_chat_hold = assemble_cloud_snapshot(
+            &base_orgs,
+            None,
+            None,
+            None,
+            Some(&chat_portal_403),
+            None,
+            Some(&portal_404),
+            None,
+            true,
+            1_795_500_000_000,
+        )
+        .unwrap();
+        assert!(snap_chat_hold.portal_hold);
+        assert_eq!(snap_chat_hold.portal_state, "hold");
+        assert!(!snap_chat_hold.chat_available);
+
+        // 4. kyc_status=pending 与 active_flags 含 verification_required 必须进入监控标警
+        let orgs_flagged = RawHttpResponse {
+            ok: true,
+            status_code: 200,
+            cf_ray: Some("8f123456-SJC".into()),
+            data: Some(json!([{
+                "uuid": "bce33885-1111-2222-3333-444455556666",
+                "capabilities": ["chat", "claude_pro"],
+                "active_flags": [{ "type": "verification_required" }]
+            }])),
+            ..Default::default()
+        };
+        let kyc_pending = RawHttpResponse {
+            ok: true,
+            status_code: 200,
+            data: Some(json!({ "status": "pending" })),
+            ..Default::default()
+        };
+        let snap_kyc = assemble_cloud_snapshot(
+            &orgs_flagged,
+            None,
+            Some(&kyc_pending),
+            None,
+            None,
+            None,
+            None,
+            None,
+            true,
+            1_795_500_000_000,
+        )
+        .unwrap();
+        assert!(snap_kyc.has_monitoring_notice);
+        assert!(snap_kyc.active_flag_types.iter().any(|f| f == "verification_required"));
+        assert!(snap_kyc.active_flag_types.iter().any(|f| f == "kyc_pending"));
     }
 }

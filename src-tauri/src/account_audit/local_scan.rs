@@ -368,6 +368,9 @@ pub struct DesktopLogsSummary {
     pub session_dir_org_prefixes: Vec<String>,
     pub account_banned_hits: usize,
     pub portal_verify_hits: usize,
+    /// 明确在 `portal.anthropic.com/verify?org=...` 等行中解析出的受限组织 8 位前缀（用于精准按 orgId 联动，绝不张冠李戴）
+    #[serde(default)]
+    pub portal_org_prefixes: Vec<String>,
     pub cross_org_404_hits: usize,
     pub oauth_403_hits: usize,
     pub cookie_403_hits: usize,
@@ -1439,8 +1442,10 @@ pub fn scan_desktop_logs(roots: &[DesktopDataRoot]) -> DesktopLogsSummary {
     static RE_SIDE: OnceLock<Regex> = OnceLock::new();
 
     let re_org = RE_ORG.get_or_init(|| {
-        Regex::new(r#"(?i)(?:orgId|organization_uuid|organizationId)["'=:\s]+([a-f0-9-]{8,36})"#)
-            .unwrap()
+        Regex::new(
+            r#"(?i)(?:orgId|organization_uuid|organizationId|[?&]org)["'=:\s]+([a-f0-9-]{8,36})"#,
+        )
+        .unwrap()
     });
     let re_429 = RE_429
         .get_or_init(|| Regex::new(r#"(?i)(?:http[/\s]+|status[_\s:=]+["']?)429\b"#).unwrap());
@@ -1594,9 +1599,19 @@ pub fn scan_desktop_logs(roots: &[DesktopDataRoot]) -> DesktopLogsSummary {
                     push_sample("account_banned", trimmed);
                 }
                 if lower.contains("portal.anthropic.com/verify")
+                    || lower.contains("can't receive replies from claude")
                     || lower.contains("withpersona.com")
                 {
                     summary.portal_verify_hits += 1;
+                    for caps in re_org.captures_iter(trimmed) {
+                        if let Some(m) = caps.get(1) {
+                            let p8: String = m.as_str().chars().take(8).collect();
+                            let p8_low = p8.to_ascii_lowercase();
+                            if p8_low.len() == 8 && !summary.portal_org_prefixes.contains(&p8_low) {
+                                summary.portal_org_prefixes.push(p8_low);
+                            }
+                        }
+                    }
                     push_sample("portal_verify", trimmed);
                 }
                 if lower.contains("orgid") && lower.contains("404") {

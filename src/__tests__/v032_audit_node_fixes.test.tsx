@@ -380,4 +380,76 @@ describe("v0.3.2 节点悬浮解释、运行中 B 级警示、严防漏链与全
     expect(screen.queryByText(/稳定锁定/)).not.toBeInTheDocument();
     expect(screen.getByTestId("hud-tile-flow").className).toContain("is-warn");
   });
+
+  it("账户审计 Portal 卡片诚实区分 unknown（接口未返回，无绿点）与 local_hold（触发挂起 · 本地实锤）", async () => {
+    const baseCloud = {
+      verifiedAtMs: Date.now(),
+      checkedAtIso: "2026-11-26T02:00:00Z",
+      emailMasked: "demo***88@example.com",
+      orgIdPrefix8: "bce33885",
+      plan: "Pro",
+      merchantChannel: "Stripe 直付",
+      workspaceGeo: "US",
+      edgeCountry: "US",
+      edgeColo: "SJC",
+      accountAgeDays: 30,
+      subscriptionAgeDays: 20,
+      subscriptionEndsAt: "2026-12-20",
+      chatAvailable: true,
+      isBanned: false,
+      appealsRedirectEnabled: false,
+      hasMonitoringNotice: false,
+      activeFlagTypes: [],
+      warningSummaryZh: null,
+      personaKycStatus: null,
+      personaKycCompletedAt: null,
+      personaKycAgeHours: null,
+      portalHold: false,
+      portalState: "unknown",
+      fiveHourPct: 12,
+      fiveHourResetsAt: null,
+      sevenDayPct: 24,
+      sevenDayResetsAt: null,
+      warnings: [],
+    };
+
+    const reportUnknown = buildMockAuditReport({
+      cloudVerified: true,
+      cloudSnapshot: baseCloud,
+    });
+    vi.spyOn(ipc, "auditAccountLocal").mockResolvedValue(reportUnknown);
+    useGuardStore.setState({ accountAudit: reportUnknown });
+
+    render(<AccountAuditPage />);
+    expect(screen.getByText("接口未返回")).toBeInTheDocument();
+    expect(screen.queryByText("无挂起 (clear)")).not.toBeInTheDocument();
+
+    cleanup();
+
+    const reportLocalHold = buildMockAuditReport({
+      cloudVerified: true,
+      cloudSnapshot: {
+        ...baseCloud,
+        portalHold: true,
+        portalState: "local_hold",
+      },
+      scoreResult: {
+        score: 12,
+        maxScore: 100,
+        level: "critical",
+        levelLabel: "极危",
+        colorToken: "red",
+        confidence: "full_combined",
+        confidenceLabel: "本地+云端",
+        disclaimer: "非官方黑盒分",
+        deductions: [],
+      },
+    });
+    vi.spyOn(ipc, "auditAccountLocal").mockResolvedValue(reportLocalHold);
+    useGuardStore.setState({ accountAudit: reportLocalHold });
+    render(<AccountAuditPage />);
+
+    expect(screen.getByText("触发挂起")).toBeInTheDocument();
+    expect(screen.getByText(/本地日志实锤/)).toBeInTheDocument();
+  });
 });

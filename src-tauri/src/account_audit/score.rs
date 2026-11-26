@@ -50,6 +50,9 @@ pub struct RiskScoreInput {
     // 致命熔断信号
     pub account_banned: bool,
     pub portal_hold: bool,
+    /// 对话域明确受限（能拉组织但 chat_conversations 返回 403/400，典型半封号/待验证拦截）
+    #[serde(default)]
+    pub chat_restricted: bool,
 
     // 维度 1（24 分）：归属地 × 出口 IP 一致性
     pub geo_cross_continent_mismatch: bool,
@@ -390,7 +393,7 @@ pub fn compute_risk_score(input: &RiskScoreInput) -> ScoreResult {
     }
 
     // 致命熔断检查（一票触底 <= 15）
-    let fatal = input.account_banned || input.portal_hold;
+    let fatal = input.account_banned || input.portal_hold || input.chat_restricted;
     if fatal {
         score = score.min(FATAL_MELTDOWN_CAP);
         deductions.insert(
@@ -398,8 +401,10 @@ pub fn compute_risk_score(input: &RiskScoreInput) -> ScoreResult {
             ScoreDeductionItem {
                 id: if input.account_banned {
                     "fatal_account_banned".into()
-                } else {
+                } else if input.portal_hold {
                     "fatal_portal_hold".into()
+                } else {
+                    "fatal_chat_restricted".into()
                 },
                 weight_max: 100,
                 delta: -(100 - score),
@@ -407,8 +412,10 @@ pub fn compute_risk_score(input: &RiskScoreInput) -> ScoreResult {
                 tone: "danger".into(),
                 title: if input.account_banned {
                     "致命熔断：官方实锤封号 (account_banned)".into()
+                } else if input.portal_hold {
+                    "致命熔断：Portal 风控门户挂起 (hold_notice / verify)".into()
                 } else {
-                    "致命熔断：Portal 风控门户挂起 (hold_notice)".into()
+                    "致命熔断：官方对话域拒绝访问（半封号/受限）".into()
                 },
                 desc: "触发高危红线一票触底，强烈建议彻底备份并清理本机残留前勿同机切换备用号"
                     .into(),
@@ -591,6 +598,16 @@ mod tests {
         });
         assert!(portal.score <= 15);
         assert_eq!(portal.level, "critical");
+
+        let chat_restricted = compute_risk_score(&RiskScoreInput {
+            confidence_mode: Some(ScoreConfidenceMode::CloudOnly),
+            chat_restricted: true,
+            persona_kyc_verified_over_72h: true,
+            ..Default::default()
+        });
+        assert!(chat_restricted.score <= 15);
+        assert_eq!(chat_restricted.level, "critical");
+        assert_eq!(chat_restricted.color_token, "red");
     }
 
     #[test]

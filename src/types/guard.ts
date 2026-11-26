@@ -605,6 +605,7 @@ export interface DesktopLogsSummary {
   scannedLogFiles: number;
   orgIdPrefixes: string[];
   sessionDirOrgPrefixes?: string[];
+  portalOrgPrefixes?: string[];
   accountBannedHits: number;
   portalVerifyHits: number;
   crossOrg404Hits: number;

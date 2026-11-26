@@ -852,8 +852,10 @@ pub fn audit_log_text_for_accounts(text: &str, audit: &mut AccountLogAudit) {
     static RE_ORG: OnceLock<Regex> = OnceLock::new();
     static RE_ACCT: OnceLock<Regex> = OnceLock::new();
     let re_org = RE_ORG.get_or_init(|| {
-        Regex::new(r#"(?i)(?:orgId|organization_uuid|organizationId)["'=:\s]+([a-f0-9-]{8,36})"#)
-            .expect("valid orgId regex")
+        Regex::new(
+            r#"(?i)(?:orgId|organization_uuid|organizationId|[?&]org)["'=:\s]+([a-f0-9-]{8,36})"#,
+        )
+        .expect("valid orgId regex")
     });
     let re_acct = RE_ACCT.get_or_init(|| {
         Regex::new(r#"(?i)(?:accountId|account_uuid)["'=:\s]+([a-f0-9-]{8,36})"#)
@@ -1708,17 +1710,21 @@ mod tests {
             "disconnect + quit + cookie 403 must merge into 退出回传 403"
         );
 
-        // 7. JSON 双引号 orgId/accountId 正则修复与受限号关联追踪
+        // 7. JSON 双引号 orgId/accountId 与 URL ?org= 正则修复：避免 portal.anthropic.com/verify?org=B 错归前文 A
         let json_logs = concat!(
-            "2026-10-25 09:00:00 [info] {\"orgId\": \"bce33885-1111-2222-3333-444455556666\", \"account_uuid\": \"aaaa1111-2222-3333-4444-555566667777\"}\n",
-            "2026-10-25 09:00:02 [warn] portal.anthropic.com/verify required\n",
-            "2026-11-05 10:00:00 [info] {\"organization_uuid\": \"ce65bc28-1111-2222-3333-444455556666\", \"accountId\": \"bbbb1111-2222-3333-4444-555566667777\"}\n"
+            "2026-10-25 09:00:00 [info] {\"organization_uuid\": \"ce65bc28-1111-2222-3333-444455556666\", \"accountId\": \"bbbb1111-2222-3333-4444-555566667777\"}\n",
+            "2026-10-25 09:00:02 [warn] Navigating to https://portal.anthropic.com/verify?org=bce33885-1111-2222-3333-444455556666\n",
+            "2026-11-05 10:00:00 [info] {\"orgId\": \"ce65bc28-1111-2222-3333-444455556666\", \"account_uuid\": \"aaaa1111-2222-3333-4444-555566667777\"}\n"
         );
         let mut audit = AccountLogAudit::default();
         audit_log_text_for_accounts(json_logs, &mut audit);
-        assert_eq!(audit.unique_org_ids, vec!["bce33885", "ce65bc28"]);
-        assert_eq!(audit.unique_account_ids, vec!["aaaa1111", "bbbb1111"]);
-        assert_eq!(audit.restricted_org_ids, vec!["bce33885"]);
+        assert_eq!(audit.unique_org_ids, vec!["ce65bc28", "bce33885"]);
+        assert_eq!(audit.unique_account_ids, vec!["bbbb1111", "aaaa1111"]);
+        assert_eq!(
+            audit.restricted_org_ids,
+            vec!["bce33885"],
+            "Portal URL 中自带 ?org=bce33885 时必须精准归因给 bce33885，绝不可张冠李戴到前文 ce65bc28"
+        );
 
         // 8. 历史时区跳变检测（UTC+8 -> UTC-7 跨 15h）
         // 2026-11-11 08:00:00 UTC = 1794384000000 ms => UTC+8 本地 16:00:00; UTC-7 本地 01:00:00

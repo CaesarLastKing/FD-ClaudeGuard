@@ -1440,29 +1440,44 @@ export function AccountAuditPage() {
               ?
             </button>
           </div>
-          <div
-            className={`audit-pstat-v ${
-              stale ? "muted" : snap.portalHold ? "danger" : ""
-            }`}
-          >
-            {!stale && (
-              <span className={`guard-dot ${snap.portalHold ? "danger" : ""}`} />
-            )}
-            <span>
-              {snap.portalHold
-                ? "触发挂起"
-                : stale
-                ? `无挂起${staleTag}`
-                : "无挂起 (clear)"}
-            </span>
-          </div>
-          <div className="audit-pstat-sub">
-            {snap.portalHold
-              ? "风控极高危 · 已限制并需申诉"
-              : stale
-              ? "风险极高项 · 本地持续 0 拦截"
-              : "未被风控挂起 · 正常放行"}
-          </div>
+          {(() => {
+            const isPortalHold =
+              snap.portalHold || snap.portalState === "hold" || snap.portalState === "local_hold";
+            const isPortalUnknown = !isPortalHold && snap.portalState === "unknown";
+            return (
+              <>
+                <div
+                  className={`audit-pstat-v ${
+                    isPortalHold ? "danger" : stale || isPortalUnknown ? "muted" : ""
+                  }`}
+                >
+                  {!stale && !isPortalUnknown && (
+                    <span className={`guard-dot ${isPortalHold ? "danger" : ""}`} />
+                  )}
+                  <span>
+                    {isPortalHold
+                      ? "触发挂起"
+                      : isPortalUnknown
+                      ? "接口未返回"
+                      : stale
+                      ? `无挂起${staleTag}`
+                      : "无挂起 (clear)"}
+                  </span>
+                </div>
+                <div className="audit-pstat-sub">
+                  {snap.portalState === "local_hold"
+                    ? "本地日志实锤该账号触发 Portal 挂起 · 请核实申诉"
+                    : isPortalHold
+                    ? "风控极高危 · 已限制并需申诉"
+                    : isPortalUnknown
+                    ? "官方未暴露该接口字段 · 请结合本地日志与实发对话确认"
+                    : stale
+                    ? "风险极高项 · 本地持续 0 拦截"
+                    : "未被风控挂起 · 正常放行"}
+                </div>
+              </>
+            );
+          })()}
         </div>
       </div>
     );

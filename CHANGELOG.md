@@ -7,6 +7,21 @@
 
 ---
 
+## [0.3.3] - 2026-11-26
+
+### 修复与优化
+- **彻底消灭 Portal 风控门户假绿误判（多路探测 + 本地实锤融合）**：
+  - `cloud_probe` 在 `portal_resp` 不可达/404/未返回明确 `"hold_notice": null` 时不再假绿为 `clear`，改为诚实返回 `unknown`（前端展示灰色「接口未返回」并提示结合本地日志与实发对话核实）；
+  - 扩充云端响应全路径检测，同步扫描 `chat_conversations`/`organizations`/`account`/`kyc` 响应体与错误文案中的 `portal.anthropic.com/verify`、`can't receive replies`、`verification_required`、`account_restricted`，增补 `active_flags` 扩展词（`verif`/`portal`/`compliance`/`lock`/`review`）、`api_disabled_reason`、`billable_usage_paused_until` 与 `kyc_status` 待核验/失败态监控；
+  - `account_audit` 新增按精确 `orgId` 融合本地 `claude.ai-web.log` Portal 实锤：命中当前主号的本地 Portal 验证记录且云端非明确 `clear` 时自动提升为 `local_hold`（触发挂起 · 本地日志实锤）并触发致命熔断（总分 `≤ 15`），跨号绝不误伤。
+- **修复 Portal URL 归因张冠李戴与半封对话受限漏熔断**：
+  - `watchdog` 与 `local_scan` 的 `RE_ORG` 正则新增匹配 URL 查询参数 `[?&]org=`，修复 `portal.anthropic.com/verify?org=B` 错归前文 `last_seen_org`（账号 A）的问题；
+  - `score.rs` 新增 `chat_restricted`（`!chat_available && !is_banned`）致命熔断判定，同步覆盖桌面端审计与外部 `build_check_sk_response` 契约。
+- **修复脱敏日志二次打码截断已脱敏邮箱**：
+  - `maintenance::sanitize_sensitive_text` 保留已含 `***` 的可读脱敏邮箱（如 `yiya***88@qq.com`）不二次截断域名，同时继续严格打码明文邮箱。
+
+---
+
 ## [0.3.2] - 2026-11-26
 
 ### 安全加固与高危缺陷修复

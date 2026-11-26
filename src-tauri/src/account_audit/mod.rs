@@ -1244,7 +1244,41 @@ pub fn build_account_audit_report_with_known(
 
     let account_banned = local.desktop.account_banned_hits > 0
         || cloud_snap.as_ref().map(|s| s.is_banned).unwrap_or(false);
-    let portal_hold = cloud_snap.as_ref().map(|s| s.portal_hold).unwrap_or(false);
+    // 精确按 orgId 融合本地 claude.ai-web.log 的 Portal 实锤：
+    // 1) 若日志明确捕获了 portal.anthropic.com/verify?org=<当前主号>，绝不被云端 unknown 盖掉；
+    // 2) 若仅单组织且无行内 org 标识但存在 portal_verify_hits，亦融合提醒。
+    let local_portal_matches_primary = org_id_prefix8
+        .as_deref()
+        .map(|cur| {
+            local
+                .desktop
+                .portal_org_prefixes
+                .iter()
+                .any(|p| p.eq_ignore_ascii_case(cur))
+        })
+        .unwrap_or(false)
+        || (local.desktop.portal_verify_hits > 0
+            && local.desktop.portal_org_prefixes.is_empty()
+            && local.all_observed_org_prefixes.len() <= 1);
+    let mut cloud_snap = cloud_snap;
+    if local_portal_matches_primary {
+        if let Some(ref mut snap) = cloud_snap {
+            if !snap.portal_hold && snap.portal_state != "clear" {
+                snap.portal_hold = true;
+                snap.portal_state = "local_hold".into();
+            }
+        }
+    }
+    let portal_hold = cloud_snap.as_ref().map(|s| s.portal_hold).unwrap_or(false)
+        || (local_portal_matches_primary
+            && cloud_snap
+                .as_ref()
+                .map(|s| s.portal_state != "clear")
+                .unwrap_or(true));
+    let chat_restricted = cloud_snap
+        .as_ref()
+        .map(|s| !s.chat_available && !s.is_banned)
+        .unwrap_or(false);
 
     let in_new_acct_window = account_age_days.map(|d| d < 7).unwrap_or(false);
     let in_pay_window = subscription_age_days.map(|d| d <= 1).unwrap_or(false);
@@ -1313,6 +1347,7 @@ pub fn build_account_audit_report_with_known(
         stale_days: cloud_age_days,
         account_banned,
         portal_hold,
+        chat_restricted,
         geo_cross_continent_mismatch: geo_consistency == GeoConsistency::CrossContinentMismatch,
         geo_mismatch_detail: if geo_consistency == GeoConsistency::CrossContinentMismatch {
             Some(format!(
@@ -1422,7 +1457,7 @@ pub fn build_account_audit_report_with_known(
     {
         pending_issue_count += 1;
     }
-    if account_banned || portal_hold {
+    if account_banned || portal_hold || chat_restricted {
         has_danger_issue = true;
     }
 
@@ -2066,6 +2101,7 @@ pub fn build_check_sk_response(snap: CloudProbeSnapshot) -> CheckSkResponse {
         confidence_mode: Some(ScoreConfidenceMode::CloudOnly),
         account_banned: snap.is_banned,
         portal_hold: snap.portal_hold,
+        chat_restricted: !snap.chat_available && !snap.is_banned,
         geo_cross_continent_mismatch: geo_cmp == GeoConsistency::CrossContinentMismatch,
         geo_mismatch_detail: if geo_cmp == GeoConsistency::CrossContinentMismatch {
             Some(format!(
@@ -2886,5 +2922,106 @@ mod tests {
             report.score_result.deductions
         );
         assert_eq!(report.pending_issue_count, 0);
+    }
+
+    #[test]
+    fn local_portal_hold_merges_by_exact_org_and_does_not_misattribute_other_org() {
+        let now_ms = 1_795_650_000_000i64;
+        let rt = RuntimeGuardContext {
+            clash_online: true,
+            clash_port: 7890,
+            tun_online: true,
+            group_rules_ok: true,
+            fake_ip_dns_ok: true,
+            auto_kill_switch_enabled: true,
+            ..Default::default()
+        };
+
+        // 场景 A：本地日志明确捕获 portal.anthropic.com/verify?org=bce33885，且当前云端核验也是 bce33885（portal_state = unknown）
+        let mut local_same = LocalAccountAudit::default();
+        local_same.scanned_at_ms = now_ms;
+        local_same.desktop.org_id_prefixes = vec!["bce33885".into()];
+        local_same.desktop.portal_verify_hits = 6;
+        local_same.desktop.portal_org_prefixes = vec!["bce33885".into()];
+        local_same.all_observed_org_prefixes = vec!["bce33885".into(), "ce65bc28".into()];
+
+        let snap_same = CloudProbeSnapshot {
+            verified_at_ms: now_ms - 60_000,
+            checked_at_iso: "2026-11-26T00:00:00Z".into(),
+            email_masked: Some("demo***01@example.com".into()),
+            org_id_prefix8: Some("bce33885".into()),
+            plan: "Pro".into(),
+            merchant_channel: Some("Stripe".into()),
+            workspace_geo: Some("US".into()),
+            edge_country: Some("US".into()),
+            edge_colo: Some("SJC".into()),
+            account_age_days: Some(30),
+            subscription_age_days: Some(20),
+            subscription_ends_at: None,
+            chat_available: true,
+            is_banned: false,
+            appeals_redirect_enabled: false,
+            has_monitoring_notice: false,
+            active_flag_types: Vec::new(),
+            warning_summary_zh: None,
+            persona_kyc_status: None,
+            persona_kyc_completed_at: None,
+            persona_kyc_age_hours: None,
+            portal_hold: false,
+            portal_state: "unknown".into(),
+            five_hour_pct: Some(10.0),
+            five_hour_resets_at: None,
+            seven_day_pct: Some(20.0),
+            seven_day_resets_at: None,
+            warnings: Vec::new(),
+        };
+        let cache_same = ProfileCloudCache {
+            profile_id: "default".into(),
+            bound_workspace_geo: Some("US".into()),
+            bound_org_prefix8: Some("bce33885".into()),
+            verify_count: 1,
+            last_verified_at_ms: Some(now_ms - 60_000),
+            last_snapshot: Some(snap_same.clone()),
+        };
+
+        let rep_same = build_account_audit_report_with_known(
+            local_same.clone(),
+            Some(&cache_same),
+            &rt,
+            &HashMap::new(),
+        );
+        let merged_snap = rep_same.cloud_snapshot.as_ref().unwrap();
+        assert!(merged_snap.portal_hold, "同 org 本地 Portal 实锤必须穿透云端 unknown");
+        assert_eq!(merged_snap.portal_state, "local_hold");
+        assert!(
+            rep_same.score_result.score <= 15,
+            "命中 local_hold 必须触发致命熔断 <=15，实得 {}",
+            rep_same.score_result.score
+        );
+        assert!(rep_same.has_danger_issue);
+
+        // 场景 B：当前主号切换为 ce65bc28，本地只有 bce33885 的 Portal 记录 -> 绝不张冠李戴误判为 ce65bc28 的 local_hold
+        let mut local_other = local_same;
+        local_other.desktop.org_id_prefixes = vec!["ce65bc28".into()];
+        let mut snap_other = snap_same;
+        snap_other.org_id_prefix8 = Some("ce65bc28".into());
+        let cache_other = ProfileCloudCache {
+            profile_id: "default".into(),
+            bound_workspace_geo: Some("US".into()),
+            bound_org_prefix8: Some("ce65bc28".into()),
+            verify_count: 1,
+            last_verified_at_ms: Some(now_ms - 60_000),
+            last_snapshot: Some(snap_other),
+        };
+
+        let rep_other = build_account_audit_report_with_known(
+            local_other,
+            Some(&cache_other),
+            &rt,
+            &HashMap::new(),
+        );
+        let other_snap = rep_other.cloud_snapshot.as_ref().unwrap();
+        assert!(!other_snap.portal_hold, "不同 org 的历史 Portal 不得误判到当前主号");
+        assert_eq!(other_snap.portal_state, "unknown");
     }
 }
