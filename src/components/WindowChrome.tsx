@@ -1,14 +1,20 @@
-import { Bell, BellOff, Headphones, Minus, Moon, Square, Sun, X } from "lucide-react";
+import { useState } from "react";
+import { Bell, BellOff, Headphones, Minus, Moon, Sparkles, Square, Sun, X } from "lucide-react";
 import { ipc } from "@/lib/ipc";
 import { APP_BRAND_SUBTITLE } from "@/lib/protocol";
 import { useGuardStore } from "@/stores/guardStore";
 
+const BRAND_SUBTITLE_TOOLTIP = "Claude is awesome, but fuck Dario!";
+
 export function WindowChrome() {
+  const [subtitleHover, setSubtitleHover] = useState(false);
   const theme = useGuardStore((s) => s.config.theme);
   const showHud = useGuardStore((s) => s.config.showHud);
   const notifyEnabled = useGuardStore((s) => s.config.notifyEnabled);
   const updateConfig = useGuardStore((s) => s.updateConfig);
   const setSupportModalOpen = useGuardStore((s) => s.setSupportModalOpen);
+  const updateInfo = useGuardStore((s) => s.updateInfo);
+  const setActiveTab = useGuardStore((s) => s.setActiveTab);
 
   const handleToggleHud = () => {
     void updateConfig({ showHud: !showHud }, "桌面悬浮状态窗");
@@ -69,10 +75,84 @@ export function WindowChrome() {
         <span>FD Claude 安全启动器</span>
         <span
           data-testid="brand-subtitle"
-          style={{ color: "var(--text-3)", fontWeight: 400, fontSize: 11.5 }}
+          title={BRAND_SUBTITLE_TOOLTIP}
+          onMouseEnter={() => setSubtitleHover(true)}
+          onMouseLeave={() => setSubtitleHover(false)}
+          style={{
+            position: "relative",
+            color: "var(--text-3)",
+            fontWeight: 400,
+            fontSize: 11.5,
+            cursor: "help",
+            padding: "2px 4px",
+            borderRadius: 4,
+          }}
         >
           {APP_BRAND_SUBTITLE}
+          {subtitleHover && (
+            <span
+              role="tooltip"
+              data-testid="brand-subtitle-tooltip"
+              style={{
+                position: "absolute",
+                top: "calc(100% + 6px)",
+                left: 0,
+                whiteSpace: "nowrap",
+                padding: "5px 10px",
+                borderRadius: 7,
+                background: "var(--bg-card)",
+                border: "1px solid var(--border-strong)",
+                color: "var(--text-1)",
+                fontSize: 11.5,
+                fontWeight: 500,
+                boxShadow: "0 10px 26px rgba(0, 0, 0, 0.32)",
+                pointerEvents: "none",
+                zIndex: 300,
+              }}
+            >
+              {BRAND_SUBTITLE_TOOLTIP}
+            </span>
+          )}
         </span>
+        {updateInfo?.available && updateInfo.latestVersion && (
+          <button
+            type="button"
+            data-testid="topbar-new-version-badge"
+            onClick={() => setActiveTab("config")}
+            title={`发现新版本 v${updateInfo.latestVersion}，点击前往「守卫配置」一键更新`}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 5,
+              padding: "2px 8px",
+              marginLeft: 2,
+              borderRadius: 999,
+              border: "1px solid rgba(59, 130, 246, 0.42)",
+              background: "var(--primary-soft)",
+              color: "var(--primary)",
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: "pointer",
+              lineHeight: 1.35,
+            }}
+          >
+            <Sparkles size={11.5} strokeWidth={2.1} />
+            <span
+              style={{
+                padding: "0 4px",
+                borderRadius: 4,
+                background: "var(--primary)",
+                color: "#fff",
+                fontSize: 9.5,
+                fontWeight: 700,
+                letterSpacing: "0.04em",
+              }}
+            >
+              NEW
+            </span>
+            <span>新版 v{updateInfo.latestVersion} 发布啦</span>
+          </button>
+        )}
       </div>
 
       {/* 右侧：纯图标快捷开关组 (32x28, gap:6, stroke-width:1.7) + 1x14px 对称竖线 + Windows 三键 */}

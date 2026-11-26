@@ -807,7 +807,7 @@ pub fn strip_claude_from_clash_yaml(raw: &str) -> Result<(String, bool), String>
                 return true;
             };
             let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
-            !parts.iter().any(|p| *p == "Claude-Fixed")
+            !parts.contains(&"Claude-Fixed")
         });
         if rules.len() != before {
             changed = true;
@@ -1869,7 +1869,7 @@ items:
     selected:
       - name: Claude-Fixed
         now: 🇺🇸美国2
-      - name: 天悦云
+      - name: DemoAirport
         now: 🇯🇵日本1
 "#;
         let (cleaned, changed) =
@@ -1879,7 +1879,7 @@ items:
         assert!(!cleaned.contains("Claude-Fixed"), "应移除全部 Claude-Fixed 选中记录");
         assert!(cleaned.contains("sub-new-2026"), "必须 100% 保留用户后来新导入的订阅");
         assert!(cleaned.contains("用户后来新导入的机场"));
-        assert!(cleaned.contains("天悦云"));
+        assert!(cleaned.contains("DemoAirport"));
     }
 
     #[test]
@@ -1918,7 +1918,7 @@ proxy-groups:
     type: select
     proxies:
       - 🇺🇸美国1
-  - name: 天悦云
+  - name: DemoAirport
     type: select
     proxies:
       - Claude-Fixed
@@ -1928,16 +1928,16 @@ rules:
   - DOMAIN-SUFFIX,claude.ai,Claude-Fixed
   - DOMAIN-SUFFIX,anthropic.com,Claude-Fixed
   - IP-CIDR,160.79.104.0/23,Claude-Fixed,no-resolve
-  - DOMAIN-SUFFIX,google.com,天悦云
-  - MATCH,天悦云
+  - DOMAIN-SUFFIX,google.com,DemoAirport
+  - MATCH,DemoAirport
 "#;
         let (cleaned, changed) = strip_claude_from_clash_yaml(raw).expect("strip clash yaml");
         assert!(changed);
         assert!(!cleaned.contains("Claude-Fixed"), "必须彻底剥离 Claude-Fixed 组与规则");
         assert!(cleaned.contains("🇺🇸美国1"), "必须完整保留节点列表");
         assert!(cleaned.contains("🇯🇵日本1"));
-        assert!(cleaned.contains("DOMAIN-SUFFIX,google.com,天悦云"), "必须保留原有业务规则");
-        assert!(cleaned.contains("MATCH,天悦云"));
+        assert!(cleaned.contains("DOMAIN-SUFFIX,google.com,DemoAirport"), "必须保留原有业务规则");
+        assert!(cleaned.contains("MATCH,DemoAirport"));
     }
 
     #[tokio::test]

@@ -135,38 +135,61 @@ pub async fn check_for_app_update(
     }
 }
 
-/// 下载校验签名并安装更新，完成后触发应用重启
+/// 下载校验签名并安装更新，完成后触发应用重启（优先本机 Clash 代理，拉取或下载失败自动回退直连）
 pub async fn download_and_install_app_update(
     app: &AppHandle,
     clash_port: Option<u16>,
 ) -> Result<String, String> {
     let proxy_url = build_local_proxy_url(clash_port);
-    let updater = if let Some(url) = proxy_url {
+    let build_direct = || {
+        app.updater_builder()
+            .timeout(std::time::Duration::from_secs(60))
+            .build()
+            .map_err(|e| format!("初始化直连更新器失败：{e}"))
+    };
+
+    let (update_opt, used_proxy) = if let Some(url) = proxy_url {
         match app
             .updater_builder()
             .proxy(url)
             .timeout(std::time::Duration::from_secs(60))
             .build()
         {
-            Ok(u) => u,
-            Err(_) => app
-                .updater_builder()
-                .timeout(std::time::Duration::from_secs(60))
-                .build()
-                .map_err(|e| format!("初始化更新器失败：{e}"))?,
+            Ok(proxy_updater) => match proxy_updater.check().await {
+                Ok(opt) => (opt, true),
+                Err(proxy_err) => {
+                    logger::log_warn(
+                        "updater",
+                        format!("经本机代理拉取更新包元数据失败（{proxy_err}），自动回退直连重试"),
+                    );
+                    let direct_updater = build_direct()?;
+                    let opt = direct_updater
+                        .check()
+                        .await
+                        .map_err(|e| format!("获取更新包元数据失败：{e}"))?;
+                    (opt, false)
+                }
+            },
+            Err(e) => {
+                logger::log_warn("updater", format!("构建代理更新器失败：{e}，回退直连"));
+                let direct_updater = build_direct()?;
+                let opt = direct_updater
+                    .check()
+                    .await
+                    .map_err(|err| format!("获取更新包元数据失败：{err}"))?;
+                (opt, false)
+            }
         }
     } else {
-        app.updater_builder()
-            .timeout(std::time::Duration::from_secs(60))
-            .build()
-            .map_err(|e| format!("初始化更新器失败：{e}"))?
+        let direct_updater = build_direct()?;
+        let opt = direct_updater
+            .check()
+            .await
+            .map_err(|e| format!("获取更新包元数据失败：{e}"))?;
+        (opt, false)
     };
 
-    let Some(update) = updater
-        .check()
-        .await
-        .map_err(|e| format!("获取更新包元数据失败：{e}"))?
-    else {
+    let Some(update) = update_opt else {
         return Ok(format!(
             "当前已是最新版本 v{}，无需更新。",
             env!("CARGO_PKG_VERSION")
@@ -174,17 +197,55 @@ pub async fn download_and_install_app_update(
     };
 
     let target_ver = update.version.clone();
-    logger::log_info("updater", format!("开始下载并校验签名更新包 v{target_ver}"));
+    logger::log_info(
+        "updater",
+        format!("开始下载并校验签名更新包 v{target_ver}（via_proxy={used_proxy}）"),
+    );
 
-    update
+    let install_res = update
         .download_and_install(
             |_chunk_len, _content_len| {},
             || {
                 logger::log_info("updater", "更新包 Ed25519 签名校验通过，正在准备安装");
             },
         )
-        .await
-        .map_err(|e| format!("下载或安装更新包失败（请检查网络与签名）：{e}"))?;
+        .await;
+
+    if let Err(first_err) = install_res {
+        if used_proxy {
+            logger::log_warn(
+                "updater",
+                format!("经本机代理下载更新包失败（{first_err}），自动回退直连重试"),
+            );
+            let direct_updater = build_direct()?;
+            let Some(direct_update) = direct_updater
+                .check()
+                .await
+                .map_err(|e| format!("直连重试获取更新元数据失败：{e}"))?
+            else {
+                return Ok(format!(
+                    "当前已是最新版本 v{}，无需更新。",
+                    env!("CARGO_PKG_VERSION")
+                ));
+            };
+            direct_update
+                .download_and_install(
+                    |_chunk_len, _content_len| {},
+                    || {
+                        logger::log_info(
+                            "updater",
+                            "直连回退更新包 Ed25519 签名校验通过，正在准备安装",
+                        );
+                    },
+                )
+                .await
+                .map_err(|e| format!("下载或安装更新包失败（请检查网络与签名）：{e}"))?;
+        } else {
+            return Err(format!(
+                "下载或安装更新包失败（请检查网络与签名）：{first_err}"
+            ));
+        }
+    }
 
     logger::log_info(
         "updater",

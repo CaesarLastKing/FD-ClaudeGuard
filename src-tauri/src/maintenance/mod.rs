@@ -33,6 +33,7 @@ pub const DEFAULT_CLEAN_CATEGORIES: &[&str] = &[
     CLEAN_CAT_LOGS,
     CLEAN_CAT_TELEMETRY,
     CLEAN_CAT_CACHE,
+    CLEAN_CAT_CLI_AUTH,
 ];
 
 /// 清理前透明预览弹窗的单条分类明细
@@ -48,6 +49,9 @@ pub struct CleanupCategoryPreview {
     pub total_bytes: u64,
     pub size_label: String,
     pub sample_paths: Vec<String>,
+    /// 该分类下识别到的脱敏账号信息（供用户决定是全清还是取消勾选保留对应端登录态）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_summary: Option<String>,
 }
 
 /// 始终锁定保护不打包不删除项汇总
@@ -972,6 +976,134 @@ fn scan_all_claude_roots(
     (entries, protected_reasons)
 }
 
+/// 只读汇总桌面端与 CLI 当前识别到的脱敏账号摘要，供清理弹窗逐项展示（用户可据此决定是否取消勾选保留某端账号）
+fn inspect_cleanup_account_summaries(roots: &ClaudeDataRoots) -> (Option<String>, Option<String>) {
+    let mut desktop_roots = Vec::new();
+    if let Some(ref p) = roots.classic_roaming {
+        if p.exists() {
+            desktop_roots.push(crate::account_audit::local_scan::DesktopDataRoot {
+                kind: "RoamingAppData".into(),
+                dir: p.clone(),
+            });
+        }
+    }
+    if let Some(ref p) = roots.classic_local {
+        if p.exists() {
+            desktop_roots.push(crate::account_audit::local_scan::DesktopDataRoot {
+                kind: "LocalAppData".into(),
+                dir: p.clone(),
+            });
+        }
+    }
+    for m in &roots.msix_roots {
+        if m.roaming.exists() {
+            desktop_roots.push(crate::account_audit::local_scan::DesktopDataRoot {
+                kind: format!("MSIX-Roaming({})", m.package_dir_name),
+                dir: m.roaming.clone(),
+            });
+        }
+        if m.local.exists() {
+            desktop_roots.push(crate::account_audit::local_scan::DesktopDataRoot {
+                kind: format!("MSIX-Local({})", m.package_dir_name),
+                dir: m.local.clone(),
+            });
+        }
+    }
+    for extra in &roots.msix_claude_data {
+        if extra.dir.exists() {
+            desktop_roots.push(crate::account_audit::local_scan::DesktopDataRoot {
+                kind: format!("Claude-Data({})", extra.package_dir_name),
+                dir: extra.dir.clone(),
+            });
+        }
+    }
+
+    let cli_dir = roots
+        .cli_credentials
+        .as_deref()
+        .and_then(|p| p.parent())
+        .or_else(|| roots.cli_backups_dir.as_deref().and_then(|p| p.parent()))
+        .map(Path::to_path_buf);
+
+    let ctx = crate::account_audit::local_scan::ProfileContext {
+        profile_id: "default".into(),
+        cli_config_dir: cli_dir,
+        claude_json_path: roots.cli_claude_json.clone(),
+        desktop_data_dirs: desktop_roots,
+        expected_geo: None,
+        bound_proxy_port: None,
+        scan_system_env: false,
+    };
+    let local = crate::account_audit::local_scan::scan_local_profile(&ctx);
+    let known = crate::account_audit::load_known_accounts_map(
+        &crate::account_audit::default_audit_cache_path(),
+    );
+
+    let desktop_summary = if !local.desktop.org_id_prefixes.is_empty() {
+        let labels: Vec<String> = local
+            .desktop
+            .org_id_prefixes
+            .iter()
+            .map(|o| crate::account_audit::format_org_account_label(o, &local, &known))
+            .collect();
+        Some(format!("当前桌面端账号：{}", labels.join(" / ")))
+    } else {
+        Some("当前桌面端：未检测到本地登录态或组织残留".into())
+    };
+
+    let mut cli_parts: Vec<String> = Vec::new();
+    if let Some(ref cli_org) = local.claude_json.org_uuid_prefix8 {
+        cli_parts.push(crate::account_audit::format_org_account_label(
+            cli_org, &local, &known,
+        ));
+    } else if local.credentials.exists {
+        cli_parts.push("已检测到 .credentials.json 登录凭据".into());
+    }
+    for b in &local.hygiene.backup_accounts {
+        let same_as_cur = local
+            .claude_json
+            .org_uuid_prefix8
+            .as_deref()
+            .map(|c| c.eq_ignore_ascii_case(&b.org_prefix))
+            .unwrap_or(false);
+        if !same_as_cur {
+            let label = match (&b.email_masked, &b.plan_label) {
+                (Some(em), Some(pl)) => format!("旧备份 {em} ({pl} · {})", b.org_prefix),
+                (Some(em), None) => format!("旧备份 {em} ({})", b.org_prefix),
+                _ => format!("旧备份 org {}", b.org_prefix),
+            };
+            cli_parts.push(label);
+        }
+    }
+    let cli_summary = if !cli_parts.is_empty() {
+        let mut flags: Vec<String> = Vec::new();
+        if local.credentials.exists && local.credentials.is_expired == Some(true) {
+            flags.push("凭据已失效".into());
+        }
+        if local.claude_json.internal_account_mismatch {
+            flags.push("含跨号旧缓存".into());
+        }
+        if local.hygiene.backup_file_count > 0 {
+            flags.push(format!("含 {} 份历史备份", local.hygiene.backup_file_count));
+        }
+        let extra = if flags.is_empty() {
+            String::new()
+        } else {
+            format!(" · {}", flags.join(" · "))
+        };
+        Some(format!("当前 CLI 账号：{}{}", cli_parts.join("；"), extra))
+    } else if local.hygiene.backup_file_count > 0 {
+        Some(format!(
+            "当前 CLI：未登录，但含 {} 份历史旧备份",
+            local.hygiene.backup_file_count
+        ))
+    } else {
+        Some("当前 CLI：未检测到登录态或历史备份".into())
+    };
+
+    (desktop_summary, cli_summary)
+}
+
 /// 预览清理与备份分项清单（用于清理前透明弹窗展示，纯只读、毫秒级）
 pub fn preview_claude_cleanup_plan_with_roots(
     roots: &ClaudeDataRoots,
@@ -979,6 +1111,7 @@ pub fn preview_claude_cleanup_plan_with_roots(
 ) -> CleanupPlanPreview {
     let started = std::time::Instant::now();
     let (entries, protected_reasons) = scan_all_claude_roots(roots);
+    let (desktop_acct_summary, cli_acct_summary) = inspect_cleanup_account_summaries(roots);
 
     let mut detected_install_modes = Vec::new();
     if !roots.msix_roots.is_empty() || !roots.msix_claude_data.is_empty() {
@@ -990,7 +1123,10 @@ pub fn preview_claude_cleanup_plan_with_roots(
     {
         detected_install_modes.push("经典安装版 (Roaming/Local)".to_string());
     }
-    if roots.telemetry.as_ref().is_some_and(|p| p.exists()) {
+    if roots.telemetry.as_ref().is_some_and(|p| p.exists())
+        || roots.cli_claude_json.as_ref().is_some_and(|p| p.exists())
+        || roots.cli_credentials.as_ref().is_some_and(|p| p.exists())
+    {
         detected_install_modes.push("Claude Code CLI".to_string());
     }
     if detected_install_modes.is_empty() {
@@ -1001,7 +1137,14 @@ pub fn preview_claude_cleanup_plan_with_roots(
         (
             CLEAN_CAT_AUTH,
             "桌面端登录态、Cookie 与 OAuth 凭证",
-            "清除后立即退出本地桌面端登录态（Cookies / Local Storage / Session Storage / OAuth config.json）。",
+            "清除后立即退出本地桌面端登录态（Cookies / Local Storage / Session Storage / OAuth config.json）；若需保留桌面端账号请取消勾选。",
+            true,
+            true,
+        ),
+        (
+            CLEAN_CAT_CLI_AUTH,
+            "CLI 登录态与历史旧号备份（~/.claude）",
+            "默认勾选保障本机环境彻底干净：先 ZIP 备份后清除 ~/.claude.json 的 oauthAccount、.credentials.json 与 backups/；若需保留此 CLI 账号请取消勾选。",
             true,
             true,
         ),
@@ -1033,13 +1176,6 @@ pub fn preview_claude_cleanup_plan_with_roots(
             false,
             true,
         ),
-        (
-            CLEAN_CAT_CLI_AUTH,
-            "CLI 登录态与历史旧号备份（~/.claude）",
-            "先 ZIP 原子备份后，移除 ~/.claude.json 中的 oauthAccount、.credentials.json 及 ~/.claude/backups/ 旧号快照，保留个人偏好与项目设置。",
-            false,
-            true,
-        ),
     ];
 
     let mut categories = Vec::with_capacity(specs.len());
@@ -1058,6 +1194,13 @@ pub fn preview_claude_cleanup_plan_with_roots(
                 }
             }
         }
+        let account_summary = if id == CLEAN_CAT_AUTH {
+            desktop_acct_summary.clone()
+        } else if id == CLEAN_CAT_CLI_AUTH {
+            cli_acct_summary.clone()
+        } else {
+            None
+        };
         categories.push(CleanupCategoryPreview {
             id: id.to_string(),
             title: title.to_string(),
@@ -1068,6 +1211,7 @@ pub fn preview_claude_cleanup_plan_with_roots(
             total_bytes,
             size_label: format_size(total_bytes),
             sample_paths: samples,
+            account_summary,
         });
     }
 
@@ -1351,7 +1495,7 @@ pub fn backup_and_clean_with_roots_selected(
     Ok(info)
 }
 
-/// 无损剥离 `~/.claude.json` 中的 `oauthAccount` 字段（保留用户其余偏好与项目记录）
+/// 无损剥离 `~/.claude.json` 中的 `oauthAccount` 与 `cachedUsageUtilization` 旧号残留（保留用户其余偏好与项目记录）
 pub fn strip_oauth_account_from_claude_json(path: &Path) -> Result<bool, String> {
     if !path.exists() {
         return Ok(false);
@@ -1362,7 +1506,9 @@ pub fn strip_oauth_account_from_claude_json(path: &Path) -> Result<bool, String>
     let Some(obj) = val.as_object_mut() else {
         return Ok(false);
     };
-    if obj.remove("oauthAccount").is_none() {
+    let removed_oauth = obj.remove("oauthAccount").is_some();
+    let removed_usage = obj.remove("cachedUsageUtilization").is_some();
+    if !removed_oauth && !removed_usage {
         return Ok(false);
     }
     let out =
@@ -1397,6 +1543,35 @@ pub fn create_manual_backup_snapshot() -> Result<BackupInfo, String> {
     create_snapshot_zip_with_roots(&backups_dir(), "manual", &roots)
 }
 
+/// 严格校验 ZIP 条目相对路径，彻底阻断 `..`、绝对路径、UNC 前缀、反斜杠与 Windows 盘符穿越（Zip Slip）
+pub(crate) fn is_safe_zip_entry_name(name: &str) -> bool {
+    if name.is_empty()
+        || name.starts_with('/')
+        || name.contains('\\')
+        || name.contains(':')
+        || name.contains('\0')
+    {
+        return false;
+    }
+    let trimmed = name.trim_end_matches('/');
+    if trimmed.is_empty() {
+        return false;
+    }
+    let mut has_component = false;
+    for seg in trimmed.split('/') {
+        if seg.is_empty() || seg == "." || seg == ".." {
+            return false;
+        }
+        has_component = true;
+    }
+    if !has_component {
+        return false;
+    }
+    Path::new(trimmed)
+        .components()
+        .all(|c| matches!(c, std::path::Component::Normal(_)))
+}
+
 /// 校验 ZIP 完整性并计算总解压体积（流式分块校验防大快照 OOM）
 pub fn verify_zip_integrity(zip_path: &Path) -> Result<(usize, u64), String> {
     let file = File::open(zip_path)
@@ -1411,7 +1586,7 @@ pub fn verify_zip_integrity(zip_path: &Path) -> Result<(usize, u64), String> {
             .by_index(i)
             .map_err(|e| format!("[{FD_ERR_BACKUP_TX}] 校验 ZIP 条目失败: {e}"))?;
         let name = entry.name().to_string();
-        if name.contains("..") {
+        if !is_safe_zip_entry_name(&name) {
             return Err(format!("[{FD_ERR_BACKUP_TX}] 检测到非法路径穿越条目: {name}"));
         }
         if !entry.is_dir() {
@@ -1562,7 +1737,7 @@ pub fn atomic_extract_and_swap_with_roots(
         if entry.is_dir()
             || name == "backup-manifest.txt"
             || name == "backup-manifest.json"
-            || name.contains("..")
+            || !is_safe_zip_entry_name(&name)
         {
             continue;
         }
@@ -2384,5 +2559,51 @@ mod tests {
             real_preview.protected.size_label,
             real_preview.protected.reasons
         );
+    }
+
+    #[test]
+    fn zip_entry_name_guard_blocks_all_zip_slip_variants() {
+        assert!(is_safe_zip_entry_name("roaming/Network/Cookies"));
+        assert!(is_safe_zip_entry_name("msix/AnthropicPBC.Claude/roaming/logs/main.log"));
+        assert!(is_safe_zip_entry_name("backup-manifest.json"));
+        // 严格阻断路径穿越、绝对路径、UNC、反斜杠与 Windows 盘符
+        assert!(!is_safe_zip_entry_name("../evil.txt"));
+        assert!(!is_safe_zip_entry_name("roaming/../../evil.txt"));
+        assert!(!is_safe_zip_entry_name("/etc/passwd"));
+        assert!(!is_safe_zip_entry_name("roaming/C:\\Windows\\System32\\evil.dll"));
+        assert!(!is_safe_zip_entry_name("C:/Windows/evil.txt"));
+        assert!(!is_safe_zip_entry_name("roaming\\evil.txt"));
+        assert!(!is_safe_zip_entry_name("roaming/./evil.txt"));
+        assert!(!is_safe_zip_entry_name(""));
+
+        // 实测真实 ZIP 文件校验：合法 ZIP 通过，含 Windows 盘符穿越条目的恶意 ZIP 100% 拦截
+        let tmp = tempfile::tempdir().expect("创建临时目录失败");
+        let good_zip = tmp.path().join("good.zip");
+        {
+            let f = File::create(&good_zip).unwrap();
+            let mut zw = ZipWriter::new(f);
+            zw.start_file("roaming/logs/main.log", SimpleFileOptions::default())
+                .unwrap();
+            zw.write_all(b"ok log").unwrap();
+            zw.finish().unwrap();
+        }
+        let (cnt, bytes) = verify_zip_integrity(&good_zip).expect("合法备份 ZIP 应校验通过");
+        assert_eq!(cnt, 1);
+        assert_eq!(bytes, 6);
+
+        let evil_zip = tmp.path().join("evil.zip");
+        {
+            let f = File::create(&evil_zip).unwrap();
+            let mut zw = ZipWriter::new(f);
+            zw.start_file(
+                "roaming/C:\\Windows\\System32\\evil.txt",
+                SimpleFileOptions::default(),
+            )
+            .unwrap();
+            zw.write_all(b"evil").unwrap();
+            zw.finish().unwrap();
+        }
+        let err = verify_zip_integrity(&evil_zip).unwrap_err();
+        assert!(err.contains("非法路径穿越"), "实得错误: {err}");
     }
 }

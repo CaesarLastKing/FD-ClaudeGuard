@@ -197,7 +197,7 @@ pub fn build_initial_snapshot(cfg: &AppConfig) -> GuardSnapshot {
         must_passed: 0,
         must_total: 12,
         opt_passed: 0,
-        opt_total: 6,
+        opt_total: 7,
         clash_version: "正在探测".to_string(),
         clash_port: 7890,
         clash_online: false,
@@ -289,9 +289,9 @@ pub fn build_m1_preflight_report() -> PreflightReport {
             cat: "1. 代理与节点（改 Clash 配置）".into(),
             icon: "geo".into(),
             mode: "自动一键".into(),
-            title: "出口节点合规与真实可达性".into(),
+            title: "出口节点真实可达性".into(),
             status: CheckStatus::Fail,
-            summary: "正在经代理探测出口 IP、ASN 纯净度与 Anthropic 真实可达性...".into(),
+            summary: "正在经代理探测出口 IP 白名单与 Anthropic 真实可达性...".into(),
             evidence: "Probe Status: Initializing".into(),
             guide: "正在执行真实探针检测。".into(),
             fix_label: None,
@@ -482,6 +482,21 @@ pub fn build_m1_preflight_report() -> PreflightReport {
             is_failover: false,
         },
         PreflightItem {
+            id: "opt_exit_geo".into(),
+            part: CheckPart::Opt,
+            cat: "系统辅助优化".into(),
+            icon: "geo".into(),
+            mode: "只读风险监测".into(),
+            title: "出口节点合规性与属地一致性".into(),
+            status: CheckStatus::Warn,
+            summary: "正在比对账号归属地、24h IP 稳定性与网页端弹盾状态...".into(),
+            evidence: "Probe Status: Initializing".into(),
+            guide: "正在执行真实探针检测。".into(),
+            fix_label: None,
+            is_kill_item: false,
+            is_failover: false,
+        },
+        PreflightItem {
             id: "opt_browser_ext".into(),
             part: CheckPart::Opt,
             cat: "系统辅助优化".into(),
@@ -523,9 +538,12 @@ mod tests {
             .filter(|i| i.part == CheckPart::Opt)
             .collect();
 
-        // 三大纯粹操作边界 12 项必须（改 Clash 5 + 改系统 3 + 改 Claude 4）+ 6 项建议
+        // 三大纯粹操作边界 12 项必须（改 Clash 5 + 改系统 3 + 改 Claude 4）+ 7 项建议（含时区下方的出口合规性）
         assert_eq!(must_items.len(), 12);
-        assert_eq!(opt_items.len(), 6);
+        assert_eq!(opt_items.len(), 7);
+        let tz_idx = opt_items.iter().position(|i| i.id == "opt_tz").unwrap();
+        let exit_geo_idx = opt_items.iter().position(|i| i.id == "opt_exit_geo").unwrap();
+        assert_eq!(exit_geo_idx, tz_idx + 1, "出口合规性建议项必须紧跟系统时区下方");
         assert_eq!(
             must_items
                 .iter()

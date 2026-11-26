@@ -13,6 +13,8 @@ use std::time::{Duration, Instant};
 pub struct DualAiProbeResult {
     pub claude_status: String, // "ok" | "cf_challenge" | "cf_403" | "blocked" | "offline" | "unknown"
     pub claude_label: String,
+    /// 具体探测诊断说明（例如失败原因：超时/TLS重置/HTTP状态码），供悬浮窗展示与日志排查
+    pub claude_probe_detail: String,
     pub gemini_status: String, // "ok" | "restricted" | "cn_redirect" | "unknown"
     pub gemini_label: String,
     pub cf_blocked: bool,
@@ -48,6 +50,9 @@ pub struct VerifiedNodeRecord {
     pub blocked_country: bool,
     pub claude_status: String,
     pub claude_label: String,
+    /// 具体探测诊断说明（如超时/连接重置原因），供隔离区与可用区悬浮提示展示
+    #[serde(default)]
+    pub claude_probe_detail: String,
     pub gemini_status: String,
     pub gemini_label: String,
     pub cf_blocked: bool,
@@ -109,6 +114,8 @@ struct NodeStabilityRecord {
 const DUAL_AI_CACHE_TTL_SECS: u64 = 300;
 const VERIFIED_GEO_CACHE_TTL_SECS: u64 = 86_400;
 const VERIFIED_DISK_TTL_SECS: i64 = 24 * 3600;
+/// 瞬时超时（offline）短缓存周期（5 分钟），避免一次网络抖动将健康节点误锁死 24 小时
+const OFFLINE_DISK_TTL_SECS: i64 = 5 * 60;
 const DRIFT_WINDOW_SECS: i64 = 24 * 3600;
 
 fn dual_ai_cache() -> &'static RwLock<HashMap<String, DualAiProbeResult>> {
@@ -211,7 +218,7 @@ pub fn is_deep_audit_cancelled() -> bool {
     deep_audit_cancel_flag().load(Ordering::SeqCst)
 }
 
-/// 读取节点在 24h 有效期且符合最新探针版本的持久化深度核验记录
+/// 读取节点在有效期内且符合最新探针版本的持久化深度核验记录（瞬时超时 offline 仅缓存 5 分钟，其余 24 小时）
 pub fn get_fresh_verified_record(node_name: &str) -> Option<VerifiedNodeRecord> {
     let now = chrono::Utc::now().timestamp();
     verified_disk_cache()
@@ -219,8 +226,13 @@ pub fn get_fresh_verified_record(node_name: &str) -> Option<VerifiedNodeRecord> 
         .ok()
         .and_then(|m| m.get(node_name).cloned())
         .filter(|rec| {
+            let ttl = if rec.claude_status == "offline" {
+                OFFLINE_DISK_TTL_SECS
+            } else {
+                VERIFIED_DISK_TTL_SECS
+            };
             rec.probe_schema_version >= CURRENT_PROBE_SCHEMA_VERSION
-                && now - rec.verified_at_unix <= VERIFIED_DISK_TTL_SECS
+                && now - rec.verified_at_unix <= ttl
         })
 }
 
@@ -249,6 +261,7 @@ pub fn save_verified_node_record(node_name: &str, rec: VerifiedNodeRecord) {
             DualAiProbeResult {
                 claude_status: rec.claude_status.clone(),
                 claude_label: rec.claude_label.clone(),
+                claude_probe_detail: rec.claude_probe_detail.clone(),
                 gemini_status: rec.gemini_status.clone(),
                 gemini_label: rec.gemini_label.clone(),
                 cf_blocked: rec.cf_blocked,
@@ -316,6 +329,7 @@ pub fn record_verified_node_claude_probe(
             DualAiProbeResult {
                 claude_status: claude_status.to_string(),
                 claude_label: claude_label.to_string(),
+                claude_probe_detail: String::new(),
                 gemini_status: existing_gemini.0.clone(),
                 gemini_label: existing_gemini.1.clone(),
                 cf_blocked,
@@ -768,8 +782,9 @@ pub async fn probe_dual_ai_via_proxy(node_name: &str, proxy_port: u16) -> DualAi
         return DualAiProbeResult {
             claude_status: "unknown".into(),
             claude_label: "Claude 待测".into(),
+            claude_probe_detail: "探针客户端初始化失败".into(),
             gemini_status: "unknown".into(),
-            gemini_label: "Gemini 待测".into(),
+            gemini_label: "AGY 待测".into(),
             cf_blocked: false,
             web_cf_challenge: false,
             claude_delay_ms: None,
@@ -778,30 +793,74 @@ pub async fn probe_dual_ai_via_proxy(node_name: &str, proxy_port: u16) -> DualAi
     };
 
     // 并发探测 Anthropic API + claude.ai 网页防盾 + Gemini 无状态入口（不带任何账号 Cookie / Token）
-    // Anthropic API 遇到单次网络抖动或冷握手超时自动重试 1 次（间隔 450ms），避免健康节点被瞬时毛刺误杀为离线
-    let claude_api_fut = async {
-        let mut last_res = ("unknown", "Claude 待测", false, None);
-        for attempt in 0..2 {
+    // Anthropic API 每次重试新建独立 Client（不复用可能刚切节点损坏的连接池），超时 5s -> 6s，并记录真实失败原因
+    let proxy_url_claude = proxy_url.clone();
+    let node_name_for_log = node_name.to_string();
+    let claude_api_fut = async move {
+        let mut last_res: (&'static str, &'static str, bool, Option<u32>, String) =
+            ("unknown", "Claude 待测", false, None, String::new());
+        for (attempt, timeout_secs) in [(0usize, 5u64), (1usize, 6u64)] {
+            let fresh_client = reqwest::Client::builder()
+                .proxy(reqwest::Proxy::all(&proxy_url_claude).unwrap_or_else(|_| {
+                    reqwest::Proxy::http("http://127.0.0.1:7890").expect("fallback proxy")
+                }))
+                .timeout(Duration::from_secs(timeout_secs))
+                .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36")
+                .build();
+            let Ok(c) = fresh_client else {
+                last_res.4 = "初始化 Anthropic 探针客户端失败".into();
+                break;
+            };
             let t0 = Instant::now();
-            match client.get("https://api.anthropic.com/v1/models").send().await {
+            match c.get("https://api.anthropic.com/v1/models").send().await {
                 Ok(resp) => {
                     let rtt = t0.elapsed().as_millis().min(9999) as u32;
                     let status = resp.status().as_u16();
                     let body = resp.text().await.unwrap_or_default();
                     let snippet: String = body.chars().take(600).collect();
                     let (st, lbl, blocked) = classify_claude_probe_response(status, &snippet);
-                    last_res = (st, lbl, blocked, Some(rtt));
+                    let detail = if st == "ok" {
+                        format!("api.anthropic.com 畅通 (HTTP {status}, {rtt}ms)")
+                    } else if st == "cf_403" {
+                        format!("Cloudflare 403 拉黑 (HTTP 403)")
+                    } else if st == "blocked" {
+                        format!("Anthropic 返回地区不支持 (HTTP {status})")
+                    } else {
+                        format!("Anthropic 服务端返回异常 HTTP {status}")
+                    };
+                    last_res = (st, lbl, blocked, Some(rtt), detail);
                     // 拿到明确非 5xx HTTP 响应立即返回，无需无谓重试
                     if status < 500 {
                         return last_res;
                     }
+                    crate::logger::log_warn(
+                        "node_probe",
+                        format!(
+                            "节点「{node_name_for_log}」探测 api.anthropic.com 第 {} 次返回 HTTP {status}，准备重试",
+                            attempt + 1
+                        ),
+                    );
                 }
-                Err(_) => {
-                    last_res = ("unknown", "Claude 待测", false, None);
+                Err(e) => {
+                    let err_brief = if e.is_timeout() {
+                        format!("连接 api.anthropic.com 超时 (>{timeout_secs}s)")
+                    } else if e.is_connect() {
+                        format!("无法经代理建连 api.anthropic.com ({e})")
+                    } else {
+                        format!("请求 api.anthropic.com 异常 ({e})")
+                    };
+                    crate::logger::log_warn(
+                        "node_probe",
+                        format!(
+                            "节点「{node_name_for_log}」第 {} 次探测 api.anthropic.com 失败: {err_brief}",
+                            attempt + 1
+                        ),
+                    );
+                    last_res = ("unknown", "Claude 待测", false, None, err_brief);
                 }
             }
             if attempt == 0 {
-                tokio::time::sleep(Duration::from_millis(450)).await;
+                tokio::time::sleep(Duration::from_millis(500)).await;
             }
         }
         last_res
@@ -898,7 +957,7 @@ pub async fn probe_dual_ai_via_proxy(node_name: &str, proxy_port: u16) -> DualAi
         ("restricted", "AGY 限区")
     };
 
-    let ((mut c_stat, mut c_lbl, cf_blocked, claude_rtt), web_challenge, (g_stat, g_lbl)) =
+    let ((mut c_stat, mut c_lbl, cf_blocked, claude_rtt, claude_detail), web_challenge, (g_stat, g_lbl)) =
         tokio::join!(claude_api_fut, claude_web_fut, agy_fut);
 
     if c_stat == "ok" && web_challenge {
@@ -909,6 +968,7 @@ pub async fn probe_dual_ai_via_proxy(node_name: &str, proxy_port: u16) -> DualAi
     let res = DualAiProbeResult {
         claude_status: c_stat.to_string(),
         claude_label: c_lbl.to_string(),
+        claude_probe_detail: claude_detail,
         gemini_status: g_stat.to_string(),
         gemini_label: g_lbl.to_string(),
         cf_blocked,
@@ -1001,15 +1061,30 @@ pub async fn probe_single_node_deep_via_proxy(
             ),
         };
 
-    let (claude_status, claude_label, cf_blocked) = if blocked_country {
-        ("blocked".to_string(), "落地禁区".to_string(), true)
+    let (claude_status, claude_label, cf_blocked, claude_probe_detail) = if blocked_country {
+        (
+            "blocked".to_string(),
+            "落地禁区".to_string(),
+            true,
+            format!("实测真实出口 IP ({masked_ip}) 归属禁区 {country_code}"),
+        )
     } else if ai_res.claude_delay_ms.is_none() && ai_res.claude_status == "unknown" {
-        ("offline".to_string(), "Claude 超时".to_string(), false)
+        (
+            "offline".to_string(),
+            "Claude 超时".to_string(),
+            false,
+            if ai_res.claude_probe_detail.is_empty() {
+                "连续 2 次探测 api.anthropic.com 超时或连接失败".to_string()
+            } else {
+                ai_res.claude_probe_detail.clone()
+            },
+        )
     } else {
         (
             ai_res.claude_status.clone(),
             ai_res.claude_label.clone(),
             ai_res.cf_blocked,
+            ai_res.claude_probe_detail.clone(),
         )
     };
 
@@ -1023,6 +1098,7 @@ pub async fn probe_single_node_deep_via_proxy(
         blocked_country,
         claude_status,
         claude_label,
+        claude_probe_detail,
         gemini_status: ai_res.gemini_status,
         gemini_label: ai_res.gemini_label,
         cf_blocked,
@@ -1153,6 +1229,9 @@ pub struct NodeItem {
     /// 增量 18：Claude 平台状态 ("ok" | "cf_403" | "blocked" | "unknown")
     pub claude_status: String,
     pub claude_label: String,
+    /// 具体探测原因说明（超时/拉黑/落地禁区详情），供悬浮提示展示
+    #[serde(default)]
+    pub claude_probe_detail: String,
     /// 增量 18：Gemini/Google 平台状态 ("ok" | "restricted" | "cn_redirect" | "unknown")
     pub gemini_status: String,
     pub gemini_label: String,
@@ -1257,6 +1336,13 @@ pub struct NodeReport {
     pub group_name: String,
     pub current_node: String,
     pub total_raw_nodes: usize,
+    /// 订阅全部真实代理节点总数（= 名称直筛禁区 + 入组评估数，保证加总严格对得上）
+    #[serde(default)]
+    pub subscription_total_nodes: usize,
+    /// 按名称自动屏蔽（未进入评估组）的禁区节点数
+    #[serde(default)]
+    pub name_blocked_count: usize,
+    /// 总禁区节点数（名称直筛禁区 + 组内实测落地禁区，去重）
     pub filtered_blocked_count: usize,
     pub nodes: Vec<NodeItem>,
     /// 当前锁定节点的紧凑出口摘要（国家 · 脱敏 IP · 节点类型 · 24h 漂移）
@@ -1884,6 +1970,8 @@ pub async fn build_node_report_with_options(force_reprobe: bool) -> NodeReport {
             group_name: "Claude-Fixed".into(),
             current_node: "未连接".into(),
             total_raw_nodes: 0,
+            subscription_total_nodes: 0,
+            name_blocked_count: 0,
             filtered_blocked_count: 0,
             nodes: Vec::new(),
             current_exit_summary: None,
@@ -1897,6 +1985,8 @@ pub async fn build_node_report_with_options(force_reprobe: bool) -> NodeReport {
             group_name: "Claude-Fixed".into(),
             current_node: "读取节点列表失败".into(),
             total_raw_nodes: 0,
+            subscription_total_nodes: 0,
+            name_blocked_count: 0,
             filtered_blocked_count: 0,
             nodes: Vec::new(),
             current_exit_summary: None,
@@ -1945,6 +2035,7 @@ pub async fn build_node_report_with_options(force_reprobe: bool) -> NodeReport {
             Some(DualAiProbeResult {
                 claude_status: rec.claude_status,
                 claude_label: rec.claude_label,
+                claude_probe_detail: rec.claude_probe_detail,
                 gemini_status: rec.gemini_status,
                 gemini_label: rec.gemini_label,
                 cf_blocked: rec.cf_blocked,
@@ -2102,6 +2193,7 @@ pub async fn build_node_report_with_options(force_reprobe: bool) -> NodeReport {
             Some(DualAiProbeResult {
                 claude_status: rec.claude_status.clone(),
                 claude_label: rec.claude_label.clone(),
+                claude_probe_detail: rec.claude_probe_detail.clone(),
                 gemini_status: rec.gemini_status.clone(),
                 gemini_label: rec.gemini_label.clone(),
                 cf_blocked: rec.cf_blocked,
@@ -2122,6 +2214,7 @@ pub async fn build_node_report_with_options(force_reprobe: bool) -> NodeReport {
         let (
             mut claude_status,
             mut claude_label,
+            mut claude_probe_detail,
             gemini_status,
             gemini_label,
             mut cf_blocked,
@@ -2131,6 +2224,7 @@ pub async fn build_node_report_with_options(force_reprobe: bool) -> NodeReport {
             (
                 p.claude_status,
                 p.claude_label,
+                p.claude_probe_detail,
                 p.gemini_status,
                 p.gemini_label,
                 p.cf_blocked,
@@ -2141,6 +2235,7 @@ pub async fn build_node_report_with_options(force_reprobe: bool) -> NodeReport {
             (
                 "unknown".to_string(),
                 "待核验".to_string(),
+                String::new(),
                 "unknown".to_string(),
                 "AGY 待测".to_string(),
                 false,
@@ -2153,15 +2248,14 @@ pub async fn build_node_report_with_options(force_reprobe: bool) -> NodeReport {
             claude_status = "blocked".to_string();
             claude_label = "落地禁区".to_string();
             cf_blocked = true;
+            if claude_probe_detail.is_empty() {
+                claude_probe_detail = format!("实测真实出口归属禁区 ({region_code})");
+            }
         }
 
-        // 延迟优先采用直连 Anthropic API 的真实 RTT（若离线则 None），比通用 gstatic 延迟更真实
-        let delay_ms = if claude_status == "offline" {
-            None
-        } else {
-            probe_delay.or(history_delay)
-        };
-        let stability = if delay_ms.is_none() {
+        // 保留真实基础网络延迟，避免出现「0.0% 断连却强行抹成超时」的自相矛盾展示
+        let delay_ms = probe_delay.or(history_delay);
+        let stability = if claude_status == "offline" || delay_ms.is_none() {
             40.0
         } else if drift_count_24h >= 3 {
             60.0
@@ -2225,8 +2319,14 @@ pub async fn build_node_report_with_options(force_reprobe: bool) -> NodeReport {
             "禁区不可用"
         } else if cf_blocked {
             "拉黑不可用"
-        } else if claude_status == "offline" || drop_rate_pct >= crate::protocol::DROP_RATE_REDLINE {
-            "离线/高断连不可用"
+        } else if drop_rate_pct >= crate::protocol::DROP_RATE_REDLINE {
+            "高断连不可用"
+        } else if claude_status == "offline" {
+            if delay_ms.is_some() {
+                "Anthropic 超时"
+            } else {
+                "离线不可用"
+            }
         } else if risk_level == "abuser" {
             "高危滥用不可用"
         } else if risk_level == "proxy" {
@@ -2276,6 +2376,7 @@ pub async fn build_node_report_with_options(force_reprobe: bool) -> NodeReport {
             cf_blocked,
             claude_status,
             claude_label,
+            claude_probe_detail,
             gemini_status,
             gemini_label,
             dual_ai_ok,
@@ -2318,6 +2419,8 @@ pub async fn build_node_report_with_options(force_reprobe: bool) -> NodeReport {
         });
 
     let filtered_blocked_count = count_blocked_region_nodes(&proxies, &candidates, &nodes);
+    let (subscription_total_nodes, name_blocked_count) =
+        count_subscription_and_name_blocked(&proxies, &candidates, &nodes);
 
     NodeReport {
         connected: true,
@@ -2325,10 +2428,55 @@ pub async fn build_node_report_with_options(force_reprobe: bool) -> NodeReport {
         group_name,
         current_node: display_current_node,
         total_raw_nodes: candidates.len(),
+        subscription_total_nodes,
+        name_blocked_count,
         filtered_blocked_count,
         nodes,
         current_exit_summary,
     }
+}
+
+/// 精确统计订阅节点账目（保证 `subscription_total_nodes == name_blocked_count + evaluated_nodes.len()` 严丝合缝）：
+/// 返回 `(subscription_total_nodes, name_blocked_count)`
+pub fn count_subscription_and_name_blocked(
+    proxies: &HashMap<String, Value>,
+    group_candidates: &[String],
+    evaluated_nodes: &[NodeItem],
+) -> (usize, usize) {
+    let eval_set: std::collections::HashSet<&str> =
+        evaluated_nodes.iter().map(|n| n.name.as_str()).collect();
+    let mut name_blocked: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    for (name, obj) in proxies {
+        let ptype = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
+        if matches!(
+            ptype,
+            "Selector"
+                | "URLTest"
+                | "Fallback"
+                | "LoadBalance"
+                | "Direct"
+                | "Reject"
+                | "RejectDrop"
+                | "Pass"
+                | "Compatible"
+                | "Relay"
+        ) {
+            continue;
+        }
+        if !eval_set.contains(name.as_str()) && is_blocked_node_name(name) {
+            name_blocked.insert(name.clone());
+        }
+    }
+    for name in group_candidates {
+        if !eval_set.contains(name.as_str()) && is_blocked_node_name(name) {
+            name_blocked.insert(name.clone());
+        }
+    }
+
+    let name_blocked_count = name_blocked.len();
+    let subscription_total_nodes = evaluated_nodes.len() + name_blocked_count;
+    (subscription_total_nodes, name_blocked_count)
 }
 
 /// 真实统计「已自动屏蔽禁区节点」总数（去重）：
@@ -2640,6 +2788,7 @@ mod tests {
                 risk_level: "isp".into(),
                 risk_detail: "无代理标记".into(),
                 web_cf_challenge: false,
+                claude_probe_detail: String::new(),
             },
             NodeItem {
                 name: "🇨🇳台湾1|流媒体AI".into(),
@@ -2666,10 +2815,42 @@ mod tests {
                 risk_level: "isp".into(),
                 risk_detail: "无代理标记".into(),
                 web_cf_challenge: false,
+                claude_probe_detail: "实测落地 HK 属于禁区".into(),
             },
         ];
 
         // 2 个订阅香港节点 + 1 个假台湾落地香港节点 = 3 个（策略组不计入）
         assert_eq!(count_blocked_region_nodes(&proxies, &group_candidates, &evaluated), 3);
+    }
+
+    #[test]
+    fn offline_verified_record_uses_short_5m_ttl_while_ok_stays_fresh() {
+        let now = chrono::Utc::now().timestamp();
+        let make_rec = |status: &str, age_secs: i64| VerifiedNodeRecord {
+            country_code: "SG".into(),
+            masked_ip: "1.2.xx.xx".into(),
+            asn_org: "ISP".into(),
+            asn_purity: "ISP 住宅".into(),
+            risk_level: "isp".into(),
+            risk_detail: "无代理标记".into(),
+            blocked_country: false,
+            claude_status: status.into(),
+            claude_label: if status == "offline" { "Claude 超时".into() } else { "Claude ✓".into() },
+            claude_probe_detail: "connect timeout".into(),
+            gemini_status: "ok".into(),
+            gemini_label: "AGY ✓".into(),
+            cf_blocked: false,
+            web_cf_challenge: false,
+            claude_delay_ms: Some(90),
+            verified_at_unix: now - age_secs,
+            probe_schema_version: CURRENT_PROBE_SCHEMA_VERSION,
+        };
+        let fresh_offline = make_rec("offline", 120);
+        let expired_offline = make_rec("offline", OFFLINE_DISK_TTL_SECS + 10);
+        let ok_12h = make_rec("ok", 12 * 3600);
+
+        assert!(now - fresh_offline.verified_at_unix <= OFFLINE_DISK_TTL_SECS);
+        assert!(now - expired_offline.verified_at_unix > OFFLINE_DISK_TTL_SECS);
+        assert!(now - ok_12h.verified_at_unix <= VERIFIED_DISK_TTL_SECS);
     }
 }

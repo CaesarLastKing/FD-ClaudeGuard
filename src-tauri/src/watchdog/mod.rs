@@ -763,6 +763,16 @@ fn discover_claude_log_dirs_cached() -> Vec<PathBuf> {
     let mut dirs_to_check = Vec::new();
     if let Some(local) = dirs::data_local_dir() {
         dirs_to_check.push(local.join("Claude").join("logs"));
+        // 兼容 MSIX 新版 Claude 桌面端（%LOCALAPPDATA%\Claude-Data\claude_*\logs）
+        let claude_data = local.join("Claude-Data");
+        if let Ok(entries) = fs::read_dir(claude_data) {
+            for e in entries.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    dirs_to_check.push(p.join("logs"));
+                }
+            }
+        }
         let packages = local.join("Packages");
         if let Ok(entries) = fs::read_dir(packages) {
             for e in entries.flatten() {
@@ -871,16 +881,17 @@ pub fn audit_log_text_for_accounts(text: &str, audit: &mut AccountLogAudit) {
             }
         }
 
+        // 与 account_audit::disambiguate 100% 同源对齐：
+        // len=156 / len=164 是 Free/普通号背景 OAuth 套餐权限边界 403（PlanBoundaryOAuth403），绝不视为受限或封号！
+        // 仅明确封禁 / 门户核验 / len=130 / len=123 强吊才计入高危受限号。
         let is_restricted_hit = lower.contains("portal.anthropic.com/verify")
             || lower.contains("can't receive replies from claude")
             || lower.contains("account_banned")
             || lower.contains("account_suspended")
             || lower.contains("organization_disabled")
+            || lower.contains("ban_evasion")
             || (lower.contains("permission_error")
-                && (lower.contains("len=156")
-                    || lower.contains("len=164")
-                    || lower.contains("len=130")
-                    || lower.contains("len=123")));
+                && (lower.contains("len=130") || lower.contains("len=123")));
         if is_restricted_hit {
             if !line_orgs.is_empty() {
                 for o in &line_orgs {

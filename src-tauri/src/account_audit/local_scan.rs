@@ -38,6 +38,10 @@ pub const API_ENDPOINT_ENV_KEYS: [&str; 3] = [
 const MAX_LOG_TAIL_BYTES: u64 = 2 * 1024 * 1024;
 /// MCP 报错风暴静默兜底阈值（短时间 >= 50 条循环错误才吐 1 条提示，平时 0 噪音）
 pub const MCP_STORM_THRESHOLD: usize = 50;
+/// 定时任务脚本活跃窗口（72 小时内修改视为近期活跃，超过 72h 归类为历史留存不计风险）
+pub const SCHEDULED_TASK_ACTIVE_WINDOW_MS: i64 = 72 * 3_600_000;
+/// 活跃定时任务轻微提醒阈值（0~5 个正常，>= 6 个轻度黄灯提醒）
+pub const ACTIVE_SCHEDULED_TASKS_WARN_THRESHOLD: usize = 6;
 
 /// 桌面端目录来源（经典 Electron / 微软商店 MSIX）
 #[derive(Debug, Clone)]
@@ -131,6 +135,20 @@ pub fn discover_desktop_data_dirs(
                             dir: local_msix,
                         });
                     }
+                }
+            }
+        }
+        // 同时扫描 Windows 桌面端共享数据目录 %LOCALAPPDATA%\Claude-Data\<pkg>（含 config.json 与 scheduled-tasks.json）
+        let cdata = local.join("Claude-Data");
+        if let Ok(entries) = fs::read_dir(cdata) {
+            for ent in entries.flatten() {
+                let name = ent.file_name().to_string_lossy().to_string();
+                let lower = name.to_ascii_lowercase();
+                if (lower.contains("claude") || lower.contains("anthropic")) && ent.path().is_dir() {
+                    out.push(DesktopDataRoot {
+                        kind: format!("Claude-Data({name})"),
+                        dir: ent.path(),
+                    });
                 }
             }
         }
@@ -253,6 +271,15 @@ pub struct ClaudeJsonSummary {
     pub parse_error: Option<String>,
     pub email_masked: Option<String>,
     pub org_uuid_prefix8: Option<String>,
+    /// `oauthAccount.accountUuid` 前 8 位（用于校验是否与 `cachedUsageUtilization.accountUuid` 发生同文件跨号污染）
+    #[serde(default)]
+    pub account_uuid_prefix8: Option<String>,
+    /// `cachedUsageUtilization.accountUuid` 前 8 位
+    #[serde(default)]
+    pub cached_usage_account_uuid_prefix8: Option<String>,
+    /// `~/.claude.json` 内部是否同时存在两个不同账号的 `accountUuid` 交叉残留
+    #[serde(default)]
+    pub internal_account_mismatch: bool,
     pub plan_label: Option<String>,
     pub billing_type: Option<String>,
     pub merchant_channel: Option<String>,
@@ -271,6 +298,9 @@ pub struct ClaudeJsonSummary {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsHygieneSummary {
+    /// 本机是否检测到 Claude Code CLI（未安装 CLI 且 telemetry 为 0 B 时可自动豁免隐私降噪项）
+    #[serde(default)]
+    pub cli_installed: bool,
     pub settings_exists: bool,
     pub settings_path: Option<String>,
     /// 4 项隐私降噪开关状态（true 表示已设置为 `"1"`）
@@ -283,7 +313,17 @@ pub struct SettingsHygieneSummary {
     pub system_env_endpoint_conflicts: Vec<String>,
     pub telemetry_file_count: usize,
     pub telemetry_total_bytes: u64,
+    /// 近期活跃定时任务数（兼容旧字段名：桌面端启用的 scheduled-tasks.json + CLI 近 72h 内变动脚本）
     pub scheduled_tasks_count: usize,
+    /// 近期活跃定时任务数（桌面端启用 + CLI 近 72h 内修改；>= 6 才触发轻度黄灯提醒）
+    #[serde(default)]
+    pub active_scheduled_tasks_count: usize,
+    /// CLI `~/.claude/scheduled-tasks` 下超过 72h 未变动的历史留存脚本数（仅作参考展示，不扣分不标红）
+    #[serde(default)]
+    pub historical_scheduled_tasks_count: usize,
+    /// `~/.claude/scheduled-tasks` 目录绝对路径（供前端只读「打开目录查看」）
+    #[serde(default)]
+    pub scheduled_tasks_dir: Option<String>,
     pub backup_file_count: usize,
     pub backup_accounts: Vec<BackupAccountRecord>,
 }
@@ -305,6 +345,9 @@ pub struct WindowBehaviorStats {
 pub struct OfflineBehaviorSummary {
     pub projects_dir_exists: bool,
     pub files_scanned_7d: usize,
+    /// 其中来自桌面端 Claude-Data（claude-code-sessions / local-agent-mode-sessions）的 7 天内 .jsonl 文件数
+    #[serde(default)]
+    pub desktop_sessions_files_7d: usize,
     pub last_5h: WindowBehaviorStats,
     pub last_24h: WindowBehaviorStats,
     pub last_7d: WindowBehaviorStats,
@@ -320,6 +363,9 @@ pub struct DesktopLogsSummary {
     pub discovered_dirs: Vec<String>,
     pub scanned_log_files: usize,
     pub org_id_prefixes: Vec<String>,
+    /// `Claude-Data` 下 `local-agent-mode-sessions` / `claude-code-sessions` 中残留的旧账号/组织目录前缀（不触碰内容，仅提示防连坐）
+    #[serde(default)]
+    pub session_dir_org_prefixes: Vec<String>,
     pub account_banned_hits: usize,
     pub portal_verify_hits: usize,
     pub cross_org_404_hits: usize,
@@ -334,6 +380,9 @@ pub struct DesktopLogsSummary {
     pub mcp_error_hits: usize,
     pub mcp_error_storm: bool,
     pub disconnect_hits: usize,
+    /// 桌面端 `plan-usage-history.json` 本地缓存的 5h/7d 用量（付费号无需输 sk 即可回退显示）
+    #[serde(default)]
+    pub cached_usage: Option<CachedUsageSummary>,
     /// 提取用于「实时异常日志流」与消歧的脱敏日志摘录
     pub recent_samples: Vec<LocalLogSample>,
 }
@@ -533,6 +582,22 @@ pub fn scan_claude_json(path: Option<&Path>, now_ms: i64) -> ClaudeJsonSummary {
         oa.and_then(|o| o.get("organizationUuid"))
             .and_then(|v| v.as_str()),
     );
+    let account_uuid_prefix8 = prefix8(
+        oa.and_then(|o| o.get("accountUuid"))
+            .and_then(|v| v.as_str()),
+    );
+    let cached_usage_account_uuid_prefix8 = prefix8(
+        val.get("cachedUsageUtilization")
+            .and_then(|cu| cu.get("accountUuid"))
+            .and_then(|v| v.as_str()),
+    );
+    let internal_account_mismatch = match (
+        account_uuid_prefix8.as_deref(),
+        cached_usage_account_uuid_prefix8.as_deref(),
+    ) {
+        (Some(a), Some(b)) => !a.eq_ignore_ascii_case(b),
+        _ => false,
+    };
     let org_type = oa
         .and_then(|o| o.get("organizationType"))
         .and_then(|v| v.as_str());
@@ -623,6 +688,9 @@ pub fn scan_claude_json(path: Option<&Path>, now_ms: i64) -> ClaudeJsonSummary {
         parse_error: None,
         email_masked,
         org_uuid_prefix8,
+        account_uuid_prefix8,
+        cached_usage_account_uuid_prefix8,
+        internal_account_mismatch,
         plan_label,
         billing_type,
         merchant_channel,
@@ -783,12 +851,173 @@ fn dir_file_stats_bounded(dir: &Path, depth: usize) -> (usize, u64) {
     (files, bytes)
 }
 
+/// 拆分 `~/.claude/scheduled-tasks` 下的脚本为「近 72h 活跃」与「>72h 历史留存」
+fn scan_scheduled_tasks_dir_split(dir: &Path, now_ms: i64, depth: usize) -> (usize, usize) {
+    if depth > 4 || !dir.exists() {
+        return (0, 0);
+    }
+    let Ok(rd) = fs::read_dir(dir) else {
+        return (0, 0);
+    };
+    let mut active = 0usize;
+    let mut historical = 0usize;
+    for ent in rd.flatten() {
+        let p = ent.path();
+        let Ok(m) = fs::symlink_metadata(&p) else {
+            continue;
+        };
+        if m.file_type().is_symlink() {
+            continue;
+        }
+        if m.is_dir() {
+            let (a, h) = scan_scheduled_tasks_dir_split(&p, now_ms, depth + 1);
+            active += a;
+            historical += h;
+        } else if m.is_file() {
+            let mtime_ms = m
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0);
+            if mtime_ms > 0 && now_ms.saturating_sub(mtime_ms) <= SCHEDULED_TASK_ACTIVE_WINDOW_MS {
+                active += 1;
+            } else {
+                historical += 1;
+            }
+        }
+    }
+    (active, historical)
+}
+
+/// 读取桌面端目录下可能存在的 `scheduled-tasks.json`（仅统计启用中的定时任务数量）
+fn count_desktop_active_scheduled_tasks(roots: &[DesktopDataRoot]) -> usize {
+    let mut total = 0usize;
+    let mut seen_paths: BTreeSet<PathBuf> = BTreeSet::new();
+    for root in roots {
+        if !root.dir.exists() {
+            continue;
+        }
+        // 桌面端 scheduled-tasks.json 可能位于根目录或 local-agent-mode-sessions 子层级下（限深度 3）
+        let mut stack: Vec<(PathBuf, usize)> = vec![(root.dir.clone(), 0)];
+        while let Some((dir, depth)) = stack.pop() {
+            if depth > 3 {
+                continue;
+            }
+            let Ok(rd) = fs::read_dir(&dir) else {
+                continue;
+            };
+            for ent in rd.flatten() {
+                let p = ent.path();
+                let Ok(m) = fs::symlink_metadata(&p) else {
+                    continue;
+                };
+                if m.file_type().is_symlink() {
+                    continue;
+                }
+                let fname = ent.file_name().to_string_lossy().to_ascii_lowercase();
+                if m.is_dir() {
+                    if !matches!(
+                        fname.as_str(),
+                        "cache" | "code cache" | "gpucache" | "indexeddb" | "vm_bundles" | "logs"
+                    ) {
+                        stack.push((p, depth + 1));
+                    }
+                } else if fname == "scheduled-tasks.json" && seen_paths.insert(p.clone()) {
+                    if let Ok(raw) = read_text_shared(&p) {
+                        if let Ok(val) = serde_json::from_str::<Value>(raw.trim_start_matches('\u{feff}')) {
+                            if let Some(arr) = val.get("scheduledTasks").and_then(|v| v.as_array()) {
+                                let enabled_cnt = arr
+                                    .iter()
+                                    .filter(|item| {
+                                        item.get("enabled")
+                                            .and_then(|v| v.as_bool())
+                                            .unwrap_or(true)
+                                    })
+                                    .count();
+                                total += enabled_cnt;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    total
+}
+
+/// 检测本机是否安装或使用过 Claude Code CLI（仅在 scan_system_env=true 时额外探测系统 PATH / 安装路径，保证单测 100% 隔离）
+pub fn detect_claude_cli_installed(
+    cli_dir: Option<&Path>,
+    claude_json_path: Option<&Path>,
+    scan_system_env: bool,
+) -> bool {
+    if let Some(cj) = claude_json_path {
+        if cj.is_file() {
+            return true;
+        }
+    }
+    if let Some(dir) = cli_dir {
+        if dir.join("settings.json").is_file()
+            || dir.join(".credentials.json").is_file()
+            || dir.join("projects").is_dir()
+            || dir.join("backups").is_dir()
+        {
+            return true;
+        }
+    }
+    if !scan_system_env {
+        return false;
+    }
+    if let Some(home) = dirs::home_dir() {
+        for cand in [
+            home.join(".local").join("bin").join("claude.exe"),
+            home.join(".local").join("bin").join("claude"),
+            home.join(".claude").join("local").join("claude.exe"),
+        ] {
+            if cand.is_file() {
+                return true;
+            }
+        }
+    }
+    if let Some(roaming) = dirs::config_dir() {
+        if roaming.join("npm").join("claude.cmd").is_file()
+            || roaming.join("npm").join("claude").is_file()
+        {
+            return true;
+        }
+    }
+    if let Ok(path_var) = std::env::var("PATH") {
+        for seg in std::env::split_paths(&path_var) {
+            if seg.join("claude.exe").is_file() || seg.join("claude.cmd").is_file() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// 扫描 `~/.claude/settings.json`、`telemetry/`、`scheduled-tasks/` 与 `backups/`
 pub fn scan_settings_and_hygiene(
     cli_dir: Option<&Path>,
     scan_system_env: bool,
 ) -> SettingsHygieneSummary {
+    scan_settings_and_hygiene_at(cli_dir, scan_system_env, now_epoch_ms_i64(), &[])
+}
+
+/// 可指定时间与桌面端目录的 `settings.json` / 定时任务 / 备份扫描
+pub fn scan_settings_and_hygiene_at(
+    cli_dir: Option<&Path>,
+    scan_system_env: bool,
+    now_ms: i64,
+    desktop_roots: &[DesktopDataRoot],
+) -> SettingsHygieneSummary {
     let mut summary = SettingsHygieneSummary::default();
+    let claude_json_guess = cli_dir
+        .and_then(|d| d.parent())
+        .map(|p| p.join(".claude.json"));
+    summary.cli_installed =
+        detect_claude_cli_installed(cli_dir, claude_json_guess.as_deref(), scan_system_env);
     for k in PRIVACY_ENV_KEYS {
         summary.privacy_env_flags.insert(k.to_string(), false);
     }
@@ -799,6 +1028,9 @@ pub fn scan_settings_and_hygiene(
 
     let Some(dir) = cli_dir else {
         summary.privacy_missing_keys = PRIVACY_ENV_KEYS.iter().map(|s| (*s).to_string()).collect();
+        let desktop_active_sched = count_desktop_active_scheduled_tasks(desktop_roots);
+        summary.active_scheduled_tasks_count = desktop_active_sched;
+        summary.scheduled_tasks_count = desktop_active_sched;
         return summary;
     };
 
@@ -847,9 +1079,16 @@ pub fn scan_settings_and_hygiene(
     summary.telemetry_file_count = tel_files;
     summary.telemetry_total_bytes = tel_bytes;
 
-    // scheduled-tasks 定时脚本
-    let (sched_files, _) = dir_file_stats_bounded(&dir.join("scheduled-tasks"), 0);
-    summary.scheduled_tasks_count = sched_files;
+    // scheduled-tasks 定时脚本：拆分近期活跃（桌面端启用 + CLI 72h 内变动）与历史留存（>72h 未变动，不计风险）
+    let sched_dir = dir.join("scheduled-tasks");
+    if sched_dir.exists() {
+        summary.scheduled_tasks_dir = Some(sched_dir.to_string_lossy().to_string());
+    }
+    let (cli_active_sched, cli_hist_sched) = scan_scheduled_tasks_dir_split(&sched_dir, now_ms, 0);
+    let desktop_active_sched = count_desktop_active_scheduled_tasks(desktop_roots);
+    summary.active_scheduled_tasks_count = cli_active_sched + desktop_active_sched;
+    summary.historical_scheduled_tasks_count = cli_hist_sched;
+    summary.scheduled_tasks_count = summary.active_scheduled_tasks_count;
 
     // backups/.claude.json.backup.* 反查脱敏账号信息
     let backups_dir = dir.join("backups");
@@ -1006,11 +1245,33 @@ fn parse_jsonl_turns_cached(path: &Path, mtime_ms: i64, size: u64) -> Vec<JsonlT
 
 /// 离线扫描 `~/.claude/projects/**/*.jsonl`（绝不读聊天正文）
 pub fn scan_offline_jsonl_behavior(cli_dir: Option<&Path>, now_ms: i64) -> OfflineBehaviorSummary {
-    let Some(dir) = cli_dir else {
-        return OfflineBehaviorSummary::default();
-    };
-    let projects_dir = dir.join("projects");
-    if !projects_dir.exists() {
+    scan_offline_jsonl_behavior_with_desktop(cli_dir, &[], now_ms)
+}
+
+/// 离线扫描 CLI `~/.claude/projects` 与桌面端 `Claude-Data` 下 Code/Agent 会话目录的 `.jsonl`（绝不读聊天正文，仅统计轮次、子代理占比与时间分布）
+pub fn scan_offline_jsonl_behavior_with_desktop(
+    cli_dir: Option<&Path>,
+    desktop_roots: &[DesktopDataRoot],
+    now_ms: i64,
+) -> OfflineBehaviorSummary {
+    let mut roots_to_scan: Vec<(PathBuf, bool, usize)> = Vec::new();
+    let mut projects_dir_exists = false;
+    if let Some(dir) = cli_dir {
+        let projects_dir = dir.join("projects");
+        if projects_dir.exists() {
+            projects_dir_exists = true;
+            roots_to_scan.push((projects_dir, false, 3));
+        }
+    }
+    for root in desktop_roots {
+        for sub in ["claude-code-sessions", "local-agent-mode-sessions"] {
+            let p = root.dir.join(sub);
+            if p.is_dir() {
+                roots_to_scan.push((p, true, 5));
+            }
+        }
+    }
+    if roots_to_scan.is_empty() {
         return OfflineBehaviorSummary::default();
     }
 
@@ -1019,65 +1280,70 @@ pub fn scan_offline_jsonl_behavior(cli_dir: Option<&Path>, now_ms: i64) -> Offli
     let cutoff_5h = now_ms - 5 * 3_600_000;
 
     let mut summary = OfflineBehaviorSummary {
-        projects_dir_exists: true,
+        projects_dir_exists,
         ..Default::default()
     };
     let mut active_hours_24h: BTreeSet<u32> = BTreeSet::new();
 
-    let mut stack: Vec<(PathBuf, usize)> = vec![(projects_dir, 0)];
-    while let Some((cur, depth)) = stack.pop() {
-        if depth > 3 {
-            continue;
-        }
-        let Ok(rd) = fs::read_dir(&cur) else {
-            continue;
-        };
-        for ent in rd.flatten() {
-            let p = ent.path();
-            let Ok(meta) = fs::symlink_metadata(&p) else {
-                continue;
-            };
-            if meta.file_type().is_symlink() {
+    for (root_dir, is_desktop, max_depth) in roots_to_scan {
+        let mut stack: Vec<(PathBuf, usize)> = vec![(root_dir, 0)];
+        while let Some((cur, depth)) = stack.pop() {
+            if depth > max_depth {
                 continue;
             }
-            if meta.is_dir() {
-                stack.push((p, depth + 1));
-            } else if meta.is_file()
-                && p.extension().and_then(|e| e.to_str()) == Some("jsonl")
-            {
-                let mtime_ms = meta
-                    .modified()
-                    .ok()
-                    .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                    .map(|d| d.as_millis() as i64)
-                    .unwrap_or(0);
-                if mtime_ms < cutoff_7d {
+            let Ok(rd) = fs::read_dir(&cur) else {
+                continue;
+            };
+            for ent in rd.flatten() {
+                let p = ent.path();
+                let Ok(meta) = fs::symlink_metadata(&p) else {
+                    continue;
+                };
+                if meta.file_type().is_symlink() {
                     continue;
                 }
-                summary.files_scanned_7d += 1;
-                let turns = parse_jsonl_turns_cached(&p, mtime_ms, meta.len());
-                for t in turns {
-                    if t.ts_ms < cutoff_7d {
+                if meta.is_dir() {
+                    stack.push((p, depth + 1));
+                } else if meta.is_file()
+                    && p.extension().and_then(|e| e.to_str()) == Some("jsonl")
+                {
+                    let mtime_ms = meta
+                        .modified()
+                        .ok()
+                        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                        .map(|d| d.as_millis() as i64)
+                        .unwrap_or(0);
+                    if mtime_ms < cutoff_7d {
                         continue;
                     }
-                    let apply = |b: &mut WindowBehaviorStats| {
-                        b.assistant_turns += 1;
-                        if t.is_sidechain {
-                            b.sidechain_turns += 1;
-                        }
-                        b.input_tokens = b.input_tokens.saturating_add(t.in_tok);
-                        b.output_tokens = b.output_tokens.saturating_add(t.out_tok);
-                        b.cache_read_tokens = b.cache_read_tokens.saturating_add(t.cache_read);
-                    };
-                    apply(&mut summary.last_7d);
-                    if t.ts_ms >= cutoff_24h {
-                        apply(&mut summary.last_24h);
-                        if let Some(dt) = DateTime::<Utc>::from_timestamp_millis(t.ts_ms) {
-                            active_hours_24h.insert(dt.hour());
-                        }
+                    summary.files_scanned_7d += 1;
+                    if is_desktop {
+                        summary.desktop_sessions_files_7d += 1;
                     }
-                    if t.ts_ms >= cutoff_5h {
-                        apply(&mut summary.last_5h);
+                    let turns = parse_jsonl_turns_cached(&p, mtime_ms, meta.len());
+                    for t in turns {
+                        if t.ts_ms < cutoff_7d {
+                            continue;
+                        }
+                        let apply = |b: &mut WindowBehaviorStats| {
+                            b.assistant_turns += 1;
+                            if t.is_sidechain {
+                                b.sidechain_turns += 1;
+                            }
+                            b.input_tokens = b.input_tokens.saturating_add(t.in_tok);
+                            b.output_tokens = b.output_tokens.saturating_add(t.out_tok);
+                            b.cache_read_tokens = b.cache_read_tokens.saturating_add(t.cache_read);
+                        };
+                        apply(&mut summary.last_7d);
+                        if t.ts_ms >= cutoff_24h {
+                            apply(&mut summary.last_24h);
+                            if let Some(dt) = DateTime::<Utc>::from_timestamp_millis(t.ts_ms) {
+                                active_hours_24h.insert(dt.hour());
+                            }
+                        }
+                        if t.ts_ms >= cutoff_5h {
+                            apply(&mut summary.last_5h);
+                        }
                     }
                 }
             }
@@ -1090,11 +1356,80 @@ pub fn scan_offline_jsonl_behavior(cli_dir: Option<&Path>, now_ms: i64) -> Offli
     } else {
         0
     };
-    // 判定跨夜 24×7 机刷节律：过去 24h 内覆盖 >= 18 个不同小时且总轮次 >= 120 轮
+    // 判定跨夜 24×7 机刷节律：过去 24h 内覆盖 >= 16 个不同小时且总轮次 >= 120 轮
     summary.overnight_bot_rhythm_suspected =
-        summary.active_hours_24h >= 18 && summary.last_24h.assistant_turns >= 120;
+        summary.active_hours_24h >= 16 && summary.last_24h.assistant_turns >= 120;
 
     summary
+}
+
+/// 解析桌面端 `plan-usage-history.json` 中最新一条有效 5h/7d 用量样本（Free 号若 `u` 为空 `{}` 则返回 None）
+pub fn scan_desktop_plan_usage(roots: &[DesktopDataRoot]) -> Option<CachedUsageSummary> {
+    let mut best: Option<(i64, CachedUsageSummary)> = None;
+    for root in roots {
+        let p = root.dir.join("plan-usage-history.json");
+        if !p.is_file() {
+            continue;
+        }
+        let Ok(raw) = read_text_shared(&p) else {
+            continue;
+        };
+        let Ok(val) = serde_json::from_str::<Value>(raw.trim_start_matches('\u{feff}')) else {
+            continue;
+        };
+        let Some(samples) = val.get("samples").and_then(|v| v.as_array()) else {
+            continue;
+        };
+        for sample in samples {
+            let t = sample.get("t").and_then(|v| v.as_i64()).unwrap_or(0);
+            let Some(u) = sample.get("u").and_then(|v| v.as_object()) else {
+                continue;
+            };
+            if u.is_empty() {
+                continue;
+            }
+            let extract_bucket = |keys: &[&str]| -> (Option<f64>, Option<String>) {
+                for &k in keys {
+                    if let Some(obj) = u.get(k).and_then(|v| v.as_object()) {
+                        let pct = obj
+                            .get("utilization")
+                            .or_else(|| obj.get("pct"))
+                            .and_then(|v| v.as_f64());
+                        let resets = obj
+                            .get("resets_at")
+                            .or_else(|| obj.get("resetsAt"))
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+                        if pct.is_some() || resets.is_some() {
+                            return (pct, resets);
+                        }
+                    } else if let Some(num) = u.get(k).and_then(|v| v.as_f64()) {
+                        return (Some(num), None);
+                    }
+                }
+                (None, None)
+            };
+            let (five_pct, five_resets) = extract_bucket(&["five_hour", "fiveHour", "5h"]);
+            let (seven_pct, seven_resets) = extract_bucket(&["seven_day", "sevenDay", "7d"]);
+            if five_pct.is_none() && seven_pct.is_none() {
+                continue;
+            }
+            let cand = CachedUsageSummary {
+                fetched_at_ms: if t > 0 { Some(t) } else { None },
+                five_hour_pct: five_pct,
+                five_hour_resets_at: five_resets,
+                five_hour_locked_reason: None,
+                seven_day_pct: seven_pct,
+                seven_day_resets_at: seven_resets,
+                seven_day_locked_reason: None,
+                cached_extra_usage_disabled_reason: None,
+            };
+            if best.as_ref().map(|(bt, _)| t >= *bt).unwrap_or(true) {
+                best = Some((t, cand));
+            }
+        }
+    }
+    best.map(|(_, c)| c)
 }
 
 /// 扫描桌面端日志（单文件尾读 <= 2MB，共享只读）
@@ -1113,13 +1448,80 @@ pub fn scan_desktop_logs(roots: &[DesktopDataRoot]) -> DesktopLogsSummary {
 
     let mut summary = DesktopLogsSummary::default();
     let mut org_set: BTreeSet<String> = BTreeSet::new();
+    let mut session_dir_set: BTreeSet<String> = BTreeSet::new();
     let mut sample_map: BTreeMap<String, LocalLogSample> = BTreeMap::new();
+
+    let is_uuid_like = |s: &str| -> bool {
+        s.len() >= 32
+            && s.contains('-')
+            && s.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
+    };
 
     for root in roots {
         if !root.dir.exists() {
             continue;
         }
         summary.discovered_dirs.push(root.kind.clone());
+
+        // 仅扫描 Claude-Data 会话目录的子文件夹名（如 local-agent-mode-sessions/skills-plugin/<orgUuid> 或 claude-code-sessions/<acctUuid>），
+        // 绝不读取聊天正文，仅用于如实提示残留的旧号工作目录（需用户勾选「个人 MCP 配置与本地工作会话」才清理）
+        for sub_rel in [
+            &["local-agent-mode-sessions", "skills-plugin"][..],
+            &["local-agent-mode-sessions"][..],
+            &["claude-code-sessions"][..],
+        ] {
+            let mut dir_p = root.dir.clone();
+            for seg in sub_rel {
+                dir_p.push(seg);
+            }
+            if let Ok(rd) = fs::read_dir(&dir_p) {
+                for ent in rd.flatten() {
+                    if ent.path().is_dir() {
+                        let name = ent.file_name().to_string_lossy().to_string();
+                        if is_uuid_like(&name) {
+                            if let Some(p8) = prefix8(Some(&name)) {
+                                session_dir_set.insert(p8);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 同步只读提取桌面端 config.json 中的 orgUuid / dxt:allowlistEnabled:<uuid>（不触碰 OAuth token）
+        let desktop_cfg = root.dir.join("config.json");
+        if desktop_cfg.is_file() {
+            if let Ok(raw) = read_text_shared(&desktop_cfg) {
+                if let Ok(val) = serde_json::from_str::<Value>(raw.trim_start_matches('\u{feff}')) {
+                    if let Some(obj) = val.as_object() {
+                        for (k, v) in obj {
+                            if let Some(rest) = k.strip_prefix("dxt:allowlistEnabled:") {
+                                if let Some(p8) = prefix8(Some(rest)) {
+                                    org_set.insert(p8);
+                                }
+                            }
+                            if k == "orgUuid" || k == "lastActiveOrg" {
+                                if let Some(p8) = prefix8(v.as_str()) {
+                                    org_set.insert(p8);
+                                }
+                            }
+                        }
+                        if let Some(tc) = obj.get("oauth:tokenCache").and_then(|v| v.as_object()) {
+                            for sub in tc.values() {
+                                if let Some(p8) = prefix8(
+                                    sub.get("orgUuid")
+                                        .or_else(|| sub.get("organizationUuid"))
+                                        .and_then(|x| x.as_str()),
+                                ) {
+                                    org_set.insert(p8);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         let logs_dir = root.dir.join("logs");
         let Ok(rd) = fs::read_dir(&logs_dir) else {
             continue;
@@ -1274,6 +1676,8 @@ pub fn scan_desktop_logs(roots: &[DesktopDataRoot]) -> DesktopLogsSummary {
     }
 
     summary.org_id_prefixes = org_set.into_iter().collect();
+    summary.session_dir_org_prefixes = session_dir_set.into_iter().collect();
+    summary.cached_usage = scan_desktop_plan_usage(roots);
     summary.recent_samples = sample_map.into_values().collect();
     summary
 }
@@ -1288,8 +1692,24 @@ pub fn scan_local_profile(ctx: &ProfileContext) -> LocalAccountAudit {
 pub fn scan_local_profile_at(ctx: &ProfileContext, now_ms: i64) -> LocalAccountAudit {
     let claude_json = scan_claude_json(ctx.claude_json_path.as_deref(), now_ms);
     let credentials = scan_credentials_meta(ctx.cli_config_dir.as_deref(), now_ms);
-    let hygiene = scan_settings_and_hygiene(ctx.cli_config_dir.as_deref(), ctx.scan_system_env);
-    let behavior = scan_offline_jsonl_behavior(ctx.cli_config_dir.as_deref(), now_ms);
+    let mut hygiene = scan_settings_and_hygiene_at(
+        ctx.cli_config_dir.as_deref(),
+        ctx.scan_system_env,
+        now_ms,
+        &ctx.desktop_data_dirs,
+    );
+    if !hygiene.cli_installed {
+        hygiene.cli_installed = detect_claude_cli_installed(
+            ctx.cli_config_dir.as_deref(),
+            ctx.claude_json_path.as_deref(),
+            ctx.scan_system_env,
+        );
+    }
+    let behavior = scan_offline_jsonl_behavior_with_desktop(
+        ctx.cli_config_dir.as_deref(),
+        &ctx.desktop_data_dirs,
+        now_ms,
+    );
     let desktop = scan_desktop_logs(&ctx.desktop_data_dirs);
 
     let cli_org = claude_json.org_uuid_prefix8.as_deref();

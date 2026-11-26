@@ -16,7 +16,7 @@ pub mod watchdog;
 
 use crate::config::{
     default_config_path, load_config, save_config, should_start_hud_only, AppConfig,
-    AppConfigPatch, WindowPos,
+    AppConfigPatch, MainWindowBounds, WindowPos,
 };
 use crate::killswitch::{
     cleanup_all_guard_firewall_rules, close_mihomo_connection, get_live_claude_connections,
@@ -158,6 +158,266 @@ fn evaluate_runtime_killswitch_trigger(
     None
 }
 
+/// 运行中预检完成后风险分级处置动作（A 级致命泄露自动 4 层热熔断；B 级非断链必须项醒目警示不清退；C 级建议项忽略）
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RuntimePreflightAction {
+    None,
+    HotKillSwitch(String),
+    NotifyMustFail(Vec<String>),
+}
+
+/// 纯函数：根据完整预检报告对运行中的 Claude 执行 A/B/C 三级风险处置判定
+fn evaluate_preflight_runtime_risk(
+    report: &PreflightReport,
+    clash_online: bool,
+    bg_claude_procs: u32,
+    auto_kill_switch: bool,
+    deep_audit_running: bool,
+    already_in_killswitch: bool,
+) -> RuntimePreflightAction {
+    if bg_claude_procs == 0 || deep_audit_running || already_in_killswitch {
+        return RuntimePreflightAction::None;
+    }
+
+    let failed_must: Vec<&crate::state::PreflightItem> = report
+        .items
+        .iter()
+        .filter(|i| i.part == crate::state::CheckPart::Must && i.status == crate::state::CheckStatus::Fail)
+        .collect();
+    if failed_must.is_empty() {
+        return RuntimePreflightAction::None;
+    }
+
+    // A 级：致命代理/网络泄露硬故障（只要 Claude 运行中且开启自动熔断，立即 4 层热熔断 + 强杀清退 + 事务盯防）
+    let mut level_a_reason: Option<String> = None;
+    for item in &failed_must {
+        match item.id.as_str() {
+            "node_proxy" if !clash_online => {
+                level_a_reason = Some(
+                    "Claude 运行中预检确认代理引擎离线，已自动 4 层热熔断防裸连与退出回传 403".into(),
+                );
+                break;
+            }
+            "node_tun" => {
+                level_a_reason = Some(
+                    "Claude 运行中预检确认 Clash TUN 虚拟网卡未接管，已自动 4 层热熔断防裸连泄露".into(),
+                );
+                break;
+            }
+            "node_dns" => {
+                level_a_reason = Some(
+                    "Claude 运行中预检确认 Clash Fake-IP DNS 防泄漏失效，已自动 4 层热熔断".into(),
+                );
+                break;
+            }
+            "node_group" if item.is_kill_item => {
+                level_a_reason = Some(format!(
+                    "Claude 运行中预检确认策略组失守（{}），已自动 4 层热熔断",
+                    item.summary
+                ));
+                break;
+            }
+            "node_geo" if item.is_kill_item => {
+                level_a_reason = Some(format!(
+                    "Claude 运行中实测出口落入高危/禁区（{}），已自动 4 层热熔断防封号",
+                    item.summary
+                ));
+                break;
+            }
+            _ => {}
+        }
+    }
+
+    if let Some(reason) = level_a_reason {
+        if auto_kill_switch {
+            return RuntimePreflightAction::HotKillSwitch(reason);
+        }
+        return RuntimePreflightAction::NotifyMustFail(
+            failed_must.iter().map(|i| i.title.clone()).collect(),
+        );
+    }
+
+    // B 级：非致命断链必须项（如 IPv6/定位/环境变量/单号锁/遥测等）——绝不静默强杀打断对话，推送醒目通知并由控制台横幅引导清退
+    RuntimePreflightAction::NotifyMustFail(failed_must.iter().map(|i| i.title.clone()).collect())
+}
+
+/// 预检完成后统一执行运行中风险分级处置（复用在冷启动首检、手动复测、事件复检与 15 分钟全量巡检）
+async fn apply_post_preflight_runtime_risk(
+    app: &AppHandle,
+    state: &AppState,
+    report: &PreflightReport,
+    snapshot: &mut GuardSnapshot,
+    bg_claude_procs: u32,
+) {
+    let (auto_ks_on, anti_flush_on) = state
+        .config
+        .read()
+        .map(|c| (c.auto_kill_switch, c.anti_upload_flush))
+        .unwrap_or((true, true));
+    let already_ks = state.killswitch.read().map(|k| k.active).unwrap_or(false);
+    let action = evaluate_preflight_runtime_risk(
+        report,
+        snapshot.clash_online,
+        bg_claude_procs,
+        auto_ks_on,
+        is_deep_audit_running(),
+        already_ks,
+    );
+
+    match action {
+        RuntimePreflightAction::None => {}
+        RuntimePreflightAction::HotKillSwitch(reason) => {
+            logger::log_event(
+                "ERROR",
+                "killswitch",
+                "preflight_level_a_hot_killswitch",
+                None,
+                format!("预检命中 A 级致命泄露故障 ({bg_claude_procs} 个 Claude 进程存活): {reason}"),
+                None,
+            );
+            let ks = trigger_four_layer_killswitch(&reason, anti_flush_on).await;
+            acquire_kill_hold_tx(app, state, "预检命中 A 级致命泄露故障热熔断防复活盯防");
+            if let Ok(mut guard) = state.killswitch.write() {
+                *guard = ks.clone();
+            }
+            snapshot.kill_switch_active = true;
+            snapshot.health_level = "danger".into();
+            snapshot.status_label = "已自动熔断".into();
+            snapshot.bg_claude_procs = 0;
+            snapshot.kill_hold_active = true;
+            snapshot.kill_hold_tx_locked = true;
+            snapshot.hud_events.insert(
+                0,
+                HudEventLine {
+                    message: reason.clone(),
+                    time: chrono::Local::now().format("%H:%M").to_string(),
+                    level: "danger".into(),
+                    target_tab: "console".into(),
+                },
+            );
+            snapshot.hud_events.truncate(4);
+            let _ = app.emit("guard://killswitch", ks);
+            dispatch_native_alert(
+                app,
+                state,
+                "preflight_level_a_killswitch",
+                true,
+                "致命网络/出口泄露：已自动 4 层热熔断",
+                &reason,
+            );
+        }
+        RuntimePreflightAction::NotifyMustFail(titles) => {
+            let joined = titles.iter().take(3).cloned().collect::<Vec<_>>().join("、");
+            let suffix = if titles.len() > 3 {
+                format!(" 等 {} 项", titles.len())
+            } else {
+                String::new()
+            };
+            let body = format!(
+                "Claude 当前有 {bg_claude_procs} 个进程运行中，但必须防护项未通过（{joined}{suffix}）；为防打断对话未静默强杀，建议前往控制台安全清退并修复。"
+            );
+            dispatch_native_alert(
+                app,
+                state,
+                &format!("runtime_must_fail:{}", titles.join("|")),
+                false,
+                "FD Claude Guard 运行中必须项提醒",
+                &body,
+            );
+        }
+    }
+}
+
+/// 校验已持久化的主窗口几何边界是否合法且可见（防止多屏拔插 / DPI 切换导致窗口恢复到屏幕外不可见）
+pub(crate) fn validate_main_window_bounds(
+    bounds: MainWindowBounds,
+    monitor_rects: &[(i32, i32, u32, u32)],
+) -> Option<MainWindowBounds> {
+    if bounds.width < 900 || bounds.height < 600 || bounds.width > 7680 || bounds.height > 4320 {
+        return None;
+    }
+    if monitor_rects.is_empty() {
+        return Some(bounds);
+    }
+    let bx1 = bounds.x as i64;
+    let by1 = bounds.y as i64;
+    let bx2 = bx1 + bounds.width as i64;
+    let by2 = by1 + bounds.height as i64;
+    // 顶部标题栏区域（高度前 80px）必须与任一可用显示器至少有 160x32 的可见交集，确保可拖拽找回
+    let title_bottom = (by1 + 80).min(by2);
+    let visible = monitor_rects.iter().any(|&(mx, my, mw, mh)| {
+        let mx1 = mx as i64;
+        let my1 = my as i64;
+        let mx2 = mx1 + mw as i64;
+        let my2 = my1 + mh as i64;
+        let overlap_w = bx2.min(mx2) - bx1.max(mx1);
+        let overlap_h = title_bottom.min(my2) - by1.max(my1);
+        overlap_w >= 160 && overlap_h >= 32
+    });
+    if visible {
+        Some(bounds)
+    } else {
+        None
+    }
+}
+
+fn persist_main_window_bounds_debounced(app: &AppHandle, win: &tauri::WebviewWindow) {
+    static BOUNDS_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    if win.is_minimized().unwrap_or(false) || !win.is_visible().unwrap_or(false) {
+        return;
+    }
+    let maximized = win.is_maximized().unwrap_or(false);
+    let pos_size = if maximized {
+        None
+    } else {
+        match (win.outer_position(), win.inner_size()) {
+            (Ok(p), Ok(s)) if s.width >= 900 && s.height >= 600 => Some((p.x, p.y, s.width, s.height)),
+            _ => None,
+        }
+    };
+    if !maximized && pos_size.is_none() {
+        return;
+    }
+    let seq = BOUNDS_SEQ.fetch_add(1, Ordering::SeqCst) + 1;
+    let app_handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        if BOUNDS_SEQ.load(Ordering::SeqCst) != seq {
+            return;
+        }
+        let state = app_handle.state::<AppState>();
+        let cfg_path = state.config_path.clone();
+        let cfg_to_save = if let Ok(mut cfg) = state.config.write() {
+            let next_bounds = if let Some((x, y, width, height)) = pos_size {
+                MainWindowBounds {
+                    x,
+                    y,
+                    width,
+                    height,
+                    maximized: false,
+                }
+            } else if let Some(prev) = cfg.main_window_bounds {
+                MainWindowBounds {
+                    maximized: true,
+                    ..prev
+                }
+            } else {
+                return;
+            };
+            if cfg.main_window_bounds == Some(next_bounds) {
+                return;
+            }
+            cfg.main_window_bounds = Some(next_bounds);
+            Some(cfg.clone())
+        } else {
+            None
+        };
+        if let Some(cfg_snap) = cfg_to_save {
+            let _ = tokio::task::spawn_blocking(move || save_config(&cfg_path, &cfg_snap)).await;
+        }
+    });
+}
+
 fn ensure_main_window(app: &AppHandle) -> Result<tauri::WebviewWindow, String> {
     if let Some(existing) = app.get_webview_window("main") {
         return Ok(existing);
@@ -175,9 +435,28 @@ fn ensure_main_window(app: &AppHandle) -> Result<tauri::WebviewWindow, String> {
         .unwrap_or((None, None));
     let (init_w, init_h) = compute_main_window_default_size(mon_w, mon_h);
 
+    let monitor_rects: Vec<(i32, i32, u32, u32)> = app
+        .available_monitors()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|m| {
+            let p = m.position();
+            let s = m.size();
+            (p.x, p.y, s.width, s.height)
+        })
+        .collect();
+
+    let saved_bounds = app
+        .try_state::<AppState>()
+        .and_then(|st| st.config.read().ok().and_then(|c| c.main_window_bounds))
+        .and_then(|b| validate_main_window_bounds(b, &monitor_rects));
+
     logger::log_info(
         "window",
-        format!("按需懒创建主控制台窗口 (main, {init_w:.0}x{init_h:.0})"),
+        format!(
+            "按需懒创建主控制台窗口 (main, default={init_w:.0}x{init_h:.0}, restored={})",
+            saved_bounds.is_some()
+        ),
     );
     let win = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
         .title("FD Claude 安全启动器 (FD Claude Guard)")
@@ -190,18 +469,35 @@ fn ensure_main_window(app: &AppHandle) -> Result<tauri::WebviewWindow, String> {
         .build()
         .map_err(|e| format!("创建主控制台窗口失败: {e}"))?;
 
+    if let Some(b) = saved_bounds {
+        let _ = win.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(
+            b.width, b.height,
+        )));
+        let _ = win.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(
+            b.x, b.y,
+        )));
+        if b.maximized {
+            let _ = win.maximize();
+        }
+    }
+
     // 显式写入窗口图标（触发 Win32 WM_SETICON），确保动态创建的主窗口在任务栏与 Alt+Tab 立即显示最新图标
     if let Some(icon) = app.default_window_icon() {
         let _ = win.set_icon(icon.clone());
     }
 
     let w = win.clone();
-    win.on_window_event(move |event| {
-        if let WindowEvent::CloseRequested { api, .. } = event {
+    let app_for_events = app.clone();
+    win.on_window_event(move |event| match event {
+        WindowEvent::CloseRequested { api, .. } => {
             api.prevent_close();
             logger::log_info("window", "主控制台关闭请求已拦截，隐藏至系统托盘");
             let _ = w.hide();
         }
+        WindowEvent::Resized(_) | WindowEvent::Moved(_) => {
+            persist_main_window_bounds_debounced(&app_for_events, &w);
+        }
+        _ => {}
     });
 
     Ok(win)
@@ -681,6 +977,8 @@ async fn run_preflight_checks(
         bundle.detected_org_id.as_deref(),
     );
     merge_killswitch_and_log_triggers(&state, &mut bundle.snapshot);
+    apply_post_preflight_runtime_risk(&app, &state, &bundle.report, &mut bundle.snapshot, bg_procs)
+        .await;
 
     if let Ok(mut rep) = state.last_report.write() {
         *rep = bundle.report.clone();
@@ -857,6 +1155,8 @@ async fn safe_launch_claude(
         bundle.detected_org_id.as_deref(),
     );
     merge_killswitch_and_log_triggers(&state, &mut bundle.snapshot);
+    apply_post_preflight_runtime_risk(&app, &state, &bundle.report, &mut bundle.snapshot, bg_procs)
+        .await;
 
     if let Ok(mut rep) = state.last_report.write() {
         *rep = bundle.report.clone();
@@ -1037,7 +1337,7 @@ async fn switch_locked_node(
 /// 统一后台深度核验调度器：
 /// - 仅在 Claude 进程 == 0 且存在 Claude-Fixed 时执行；
 /// - 永远将当前选中节点排第 1 位优先核验，随后按 1.2s 慢速逐个实测其余节点并落盘；
-/// - 全程仅临时切换 Claude-Fixed（绝不触碰天悦云等其他策略组），结束/取消/异常 100% 恢复原锁定节点并刷新控制台。
+/// - 全程仅临时切换 Claude-Fixed（绝不触碰DemoAirport等其他策略组），结束/取消/异常 100% 恢复原锁定节点并刷新控制台。
 fn spawn_deep_node_audit_task(
     app: AppHandle,
     force_all: bool,
@@ -1220,9 +1520,10 @@ fn spawn_deep_node_audit_task(
             set_deep_audit_progress(step_prog.clone());
             let _ = app_bg.emit("guard://node-audit-progress", step_prog);
 
-            // 仅切换 Claude-Fixed 策略组，绝不触碰天悦云等其他主组
+            // 仅切换 Claude-Fixed 策略组，绝不触碰DemoAirport等其他主组
             if select_proxy_in_group(&ep, "Claude-Fixed", node_name).await.is_ok() {
-                tokio::time::sleep(Duration::from_millis(240)).await;
+                // 留足 400ms 让 Mihomo 完成新节点（尤其 VLESS/AnyTLS）切流稳定，降低冷握手瞬时超时误杀
+                tokio::time::sleep(Duration::from_millis(400)).await;
                 let rec = probe_single_node_deep_via_proxy(node_name, mixed_port).await;
                 if node_name == &original_node {
                     current_node_verified = true;
@@ -1652,19 +1953,89 @@ async fn ack_log_events(
     ids: Vec<String>,
 ) -> Result<GuardSnapshot, String> {
     if !ids.is_empty() {
-        if let Ok(mut cfg) = state.config.write() {
+        let cfg_path = state.config_path.clone();
+        let cfg_to_save = if let Ok(mut cfg) = state.config.write() {
             for id in ids {
                 if !id.is_empty() && !cfg.acked_log_ids.iter().any(|x| x == &id) {
                     cfg.acked_log_ids.push(id);
                 }
             }
-            if cfg.acked_log_ids.len() > 300 {
-                let drop_n = cfg.acked_log_ids.len() - 300;
+            if cfg.acked_log_ids.len() > 500 {
+                let drop_n = cfg.acked_log_ids.len() - 500;
                 cfg.acked_log_ids.drain(0..drop_n);
             }
-            let _ = save_config(&state.config_path, &cfg);
+            Some(cfg.clone())
+        } else {
+            None
+        };
+        if let Some(cfg_snap) = cfg_to_save {
+            let _ = tokio::task::spawn_blocking(move || save_config(&cfg_path, &cfg_snap)).await;
         }
     }
+    recompute_and_emit_log_ack_snapshot(&app, &state).await
+}
+
+/// 一次性将后端 watchdog 当前全部未读日志事件（含所有折叠子 ID）持久化标为已读并广播清零快照，彻底根除前后端 ID 体系不一致导致的角标反弹
+#[tauri::command]
+async fn ack_all_log_events(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<GuardSnapshot, String> {
+    let extra = state
+        .injected_logs
+        .read()
+        .map(|v| v.clone())
+        .unwrap_or_default();
+    let acked_ids = state
+        .config
+        .read()
+        .map(|c| c.acked_log_ids.clone())
+        .unwrap_or_default();
+    let (events, _) =
+        tokio::task::spawn_blocking(move || collect_log_analysis_with_acked(&extra, &acked_ids))
+            .await
+            .map_err(|e| format!("采集待标已读日志事件失败: {e}"))?;
+
+    let mut all_ids: Vec<String> = Vec::new();
+    for ev in &events {
+        if ev.anomaly && !ev.acked {
+            all_ids.push(ev.id.clone());
+            for cid in &ev.collapsed_ids {
+                if !cid.is_empty() {
+                    all_ids.push(cid.clone());
+                }
+            }
+        }
+    }
+
+    if !all_ids.is_empty() {
+        let cfg_path = state.config_path.clone();
+        let cfg_to_save = if let Ok(mut cfg) = state.config.write() {
+            for id in all_ids {
+                if !id.is_empty() && !cfg.acked_log_ids.iter().any(|x| x == &id) {
+                    cfg.acked_log_ids.push(id);
+                }
+            }
+            if cfg.acked_log_ids.len() > 500 {
+                let drop_n = cfg.acked_log_ids.len() - 500;
+                cfg.acked_log_ids.drain(0..drop_n);
+            }
+            Some(cfg.clone())
+        } else {
+            None
+        };
+        if let Some(cfg_snap) = cfg_to_save {
+            let _ = tokio::task::spawn_blocking(move || save_config(&cfg_path, &cfg_snap)).await;
+        }
+    }
+
+    recompute_and_emit_log_ack_snapshot(&app, &state).await
+}
+
+async fn recompute_and_emit_log_ack_snapshot(
+    app: &AppHandle,
+    state: &State<'_, AppState>,
+) -> Result<GuardSnapshot, String> {
     let extra = state
         .injected_logs
         .read()
@@ -1765,8 +2136,6 @@ fn simulate_log_anomaly(app: AppHandle, state: State<'_, AppState>) -> Result<Lo
         "FD Claude Guard 预警（模拟）：高并发 429",
         "日志实时监听联动演示：已高亮安全守则。",
     );
-    let _ = app.emit("guard://log-event", ev.clone());
-    let _ = app.emit("guard://playbook-triggered", "pb_rate");
     Ok(ev)
 }
 
@@ -2023,7 +2392,10 @@ async fn backup_and_clean_claude(
     );
     let should_reset_primary_org = selected_categories
         .as_ref()
-        .map(|cats| cats.iter().any(|c| c == "auth" || c == "logs"))
+        .map(|cats| {
+            cats.iter()
+                .any(|c| c == "auth" || c == "logs" || c == "cli_auth_and_backups")
+        })
         .unwrap_or(true);
     let res = tokio::task::spawn_blocking(move || {
         backup_and_clean_claude_dirs_selected(selected_categories.as_deref())
@@ -2120,6 +2492,56 @@ async fn export_ai_diagnostic_bundle_cmd(
 #[tauri::command]
 fn open_file_folder(path: String) -> Result<(), String> {
     open_folder_and_select(&path)
+}
+
+/// 严格校验允许经系统浏览器打开的官方项目地址（防前缀拼接/userinfo 绕过与参数注入）
+pub(crate) fn is_allowed_official_github_url(url: &str) -> bool {
+    let trimmed = url.trim();
+    const BASE: &str = "https://github.com/CaesarLastKing/FD-ClaudeGuard";
+    if trimmed.is_empty()
+        || trimmed.chars().any(|c| c.is_whitespace() || c.is_control())
+        || trimmed.contains('@')
+        || trimmed.contains('\\')
+        || trimmed.contains('"')
+        || trimmed.contains('\'')
+    {
+        return false;
+    }
+    if trimmed == BASE {
+        return true;
+    }
+    trimmed
+        .strip_prefix(BASE)
+        .is_some_and(|rest| rest.starts_with('/') || rest.starts_with('?') || rest.starts_with('#'))
+}
+
+/// 白名单打开官方外部链接（仅允许项目 GitHub 官方仓库 URL，异步调度避免阻塞 UI 线程）
+#[tauri::command]
+async fn open_external_url(url: String) -> Result<(), String> {
+    let trimmed = url.trim().to_string();
+    if !is_allowed_official_github_url(&trimmed) {
+        return Err("仅允许打开项目官方 GitHub 仓库地址".into());
+    }
+    tokio::task::spawn_blocking(move || {
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            std::process::Command::new("rundll32.exe")
+                .creation_flags(CREATE_NO_WINDOW)
+                .args(["url.dll,FileProtocolHandler", &trimmed])
+                .spawn()
+                .map_err(|e| format!("打开系统浏览器失败: {e}"))?;
+            Ok(())
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = trimmed;
+            Ok(())
+        }
+    })
+    .await
+    .map_err(|e| format!("外部链接打开调度失败: {e}"))?
 }
 
 #[tauri::command]
@@ -2870,6 +3292,14 @@ fn spawn_background_engines(app: AppHandle) {
                                 bundle.detected_org_id.as_deref(),
                             );
                             merge_killswitch_and_log_triggers(&state, &mut bundle.snapshot);
+                            apply_post_preflight_runtime_risk(
+                                &app_radar,
+                                &state,
+                                &bundle.report,
+                                &mut bundle.snapshot,
+                                cur_procs,
+                            )
+                            .await;
                             if let Ok(mut rep) = state.last_report.write() {
                                 *rep = bundle.report.clone();
                             }
@@ -3149,6 +3579,14 @@ fn spawn_background_engines(app: AppHandle) {
                                 bundle.detected_org_id.as_deref(),
                             );
                             merge_killswitch_and_log_triggers(&state, &mut bundle.snapshot);
+                            apply_post_preflight_runtime_risk(
+                                &app_radar,
+                                &state,
+                                &bundle.report,
+                                &mut bundle.snapshot,
+                                cur_procs,
+                            )
+                            .await;
                             if let Ok(mut rep) = state.last_report.write() {
                                 *rep = bundle.report.clone();
                             }
@@ -3350,6 +3788,14 @@ fn spawn_background_engines(app: AppHandle) {
                 bundle.detected_org_id.as_deref(),
             );
             merge_killswitch_and_log_triggers(&st, &mut bundle.snapshot);
+            apply_post_preflight_runtime_risk(
+                &app_audit,
+                &st,
+                &bundle.report,
+                &mut bundle.snapshot,
+                bg_procs,
+            )
+            .await;
             if let Ok(mut rep) = st.last_report.write() {
                 *rep = bundle.report.clone();
             }
@@ -3443,11 +3889,21 @@ fn build_runtime_guard_context(
 ) -> crate::account_audit::RuntimeGuardContext {
     let snap = state.snapshot.read().ok().map(|s| s.clone());
     let report = state.last_report.read().ok().map(|r| r.clone());
-    let tun_online = report
-        .as_ref()
-        .and_then(|r| r.items.iter().find(|i| i.id == "node_tun"))
-        .map(|i| i.status == crate::state::CheckStatus::Ok)
-        .unwrap_or(false);
+    let auto_kill_switch_enabled = state
+        .config
+        .read()
+        .map(|c| c.auto_kill_switch)
+        .unwrap_or(true);
+    let item_ok = |id: &str| {
+        report
+            .as_ref()
+            .and_then(|r| r.items.iter().find(|i| i.id == id))
+            .map(|i| i.status == crate::state::CheckStatus::Ok)
+            .unwrap_or(false)
+    };
+    let tun_online = item_ok("node_tun");
+    let group_rules_ok = item_ok("node_group");
+    let fake_ip_dns_ok = item_ok("node_dns");
     let current_node = snap
         .as_ref()
         .map(|s| s.current_node.clone())
@@ -3462,6 +3918,10 @@ fn build_runtime_guard_context(
         clash_online: snap.as_ref().map(|s| s.clash_online).unwrap_or(false),
         clash_port: snap.as_ref().map(|s| s.clash_port).unwrap_or(7890),
         tun_online,
+        group_rules_ok,
+        fake_ip_dns_ok,
+        auto_kill_switch_enabled,
+        live_flow_anomalies: snap.as_ref().map(|s| s.live_flow_anomalies).unwrap_or(0),
         current_node: if current_node.is_empty() {
             None
         } else {
@@ -3521,6 +3981,7 @@ async fn verify_account_cloud_with_sk(
     state: State<'_, AppState>,
     profile_id: Option<String>,
     raw_input: String,
+    allow_switch_primary: Option<bool>,
 ) -> Result<crate::account_audit::AccountAuditReport, String> {
     let mut runtime = build_runtime_guard_context(&state);
     if runtime.clash_online {
@@ -3536,9 +3997,15 @@ async fn verify_account_cloud_with_sk(
         },
     );
     let cache_path = crate::account_audit::default_audit_cache_path();
-    crate::account_audit::run_desktop_cloud_verify(&ctx, &cache_path, &raw_input, &runtime)
-        .await
-        .map_err(|e| e.message)
+    crate::account_audit::run_desktop_cloud_verify(
+        &ctx,
+        &cache_path,
+        &raw_input,
+        &runtime,
+        allow_switch_primary.unwrap_or(false),
+    )
+    .await
+    .map_err(|e| e.message)
 }
 
 #[tauri::command]
@@ -3780,6 +4247,14 @@ pub fn run() {
                         bundle.detected_org_id.as_deref(),
                     );
                     merge_killswitch_and_log_triggers(&st, &mut bundle.snapshot);
+                    apply_post_preflight_runtime_risk(
+                        &bg_handle,
+                        &st,
+                        &bundle.report,
+                        &mut bundle.snapshot,
+                        bg_procs,
+                    )
+                    .await;
                     if let Ok(mut rep) = st.last_report.write() {
                         *rep = bundle.report.clone();
                     }
@@ -3910,6 +4385,7 @@ pub fn run() {
             get_killswitch_state,
             get_log_analysis,
             ack_log_events,
+            ack_all_log_events,
             simulate_log_anomaly,
             clear_simulated_logs,
             inspect_telemetry_data,
@@ -3927,6 +4403,7 @@ pub fn run() {
             restore_backup,
             export_ai_diagnostic_bundle_cmd,
             open_file_folder,
+            open_external_url,
             audit_startup_items,
             log_frontend_event,
             open_guard_logs_dir,
@@ -3988,7 +4465,7 @@ mod window_size_tests {
         let clash_down = (false, false, String::new(), String::new(), String::new());
         let tun_off = (true, false, "rule".into(), "Claude-Fixed".into(), "🇦🇺澳大利亚|原生".into());
         let direct_mode = (true, true, "direct".into(), "Claude-Fixed".into(), "🇦🇺澳大利亚|原生".into());
-        let global_escaped = (true, true, "global".into(), "天悦云".into(), "🇦🇺澳大利亚|原生".into());
+        let global_escaped = (true, true, "global".into(), "DemoAirport".into(), "🇦🇺澳大利亚|原生".into());
         let hk_node = (true, true, "rule".into(), "Claude-Fixed".into(), "🇭🇰香港1".into());
         let safe_switch = (true, true, "rule".into(), "Claude-Fixed".into(), "🇺🇸美国2|流媒体AI".into());
 
@@ -4103,5 +4580,167 @@ mod window_size_tests {
         super::recompute_snapshot_health_after_ks_clear(&mut gs);
         assert_eq!(gs.health_level, "warn");
         assert_eq!(gs.status_label, "1 项待办");
+    }
+
+    #[test]
+    fn preflight_runtime_risk_triages_level_a_b_c_strictly() {
+        let mut rep = crate::state::build_m1_preflight_report();
+        for item in &mut rep.items {
+            item.status = crate::state::CheckStatus::Ok;
+            item.is_kill_item = false;
+        }
+
+        // C 级：仅建议项 opt_exit_geo 为 Warn，绝不清退也不弹必须项通知
+        if let Some(opt_geo) = rep.items.iter_mut().find(|i| i.id == "opt_exit_geo") {
+            opt_geo.status = crate::state::CheckStatus::Warn;
+        }
+        assert_eq!(
+            super::evaluate_preflight_runtime_risk(&rep, true, 6, true, false, false),
+            super::RuntimePreflightAction::None
+        );
+
+        // B 级：非致命断链必须项（如 sys_ipv6）未通过 → 仅通知不清退，绝不静默杀 Claude 对话
+        if let Some(ipv6) = rep.items.iter_mut().find(|i| i.id == "sys_ipv6") {
+            ipv6.status = crate::state::CheckStatus::Fail;
+        }
+        match super::evaluate_preflight_runtime_risk(&rep, true, 6, true, false, false) {
+            super::RuntimePreflightAction::NotifyMustFail(titles) => {
+                assert_eq!(titles.len(), 1);
+                assert!(titles[0].contains("IPv6"));
+            }
+            other => panic!("B 级必须项应返回 NotifyMustFail，实得 {other:?}"),
+        }
+
+        // A 级：运行中实测出口落入禁区/拉黑（node_geo Fail + is_kill_item）→ 自动 4 层热熔断
+        if let Some(geo) = rep.items.iter_mut().find(|i| i.id == "node_geo") {
+            geo.status = crate::state::CheckStatus::Fail;
+            geo.is_kill_item = true;
+            geo.summary = "出口实测落地 HK 属于禁区".into();
+        }
+        assert!(matches!(
+            super::evaluate_preflight_runtime_risk(&rep, true, 6, true, false, false),
+            super::RuntimePreflightAction::HotKillSwitch(_)
+        ));
+        // 防误杀边界：0 进程 / 关闭自动熔断 / 深度核验期间 / 已熔断
+        assert_eq!(
+            super::evaluate_preflight_runtime_risk(&rep, true, 0, true, false, false),
+            super::RuntimePreflightAction::None
+        );
+        assert!(matches!(
+            super::evaluate_preflight_runtime_risk(&rep, true, 6, false, false, false),
+            super::RuntimePreflightAction::NotifyMustFail(_)
+        ));
+        assert_eq!(
+            super::evaluate_preflight_runtime_risk(&rep, true, 6, true, true, false),
+            super::RuntimePreflightAction::None
+        );
+        assert_eq!(
+            super::evaluate_preflight_runtime_risk(&rep, true, 6, true, false, true),
+            super::RuntimePreflightAction::None
+        );
+    }
+
+    #[test]
+    fn official_github_url_whitelist_blocks_prefix_bypass_and_injection() {
+        assert!(super::is_allowed_official_github_url(
+            "https://github.com/CaesarLastKing/FD-ClaudeGuard"
+        ));
+        assert!(super::is_allowed_official_github_url(
+            "https://github.com/CaesarLastKing/FD-ClaudeGuard/releases/latest"
+        ));
+        assert!(super::is_allowed_official_github_url(
+            "https://github.com/CaesarLastKing/FD-ClaudeGuard?tab=readme-ov-file"
+        ));
+        // 防前缀拼接绕过、userinfo 劫持与命令行参数注入
+        assert!(!super::is_allowed_official_github_url(
+            "https://github.com/CaesarLastKing/FD-ClaudeGuard-evil"
+        ));
+        assert!(!super::is_allowed_official_github_url(
+            "https://github.com/CaesarLastKing/FD-ClaudeGuard@evil.com/path"
+        ));
+        assert!(!super::is_allowed_official_github_url(
+            "https://github.com/CaesarLastKing/FD-ClaudeGuard \"calc.exe\""
+        ));
+        assert!(!super::is_allowed_official_github_url("https://evil.com"));
+    }
+
+    #[test]
+    fn main_window_bounds_validation_rejects_offscreen_and_undersized() {
+        let monitors = vec![(0, 0, 1920, 1080)];
+        let good = super::MainWindowBounds {
+            x: 120,
+            y: 80,
+            width: 1400,
+            height: 860,
+            maximized: false,
+        };
+        assert_eq!(super::validate_main_window_bounds(good, &monitors), Some(good));
+
+        // 外接副屏拔出后坐标落在屏幕外 → 自动拒绝回退默认居中
+        let offscreen = super::MainWindowBounds {
+            x: 2400,
+            y: 120,
+            width: 1400,
+            height: 860,
+            maximized: false,
+        };
+        assert_eq!(super::validate_main_window_bounds(offscreen, &monitors), None);
+
+        // 标题栏超出屏幕顶部不可拖拽 → 拒绝
+        let hidden_title = super::MainWindowBounds {
+            x: 100,
+            y: -90,
+            width: 1400,
+            height: 860,
+            maximized: false,
+        };
+        assert_eq!(
+            super::validate_main_window_bounds(hidden_title, &monitors),
+            None
+        );
+
+        // 过小窗口尺寸 → 拒绝
+        let tiny = super::MainWindowBounds {
+            x: 100,
+            y: 100,
+            width: 400,
+            height: 300,
+            maximized: false,
+        };
+        assert_eq!(super::validate_main_window_bounds(tiny, &monitors), None);
+    }
+
+    #[test]
+    fn precise_state_timezone_gap_respects_windows_tz_key_during_dst() {
+        // 悉尼 11 月夏令时（本机 UTC+11，标准偏移写 +10），Windows 键名精确命中时应判 0 差值
+        assert_eq!(
+            crate::preflight::compute_precise_state_hour_gap(
+                11,
+                "AUS Eastern Standard Time",
+                10,
+                "AUS Eastern Standard Time (澳东标准时间)"
+            ),
+            0
+        );
+        // 美西夏令时 PDT（本机 UTC-7，标准偏移 -8），Windows 键名精确命中时应判 0 差值
+        assert_eq!(
+            crate::preflight::compute_precise_state_hour_gap(
+                -7,
+                "Pacific Standard Time",
+                -8,
+                "Pacific Standard Time (太平洋时间 · 美西)"
+            ),
+            0
+        );
+        // 不同州时区（美东 UTC-5 对美西 -8）仍如实给出 3 小时差
+        assert_eq!(
+            crate::preflight::compute_precise_state_hour_gap(
+                -5,
+                "Eastern Standard Time",
+                -8,
+                "Pacific Standard Time (太平洋时间 · 美西)"
+            ),
+            3
+        );
     }
 }

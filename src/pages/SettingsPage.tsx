@@ -1,9 +1,11 @@
-import { useEffect, useState } from "react";
-import { Activity, Bell, Download, Loader2, RefreshCw, ShieldAlert, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Activity, Bell, CheckCircle2, Download, ExternalLink, Loader2, RefreshCw, ShieldAlert, X } from "lucide-react";
 import { CheckIcon } from "@/components/CheckIcon";
 import { ipc } from "@/lib/ipc";
 import { useGuardStore } from "@/stores/guardStore";
-import type { AppConfig, AppUpdateInfo } from "@/types/guard";
+import type { AppConfig } from "@/types/guard";
+
+const GITHUB_OFFICIAL_URL = "https://github.com/CaesarLastKing/FD-ClaudeGuard";
 
 type BoolConfigKey =
   | "showHud"
@@ -110,14 +112,26 @@ export function SettingsPage() {
   const [sampleOpen, setSampleOpen] = useState(false);
   const [sampleJson, setSampleJson] = useState("");
   const [sampleLoading, setSampleLoading] = useState(false);
-  const [updateChecking, setUpdateChecking] = useState(false);
-  const [updateInstalling, setUpdateInstalling] = useState(false);
-  const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
-  const [updateError, setUpdateError] = useState<string | null>(null);
   const config: AppConfig = useGuardStore((s) => s.config);
   const startupAudit = useGuardStore((s) => s.startupAudit);
   const updateConfig = useGuardStore((s) => s.updateConfig);
   const pushToast = useGuardStore((s) => s.pushToast);
+  const updateInfo = useGuardStore((s) => s.updateInfo);
+  const updateChecking = useGuardStore((s) => s.updateChecking);
+  const updateInstalling = useGuardStore((s) => s.updateInstalling);
+  const updateError = useGuardStore((s) => s.updateError);
+  const checkForAppUpdate = useGuardStore((s) => s.checkForAppUpdate);
+  const installAppUpdate = useGuardStore((s) => s.installAppUpdate);
+
+  const autoUpdateCheckedRef = useRef(false);
+
+  useEffect(() => {
+    if (autoUpdateCheckedRef.current) return;
+    if (!updateInfo && !updateChecking && !updateError) {
+      autoUpdateCheckedRef.current = true;
+      void checkForAppUpdate(true);
+    }
+  }, [updateInfo, updateChecking, updateError, checkForAppUpdate]);
 
   useEffect(() => {
     if (!sampleOpen) return;
@@ -135,39 +149,18 @@ export function SettingsPage() {
   };
 
   const handleCheckUpdate = async () => {
-    if (updateChecking || updateInstalling) return;
-    setUpdateChecking(true);
-    setUpdateError(null);
-    try {
-      const info = await ipc.checkAppUpdate();
-      setUpdateInfo(info);
-      pushToast(
-        info.available ? `发现新版本 v${info.latestVersion ?? ""}` : "当前已是最新版本",
-        info.message,
-        info.available ? "info" : "ok"
-      );
-    } catch (err) {
-      const msg = String(err);
-      setUpdateError(msg);
-      pushToast("检查更新失败", msg, "danger");
-    } finally {
-      setUpdateChecking(false);
-    }
+    await checkForAppUpdate(false);
   };
 
   const handleInstallUpdate = async () => {
-    if (updateInstalling) return;
-    setUpdateInstalling(true);
-    setUpdateError(null);
+    await installAppUpdate();
+  };
+
+  const handleOpenGithub = async () => {
     try {
-      const msg = await ipc.installAppUpdate();
-      pushToast("更新包校验通过", msg, "ok");
+      await ipc.openExternalUrl(GITHUB_OFFICIAL_URL);
     } catch (err) {
-      const msg = String(err);
-      setUpdateError(msg);
-      pushToast("自动更新安装失败", msg, "danger");
-    } finally {
-      setUpdateInstalling(false);
+      pushToast("打开 GitHub 官网失败", String(err), "danger");
     }
   };
 
@@ -249,7 +242,7 @@ export function SettingsPage() {
                     客户端版本与自动更新
                   </span>
                   <span className="guard-chip guard-chip-neutral tabular">
-                    v{updateInfo?.currentVersion ?? "0.3.0"}
+                    v{updateInfo?.currentVersion ?? __APP_VERSION__}
                   </span>
                   {updateInfo?.available && updateInfo.latestVersion && (
                     <span className="guard-chip guard-chip-ok tabular">
@@ -266,8 +259,8 @@ export function SettingsPage() {
                 </div>
               </div>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-              {updateInfo?.available && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, flexWrap: "wrap" }}>
+              {updateInfo?.available ? (
                 <button
                   type="button"
                   data-testid="btn-install-app-update"
@@ -281,9 +274,59 @@ export function SettingsPage() {
                   ) : (
                     <Download size={13.5} strokeWidth={1.9} />
                   )}
-                  <span>{updateInstalling ? "正在下载并校验签名..." : "一键下载并安装"}</span>
+                  <span>
+                    {updateInstalling
+                      ? "正在下载并校验签名..."
+                      : `立即更新 v${updateInfo.latestVersion ?? ""}`}
+                  </span>
+                </button>
+              ) : updateChecking ? (
+                <button
+                  type="button"
+                  data-testid="btn-update-card-status"
+                  disabled
+                  className="guard-btn guard-btn-flat guard-btn-sm"
+                  style={{ whiteSpace: "nowrap" }}
+                >
+                  <Loader2 size={13.5} className="guard-spin" />
+                  <span>正在检查版本...</span>
+                </button>
+              ) : updateInfo ? (
+                <button
+                  type="button"
+                  data-testid="btn-update-card-status"
+                  className="guard-btn guard-btn-flat guard-btn-sm"
+                  onClick={() => void handleCheckUpdate()}
+                  title="点击可重新检查更新"
+                  style={{ whiteSpace: "nowrap", color: "var(--success)" }}
+                >
+                  <CheckCircle2 size={13.5} strokeWidth={1.9} />
+                  <span>已是最新版本</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  data-testid="btn-update-card-status"
+                  className="guard-btn guard-btn-flat guard-btn-sm"
+                  onClick={() => void handleCheckUpdate()}
+                  style={{ whiteSpace: "nowrap" }}
+                >
+                  <RefreshCw size={13.5} strokeWidth={1.85} />
+                  <span>检查更新</span>
                 </button>
               )}
+
+              <button
+                type="button"
+                data-testid="btn-open-github-official"
+                className="guard-btn guard-btn-flat guard-btn-sm"
+                onClick={() => void handleOpenGithub()}
+                title={`前往项目官方 GitHub 仓库：${GITHUB_OFFICIAL_URL}`}
+                style={{ whiteSpace: "nowrap" }}
+              >
+                <ExternalLink size={13.5} strokeWidth={1.85} />
+                <span>GitHub 官网</span>
+              </button>
             </div>
           </div>
           {updateInfo?.available && updateInfo.notes && (

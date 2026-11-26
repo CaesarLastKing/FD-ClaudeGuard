@@ -35,7 +35,7 @@ export function Sidebar() {
   const mustAll = preflight.items.filter((x) => x.part === "must");
   const mustFail = mustAll.filter((x) => x.status !== "ok").length;
 
-  // 节点流量侧边栏角标双重兜底：同步关联 snapshot 唯一真源与控制台 node_geo 状态，确保三方 100% 联动不漏标
+  // 节点流量侧边栏角标双重兜底：同步关联 snapshot 唯一真源（含 nodeDown / activeFlowAnomalies / 漂移）与控制台 node_geo（硬可达性）
   const nodeGeoItem = preflight.items.find((x) => x.id === "node_geo");
   const hasNodeFail = Boolean(snapshot.nodeDown) || nodeGeoItem?.status === "fail";
   const hasNodeIssue =
@@ -281,7 +281,7 @@ export function Sidebar() {
                           value:
                             mustFail > 0
                               ? `当前仍有 ${mustFail} 项必须体检未通过，建议确认网络恢复后再放行`
-                              : "当前 11 项必须体检已全部通过，可安全解除熔断与盯防锁",
+                              : `当前 ${mustAll.length} 项必须体检已全部通过，可安全解除熔断与盯防锁`,
                           tone: mustFail > 0 ? "danger" : "ok",
                         },
                       ],

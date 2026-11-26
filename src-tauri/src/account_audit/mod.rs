@@ -19,7 +19,8 @@ use cloud_probe::{
 };
 use disambiguate::{disambiguate_403, AccountFacts, DataSource, Log403Input};
 use local_scan::{
-    scan_local_profile, LocalAccountAudit, ProfileContext, API_ENDPOINT_ENV_KEYS, PRIVACY_ENV_KEYS,
+    scan_local_profile, LocalAccountAudit, ProfileContext, ACTIVE_SCHEDULED_TASKS_WARN_THRESHOLD,
+    API_ENDPOINT_ENV_KEYS, PRIVACY_ENV_KEYS,
 };
 use score::{compute_risk_score, RiskScoreInput, ScoreConfidenceMode, ScoreResult};
 use serde::{Deserialize, Serialize};
@@ -115,6 +116,18 @@ pub fn evaluate_geo_consistency(
 
 // ==================== 持久化脱敏云端缓存（按 profile_id 隔离） ====================
 
+/// 持久化已知脱敏账号索引条目（严禁存明文邮箱、Token 或 Cookie，仅用于反查 8 位 org 前缀对应的脱敏展示）
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnownAccountMeta {
+    pub org_prefix8: String,
+    pub email_masked: Option<String>,
+    pub plan: Option<String>,
+    /// 来源标签（如 "云端核验" / "CLI" / "桌面端"）
+    pub source: String,
+    pub updated_at_ms: i64,
+}
+
 /// 单个档案持久化的脱敏云端核验缓存（严禁存明文 sk 或完整邮箱）
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -133,6 +146,9 @@ pub struct ProfileCloudCache {
 struct AuditCacheStore {
     version: u32,
     profiles: HashMap<String, ProfileCloudCache>,
+    /// org_prefix8 (小写) -> 脱敏账号元数据（云端核验自动登记，供桌面端/控制台单号锁/清理弹窗反查显示）
+    #[serde(default)]
+    known_accounts: HashMap<String, KnownAccountMeta>,
 }
 
 /// 缓存文件路径：`%LOCALAPPDATA%\FDClaudeGuard\account-audit-cache.json`
@@ -150,6 +166,62 @@ pub fn load_profile_cloud_cache(path: &Path, profile_id: &str) -> Option<Profile
     store.profiles.get(profile_id).cloned()
 }
 
+/// 读取已持久化的脱敏账号反查表（org_prefix8 -> KnownAccountMeta）
+pub fn load_known_accounts_map(path: &Path) -> HashMap<String, KnownAccountMeta> {
+    let Ok(raw) = fs::read_to_string(path) else {
+        return HashMap::new();
+    };
+    let Ok(store) = serde_json::from_str::<AuditCacheStore>(raw.trim_start_matches('\u{feff}'))
+    else {
+        return HashMap::new();
+    };
+    let mut map = store.known_accounts;
+    // 兼容历史缓存：把已保存的 profile.last_snapshot 也补进反查表
+    for prof in store.profiles.values() {
+        if let Some(ref snap) = prof.last_snapshot {
+            if let Some(ref org) = snap.org_id_prefix8 {
+                let key = org.to_ascii_lowercase();
+                map.entry(key.clone()).or_insert(KnownAccountMeta {
+                    org_prefix8: key,
+                    email_masked: snap.email_masked.clone(),
+                    plan: Some(snap.plan.clone()).filter(|p| !p.is_empty() && p != "未知"),
+                    source: "云端已识".into(),
+                    updated_at_ms: snap.verified_at_ms,
+                });
+            }
+        }
+    }
+    map
+}
+
+/// 单独登记一条脱敏账号元数据（即使本次核验因需切换确认未覆盖主档案，也保留脱敏邮箱映射供提示与清理弹窗使用）
+pub fn record_known_account_meta(path: &Path, meta: KnownAccountMeta) {
+    let key = meta.org_prefix8.trim().to_ascii_lowercase();
+    if key.is_empty() {
+        return;
+    }
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let mut store: AuditCacheStore = fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| serde_json::from_str(raw.trim_start_matches('\u{feff}')).ok())
+        .unwrap_or_else(|| AuditCacheStore {
+            version: 1,
+            profiles: HashMap::new(),
+            known_accounts: HashMap::new(),
+        });
+    store.version = 1;
+    store.known_accounts.insert(key, meta);
+    if let Ok(body) = serde_json::to_string_pretty(&store) {
+        let tmp = path.with_extension("json.tmp");
+        if fs::write(&tmp, &body).is_ok() && fs::rename(&tmp, path).is_err() {
+            let _ = fs::write(path, &body);
+            let _ = fs::remove_file(&tmp);
+        }
+    }
+}
+
 pub fn save_profile_cloud_cache(
     path: &Path,
     cache: &ProfileCloudCache,
@@ -163,8 +235,24 @@ pub fn save_profile_cloud_cache(
         .unwrap_or_else(|| AuditCacheStore {
             version: 1,
             profiles: HashMap::new(),
+            known_accounts: HashMap::new(),
         });
     store.version = 1;
+    if let Some(ref snap) = cache.last_snapshot {
+        if let Some(ref org) = snap.org_id_prefix8 {
+            let key = org.to_ascii_lowercase();
+            store.known_accounts.insert(
+                key.clone(),
+                KnownAccountMeta {
+                    org_prefix8: key,
+                    email_masked: snap.email_masked.clone(),
+                    plan: Some(snap.plan.clone()).filter(|p| !p.is_empty() && p != "未知"),
+                    source: "云端已识".into(),
+                    updated_at_ms: snap.verified_at_ms,
+                },
+            );
+        }
+    }
     store.profiles.insert(cache.profile_id.clone(), cache.clone());
 
     let body = serde_json::to_string_pretty(&store)
@@ -176,6 +264,337 @@ pub fn save_profile_cloud_cache(
         let _ = fs::remove_file(&tmp);
     }
     Ok(())
+}
+
+/// 统一格式化任意 `org_prefix8` 的脱敏可读账号标签（绝不再只显示孤立的 8 位组织号）
+pub fn format_org_account_label(
+    org_prefix8: &str,
+    local: &LocalAccountAudit,
+    known_map: &HashMap<String, KnownAccountMeta>,
+) -> String {
+    let key = org_prefix8.trim().to_ascii_lowercase();
+    if key.is_empty() {
+        return "未知账号".into();
+    }
+    let in_desktop = local
+        .desktop
+        .org_id_prefixes
+        .iter()
+        .any(|d| d.eq_ignore_ascii_case(&key));
+    let in_cli = local
+        .claude_json
+        .org_uuid_prefix8
+        .as_deref()
+        .map(|c| c.eq_ignore_ascii_case(&key))
+        .unwrap_or(false);
+
+    let source_tag = match (in_desktop, in_cli) {
+        (true, true) => "桌面端+CLI",
+        (true, false) => "桌面端",
+        (false, true) => "CLI",
+        (false, false) => "本机记录",
+    };
+
+    // 1. CLI 当前 ~/.claude.json
+    if in_cli {
+        if let Some(ref em) = local.claude_json.email_masked {
+            let plan = local.claude_json.plan_label.as_deref().unwrap_or("");
+            return if !plan.is_empty() && plan != "未知" {
+                format!("{em} ({plan} · {source_tag} · {key})")
+            } else {
+                format!("{em} ({source_tag} · {key})")
+            };
+        }
+    }
+
+    // 2. CLI 历史备份 ~/.claude/backups/
+    if let Some(b) = local
+        .hygiene
+        .backup_accounts
+        .iter()
+        .find(|b| b.org_prefix.eq_ignore_ascii_case(&key))
+    {
+        if let Some(ref em) = b.email_masked {
+            let plan = b.plan_label.as_deref().unwrap_or("");
+            let src = if in_desktop { "桌面端/备份" } else { "CLI备份" };
+            return if !plan.is_empty() && plan != "未知" {
+                format!("{em} ({plan} · {src} · {key})")
+            } else {
+                format!("{em} ({src} · {key})")
+            };
+        }
+    }
+
+    // 3. 脱敏云端缓存反查表（曾核验过该组织的桌面端/网页端号）
+    if let Some(known) = known_map.get(&key) {
+        if let Some(ref em) = known.email_masked {
+            let plan = known.plan.as_deref().unwrap_or("");
+            return if !plan.is_empty() && plan != "未知" {
+                format!("{em} ({plan} · {source_tag} · {key})")
+            } else {
+                format!("{em} ({source_tag} · {key})")
+            };
+        }
+    }
+
+    // 4. 纯桌面端日志/配置未含邮箱时，明确标出端来源，不让用户只看一串冷冰冰的哈希
+    if in_desktop {
+        format!("桌面端账号 (本地不含邮箱 · org {key})")
+    } else if in_cli {
+        format!("CLI 账号 (org {key})")
+    } else {
+        format!("未识别邮箱账号 (org {key})")
+    }
+}
+
+/// 前端可视化展示用的多端已识别脱敏账号摘要
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DetectedAccountBadge {
+    pub org_prefix8: String,
+    pub email_masked: Option<String>,
+    pub plan: Option<String>,
+    /// 来源端（如 "桌面端" / "CLI" / "桌面端+CLI" / "CLI备份" / "网页云端"）
+    pub client_source: String,
+    pub display_label: String,
+    pub is_primary: bool,
+}
+
+/// 本机多端账号卫生 6 态穷举（控制台单号锁、账户审计、清理引导 100% 单一真源，杜绝打补丁与假绿谎报）
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AccountHygieneState {
+    /// 1. 双端均空（桌面端与 CLI 均无活跃登录态与污染残留），可安全登录新主号
+    #[default]
+    CleanEmpty,
+    /// 2. 双端同号一致（桌面端与 CLI 均已登录且为同一健康账号，无失效凭据与内部跨号缓存）
+    CleanSyncedSingle,
+    /// 3. 单端活跃且另一端彻底干净（文案如实标明仅某端登录，绝不谎称“两端一致”）
+    SingleSurfaceClean,
+    /// 4. 单端存在失效凭据 / 同文件跨号交叉污染 / 旧号会话目录残留（黄灯预警，引导清理防连坐）
+    SingleSurfaceStaleOrPolluted,
+    /// 5. 双端混登不同账号或单端检出多个不同组织（红灯阻断，引导分项清理并可自主保留单端）
+    CrossSurfaceMix,
+    /// 6. 命中实锤封禁 / Portal 验证 / 跨组织 404 竞态（最高危红灯阻断）
+    HighRiskBanContamination,
+}
+
+/// 本机多端账号拓扑（单一真源 DTO）
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalAccountTopology {
+    pub hygiene_state: AccountHygieneState,
+    pub headline: String,
+    pub detail: String,
+    /// "empty" | "single" | "multi"
+    pub desktop_status: String,
+    pub desktop_accounts: Vec<String>,
+    /// "empty" | "active" | "stale_or_polluted"
+    pub cli_status: String,
+    pub cli_account: Option<String>,
+    pub cli_stale_reasons: Vec<String>,
+    pub session_dir_orphans: Vec<String>,
+    /// 只要存在 CLI 登录态 / 缓存 / 凭据 / 历史备份任意一项即为 true，确保用户永远有权清理旧号
+    pub has_cli_cleanup_target: bool,
+}
+
+/// 纯函数：基于本地扫描 + 受限号清单 + 跨号竞态数 + 已知脱敏映射，严格输出唯一 `LocalAccountTopology`
+pub fn evaluate_account_topology(
+    local: &LocalAccountAudit,
+    restricted_orgs: &[String],
+    cross_race_hits: usize,
+    known_map: &HashMap<String, KnownAccountMeta>,
+) -> LocalAccountTopology {
+    let fmt = |o: &str| format_org_account_label(o, local, known_map);
+
+    // 1. 桌面端盘点
+    let desktop_accounts: Vec<String> = local.desktop.org_id_prefixes.iter().map(|o| fmt(o)).collect();
+    let desktop_status = match local.desktop.org_id_prefixes.len() {
+        0 => "empty",
+        1 => "single",
+        _ => "multi",
+    }
+    .to_string();
+
+    // 2. CLI 盘点（登录态、失效凭据、同文件跨号交叉缓存、历史旧备份）
+    let cli_org = local.claude_json.org_uuid_prefix8.as_deref();
+    let cli_account = cli_org.map(fmt);
+    let has_cli_cached_usage = local.claude_json.cached_usage.is_some();
+    let has_cli_presence = cli_org.is_some() || local.credentials.exists || has_cli_cached_usage;
+    let has_cli_cleanup_target =
+        has_cli_presence || local.hygiene.backup_file_count > 0;
+
+    let mut cli_stale_reasons: Vec<String> = Vec::new();
+    if local.claude_json.internal_account_mismatch {
+        let a = local
+            .claude_json
+            .account_uuid_prefix8
+            .as_deref()
+            .unwrap_or("?");
+        let b = local
+            .claude_json
+            .cached_usage_account_uuid_prefix8
+            .as_deref()
+            .unwrap_or("?");
+        cli_stale_reasons.push(format!(
+            "~/.claude.json 内部双账号交叉污染（oauth={a} ≠ cachedUsage={b}）"
+        ));
+    }
+    if local.credentials.exists && local.credentials.is_expired == Some(true) {
+        cli_stale_reasons.push("CLI 登录凭据 (.credentials.json) 已失效/过期".into());
+    }
+    if cli_org.is_none() && (local.credentials.exists || has_cli_cached_usage) {
+        cli_stale_reasons.push("CLI 未登录但残留旧凭据或缓存".into());
+    }
+    if local.hygiene.backup_accounts.len() > 1 {
+        cli_stale_reasons.push(format!(
+            "~/.claude/backups/ 含 {} 个不同历史账号旧备份",
+            local.hygiene.backup_accounts.len()
+        ));
+    } else if cli_org.is_none() && local.hygiene.backup_file_count > 0 {
+        cli_stale_reasons.push(format!(
+            "~/.claude/backups/ 仍残留 {} 份旧号备份",
+            local.hygiene.backup_file_count
+        ));
+    }
+
+    let cli_status = if !has_cli_presence && cli_stale_reasons.is_empty() {
+        "empty"
+    } else if !cli_stale_reasons.is_empty() {
+        "stale_or_polluted"
+    } else {
+        "active"
+    }
+    .to_string();
+
+    // 3. 桌面端 Claude-Data 会话目录残留提示（排除当前活跃账号自身目录）
+    let mut active_prefixes: Vec<String> = local
+        .desktop
+        .org_id_prefixes
+        .iter()
+        .map(|s| s.to_ascii_lowercase())
+        .collect();
+    if let Some(c) = cli_org {
+        active_prefixes.push(c.to_ascii_lowercase());
+    }
+    if let Some(ref a) = local.claude_json.account_uuid_prefix8 {
+        active_prefixes.push(a.to_ascii_lowercase());
+    }
+    let session_dir_orphans: Vec<String> = local
+        .desktop
+        .session_dir_org_prefixes
+        .iter()
+        .filter(|p| {
+            // 若桌面端已空，则所有旧会话目录都标为可核查留存；若桌面端活跃，则仅标出与当前活跃前缀不同的旧目录
+            local.desktop.org_id_prefixes.is_empty()
+                || !active_prefixes.iter().any(|a| a.eq_ignore_ascii_case(p))
+        })
+        .cloned()
+        .collect();
+
+    // 4. 严格 6 态归类
+    let total_cross_race = cross_race_hits + local.desktop.cross_org_404_hits;
+    let has_ban_or_portal =
+        local.desktop.account_banned_hits > 0 || !restricted_orgs.is_empty() || total_cross_race > 0;
+    let is_multi_or_cross_mix =
+        local.cross_client_org_mismatch || local.desktop.org_id_prefixes.len() > 1;
+
+    let (hygiene_state, headline, detail) = if has_ban_or_portal {
+        let mut reasons = Vec::new();
+        if total_cross_race > 0 {
+            reasons.push(format!("跨组织竞态 {total_cross_race} 次"));
+        }
+        if !restricted_orgs.is_empty() {
+            let r_labels: Vec<String> = restricted_orgs.iter().map(|o| fmt(o)).collect();
+            reasons.push(format!("含已受限/封禁号（{}）", r_labels.join(" / ")));
+        } else if local.desktop.account_banned_hits > 0 {
+            reasons.push(format!("封禁残留 {} 条", local.desktop.account_banned_hits));
+        }
+        (
+            AccountHygieneState::HighRiskBanContamination,
+            format!("高危连坐预警：{}，建议立即双端彻底备份清理", reasons.join("，")),
+            "检测到实锤封禁/待验证记录或跨 orgId 竞态；登录健康新号前请先通过分项清单双端彻底清理残留。".into(),
+        )
+    } else if is_multi_or_cross_mix {
+        let desk_str = if desktop_accounts.is_empty() {
+            "无".into()
+        } else {
+            desktop_accounts.join(" / ")
+        };
+        let cli_str = cli_account.as_deref().unwrap_or("未登录");
+        (
+            AccountHygieneState::CrossSurfaceMix,
+            format!("跨端混登预警：桌面端 [{desk_str}] 与 CLI [{cli_str}] 账号不一致"),
+            "桌面端与 CLI 当前记录属于不同账号；打开分项清理弹窗可默认双端全清，也可取消勾选保留你想留的那一端。".into(),
+        )
+    } else if !cli_stale_reasons.is_empty() {
+        let cli_str = cli_account.as_deref().unwrap_or("CLI 旧残留");
+        let desk_note = if local.desktop.org_id_prefixes.is_empty() {
+            "桌面端已清空"
+        } else {
+            "桌面端已登录"
+        };
+        (
+            AccountHygieneState::SingleSurfaceStaleOrPolluted,
+            format!(
+                "{desk_note}，但 CLI 仍残留失效/跨号旧数据（{cli_str}）：{}",
+                cli_stale_reasons.join("；")
+            ),
+            "若该 CLI 旧号已停用或封禁，继续在本机登录新号极易触发同机连坐！建议立即点击「清理 CLI 凭据与备份」或打开分项清理彻底洗净。".into(),
+        )
+    } else if local.desktop.org_id_prefixes.is_empty() && cli_org.is_none() {
+        let orphan_note = if session_dir_orphans.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "（Claude-Data 仍保留 {} 个历史会话目录，换新号彻底洗白时可在清理弹窗额外勾选会话项）",
+                session_dir_orphans.len()
+            )
+        };
+        (
+            AccountHygieneState::CleanEmpty,
+            format!("本机桌面端与 CLI 均已清空，无登录态残留，可安全登录新主号{orphan_note}"),
+            "桌面端与 CLI 均未检测到活跃登录态或污染记录。".into(),
+        )
+    } else if !local.desktop.org_id_prefixes.is_empty() && cli_org.is_some() {
+        let same_label = desktop_accounts
+            .first()
+            .cloned()
+            .or_else(|| cli_account.clone())
+            .unwrap_or_else(|| "单一主号".into());
+        (
+            AccountHygieneState::CleanSyncedSingle,
+            format!("桌面端与 CLI 同号一致（{same_label}），无混登或跨 orgId 竞态"),
+            "双端组织完全一致、无失效凭据与跨号残留。".into(),
+        )
+    } else if !local.desktop.org_id_prefixes.is_empty() {
+        let d_label = desktop_accounts[0].clone();
+        (
+            AccountHygieneState::SingleSurfaceClean,
+            format!("仅桌面端已登录（{d_label}）· CLI 已清空，单端环境纯净"),
+            "当前仅桌面端存在单一登录态，CLI 未登录且无残留，无跨端混登风险。".into(),
+        )
+    } else {
+        let c_label = cli_account.clone().unwrap_or_else(|| "CLI 账号".into());
+        (
+            AccountHygieneState::SingleSurfaceClean,
+            format!("桌面端已清空 · 仅 CLI 保留登录态（{c_label}），如准备换新号请先清理 CLI 旧号"),
+            "桌面端当前无登录态，仅 CLI 仍保留账号记录；若你打算在桌面端登录另一个新号，务必先一键清理 CLI 凭据与旧备份防连坐。".into(),
+        )
+    };
+
+    LocalAccountTopology {
+        hygiene_state,
+        headline,
+        detail,
+        desktop_status,
+        desktop_accounts,
+        cli_status,
+        cli_account,
+        cli_stale_reasons,
+        session_dir_orphans,
+        has_cli_cleanup_target,
+    }
 }
 
 /// 读取默认档案已持久化的永久绑定归属地（供控制台 `node_geo` 同源联动）
@@ -208,6 +627,9 @@ pub struct QuotaDisplaySummary {
     pub stamp_tooltip: String,
     /// 若缓存已过期且近 5h 本地 .jsonl 为 0 轮，给出诚实校正提示
     pub five_hour_offline_note: Option<String>,
+    /// 若 7d 窗口缓存已过 resets_at，给出诚实校正/旧缓存提示
+    #[serde(default)]
+    pub seven_day_offline_note: Option<String>,
     pub soft_locked: bool,
     pub source: DataSource,
 }
@@ -234,6 +656,14 @@ pub struct RuntimeGuardContext {
     pub clash_online: bool,
     pub clash_port: u16,
     pub tun_online: bool,
+    /// 策略组与全家桶规则是否已锁死（`node_group == Ok`）
+    pub group_rules_ok: bool,
+    /// Clash Fake-IP DNS 防泄漏是否已实测通过（`node_dns == Ok`）
+    pub fake_ip_dns_ok: bool,
+    /// 是否已开启「运行中自动 4 层热熔断」兜底
+    pub auto_kill_switch_enabled: bool,
+    /// 当前活跃 Claude 实时异常连接数（直连 / 非锁定节点）
+    pub live_flow_anomalies: usize,
     pub current_node: Option<String>,
     pub exit_country: Option<String>,
     pub exit_colo: Option<String>,
@@ -243,6 +673,42 @@ pub struct RuntimeGuardContext {
     pub bg_claude_procs: u32,
     pub kill_hold_active: bool,
     pub kill_hold_remaining_secs: u32,
+}
+
+/// 纯函数：严格 5 重条件评估「Clash 断连回传 Cookie 403 防护」是否存在真实漏链缺口
+///
+/// 判定准则：
+/// - 基础硬防线：Clash 在线 + TUN 在线（任一离线必判漏链）；
+/// - 当 Claude 正在运行（`bg_claude_procs > 0 && !kill_hold_active`）时，绝不因「进程存活」本身误判漏链，
+///   而是严格核验 5 重运行护航条件：① Clash 在线、② TUN 在线、③ 策略组与全家桶规则锁死、
+///   ④ Fake-IP DNS 防泄漏通过且 0 条实时异常连接、⑤ 已开启运行中自动 4 层热熔断兜底；
+///   5 重全绿即返回空缺口（防护就绪 · 运行护航中），任一缺口立即明确指出。
+pub fn evaluate_disconnect_guard_strict(runtime: &RuntimeGuardContext) -> Vec<String> {
+    let mut gaps = Vec::new();
+    if !runtime.clash_online {
+        gaps.push("Clash 代理引擎离线".into());
+    }
+    if !runtime.tun_online {
+        gaps.push("Clash TUN 虚拟网卡未接管".into());
+    }
+    if runtime.bg_claude_procs > 0 && !runtime.kill_hold_active {
+        if !runtime.group_rules_ok {
+            gaps.push("策略组与全家桶规则未锁死".into());
+        }
+        if !runtime.fake_ip_dns_ok {
+            gaps.push("Fake-IP DNS 防泄漏未通过".into());
+        }
+        if runtime.live_flow_anomalies > 0 {
+            gaps.push(format!(
+                "实时连接存在 {} 条直连/非锁定节点异常",
+                runtime.live_flow_anomalies
+            ));
+        }
+        if !runtime.auto_kill_switch_enabled {
+            gaps.push("未开启「运行中自动 4 层热熔断」兜底".into());
+        }
+    }
+    gaps
 }
 
 /// 桌面端「账户审计」页完整聚合报告 DTO
@@ -282,11 +748,26 @@ pub struct AccountAuditReport {
     pub runtime_bg_procs: u32,
     pub runtime_kill_hold_active: bool,
     pub runtime_kill_hold_secs: u32,
+    /// 5 重严格防漏链判定是否全部就绪（true 表示无漏链缺口，即便 Claude 运行中也不误报）
+    #[serde(default)]
+    pub runtime_disconnect_guard_ok: bool,
+    /// 若 5 重严格防漏链存在缺口，逐条列出精确原因
+    #[serde(default)]
+    pub runtime_disconnect_gaps: Vec<String>,
 
     pub denoised_oauth_403_count: usize,
     pub log_flow_items: Vec<AuditLogFlowItem>,
     pub pending_issue_count: usize,
     pub has_danger_issue: bool,
+    /// 主力档案来源标注（"desktop_web" | "cli_and_desktop" | "cli" | "cli_stale" | "none"）
+    #[serde(default)]
+    pub primary_source: String,
+    /// 本机所有端已识别到的脱敏账号清单（用于在卡片、混登排查、清理前透明呈现）
+    #[serde(default)]
+    pub detected_accounts: Vec<DetectedAccountBadge>,
+    /// 单一真源：本机多端账号拓扑与 6 态卫生结论
+    #[serde(default)]
+    pub topology: LocalAccountTopology,
 }
 
 /// 修复操作返回 DTO
@@ -339,6 +820,17 @@ pub fn build_account_audit_report(
     cache: Option<&ProfileCloudCache>,
     runtime: &RuntimeGuardContext,
 ) -> AccountAuditReport {
+    let known = load_known_accounts_map(&default_audit_cache_path());
+    build_account_audit_report_with_known(local, cache, runtime, &known)
+}
+
+/// 可注入已知脱敏账号映射表的完整报告构造（便于确定性单元测试）
+pub fn build_account_audit_report_with_known(
+    local: LocalAccountAudit,
+    cache: Option<&ProfileCloudCache>,
+    runtime: &RuntimeGuardContext,
+    known_map: &HashMap<String, KnownAccountMeta>,
+) -> AccountAuditReport {
     let now_ms = local.scanned_at_ms;
     let cloud_snap = cache.and_then(|c| c.last_snapshot.clone());
     let last_verified_ms = cache.and_then(|c| c.last_verified_at_ms);
@@ -366,49 +858,258 @@ pub fn build_account_audit_report(
     let geo_consistency =
         evaluate_geo_consistency(workspace_geo.as_deref(), exit_country.as_deref());
 
-    let email_masked = local
-        .claude_json
-        .email_masked
-        .clone()
-        .or_else(|| cloud_snap.as_ref().and_then(|s| s.email_masked.clone()))
-        .unwrap_or_else(|| "未检测到本机账号".into());
+    // 统一计算单一真源 6 态拓扑（与控制台单号卫生锁 100% 同源）
+    let topology = evaluate_account_topology(&local, &[], 0, known_map);
 
-    let org_id_prefix8 = local
-        .claude_json
-        .org_uuid_prefix8
-        .clone()
-        .or_else(|| cloud_snap.as_ref().and_then(|s| s.org_id_prefix8.clone()))
-        .or_else(|| local.desktop.org_id_prefixes.first().cloned());
+    let cli_org = local.claude_json.org_uuid_prefix8.clone();
+    let desktop_first_org = local.desktop.org_id_prefixes.first().cloned();
+    let cloud_org = cloud_snap.as_ref().and_then(|s| s.org_id_prefix8.clone());
+    let cloud_matches_cli = match (cloud_org.as_deref(), cli_org.as_deref()) {
+        (Some(co), Some(cl)) => co.eq_ignore_ascii_case(cl),
+        _ => false,
+    };
+
+    // 主力档案不再强行绑定 CLI：
+    // 1) 若已做过云端 sk 核验（桌面端/网页端主力号），顶部优先以云端核验账号展示，不被旧 CLI 覆写；
+    // 2) 未做云端核验时，若桌面端活跃优先展示桌面端；仅当桌面端为空且存在 CLI 时才展示 CLI，并诚实标注是否失效残留。
+    let desktop_known = desktop_first_org
+        .as_deref()
+        .and_then(|o| known_map.get(&o.to_ascii_lowercase()));
+
+    let (org_id_prefix8, email_masked, primary_source) = if cloud_verified {
+        let org = cloud_org
+            .clone()
+            .or_else(|| desktop_first_org.clone())
+            .or_else(|| cli_org.clone());
+        let email = cloud_snap
+            .as_ref()
+            .and_then(|s| s.email_masked.clone())
+            .or_else(|| {
+                if cloud_matches_cli {
+                    local.claude_json.email_masked.clone()
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(|| {
+                org.as_deref()
+                    .map(|o| format!("已核验账号 (org {o})"))
+                    .unwrap_or_else(|| "未检测到本机账号".into())
+            });
+        let src = if cloud_matches_cli && !local.desktop.org_id_prefixes.is_empty() {
+            "cli_and_desktop"
+        } else {
+            "desktop_web"
+        };
+        (org, email, src.to_string())
+    } else if let Some(ref d_org) = desktop_first_org {
+        let desktop_same_as_cli = cli_org
+            .as_deref()
+            .map(|c| c.eq_ignore_ascii_case(d_org))
+            .unwrap_or(false);
+        if desktop_same_as_cli {
+            (
+                Some(d_org.clone()),
+                local
+                    .claude_json
+                    .email_masked
+                    .clone()
+                    .or_else(|| desktop_known.and_then(|k| k.email_masked.clone()))
+                    .unwrap_or_else(|| format!("桌面端+CLI 账号 (org {d_org})")),
+                "cli_and_desktop".to_string(),
+            )
+        } else if let Some(k) = desktop_known.filter(|k| k.email_masked.is_some()) {
+            (
+                Some(d_org.clone()),
+                k.email_masked.clone().unwrap(),
+                "desktop_web".to_string(),
+            )
+        } else if let Some(ref c_org) = cli_org {
+            (
+                Some(c_org.clone()),
+                local
+                    .claude_json
+                    .email_masked
+                    .clone()
+                    .unwrap_or_else(|| format!("CLI 账号 (org {c_org})")),
+                if topology.cli_status == "stale_or_polluted" {
+                    "cli_stale".to_string()
+                } else {
+                    "cli".to_string()
+                },
+            )
+        } else {
+            (
+                Some(d_org.clone()),
+                format!("桌面端账号 (本地不含邮箱 · org {d_org})"),
+                "desktop_web".to_string(),
+            )
+        }
+    } else if let Some(ref c_org) = cli_org {
+        (
+            Some(c_org.clone()),
+            local
+                .claude_json
+                .email_masked
+                .clone()
+                .unwrap_or_else(|| format!("CLI 账号 (org {c_org})")),
+            if topology.cli_status == "stale_or_polluted" {
+                "cli_stale".to_string()
+            } else {
+                "cli".to_string()
+            },
+        )
+    } else {
+        (None, "未检测到本机账号".into(), "none".to_string())
+    };
 
     let plan = cloud_snap
         .as_ref()
         .map(|s| s.plan.clone())
         .filter(|p| !p.is_empty() && p != "未知")
-        .or_else(|| local.claude_json.plan_label.clone())
         .or_else(|| {
-            local_scan::normalize_plan_label(
-                None,
-                local.credentials.subscription_type.as_deref(),
-                local.credentials.rate_limit_tier.as_deref(),
-            )
+            if primary_source == "desktop_web" {
+                desktop_known.and_then(|k| k.plan.clone())
+            } else {
+                None
+            }
+        })
+        .or_else(|| {
+            if matches!(primary_source.as_str(), "cli" | "cli_stale" | "cli_and_desktop") {
+                local.claude_json.plan_label.clone()
+            } else {
+                None
+            }
+        })
+        .or_else(|| {
+            if matches!(primary_source.as_str(), "cli" | "cli_stale" | "cli_and_desktop") {
+                local_scan::normalize_plan_label(
+                    None,
+                    local.credentials.subscription_type.as_deref(),
+                    local.credentials.rate_limit_tier.as_deref(),
+                )
+            } else {
+                None
+            }
         })
         .unwrap_or_else(|| "未知".into());
 
     let merchant_channel = cloud_snap
         .as_ref()
         .and_then(|s| s.merchant_channel.clone())
-        .or_else(|| local.claude_json.merchant_channel.clone())
+        .or_else(|| {
+            if matches!(primary_source.as_str(), "cli" | "cli_stale" | "cli_and_desktop") {
+                local.claude_json.merchant_channel.clone()
+            } else {
+                None
+            }
+        })
         .unwrap_or_else(|| "渠道未知".into());
 
-    let account_age_days = local
-        .claude_json
-        .account_age_days
-        .or_else(|| cloud_snap.as_ref().and_then(|s| s.account_age_days));
-    let subscription_age_days = local
-        .claude_json
-        .subscription_age_days
-        .or_else(|| cloud_snap.as_ref().and_then(|s| s.subscription_age_days));
+    let account_age_days = if cloud_verified && !cloud_matches_cli {
+        cloud_snap.as_ref().and_then(|s| s.account_age_days)
+    } else {
+        local
+            .claude_json
+            .account_age_days
+            .or_else(|| cloud_snap.as_ref().and_then(|s| s.account_age_days))
+    };
+    let subscription_age_days = if cloud_verified && !cloud_matches_cli {
+        cloud_snap.as_ref().and_then(|s| s.subscription_age_days)
+    } else {
+        local
+            .claude_json
+            .subscription_age_days
+            .or_else(|| cloud_snap.as_ref().and_then(|s| s.subscription_age_days))
+    };
     let local_device_age_days = local.claude_json.local_device_age_days;
+
+    // 汇总本机全部已识别脱敏账号清单（供 UI 多端展示）
+    let mut detected_accounts: Vec<DetectedAccountBadge> = Vec::new();
+    let mut seen_orgs: Vec<String> = Vec::new();
+    let mut push_org_badge = |org: &str| {
+        let lower = org.trim().to_ascii_lowercase();
+        if lower.is_empty() || seen_orgs.contains(&lower) {
+            return;
+        }
+        seen_orgs.push(lower.clone());
+        let in_desktop = local
+            .desktop
+            .org_id_prefixes
+            .iter()
+            .any(|d| d.eq_ignore_ascii_case(&lower));
+        let in_cli = cli_org
+            .as_deref()
+            .map(|c| c.eq_ignore_ascii_case(&lower))
+            .unwrap_or(false);
+        let in_cloud = cloud_org
+            .as_deref()
+            .map(|c| c.eq_ignore_ascii_case(&lower))
+            .unwrap_or(false);
+        let src = match (in_desktop || in_cloud, in_cli) {
+            (true, true) => "桌面端+CLI",
+            (true, false) if in_desktop => "桌面端",
+            (true, false) => "网页/云端",
+            (false, true) => "CLI",
+            (false, false) => "CLI备份",
+        };
+        let email_m = if in_cloud && cloud_snap.as_ref().and_then(|s| s.email_masked.as_ref()).is_some() {
+            cloud_snap.as_ref().and_then(|s| s.email_masked.clone())
+        } else if in_cli && local.claude_json.email_masked.is_some() {
+            local.claude_json.email_masked.clone()
+        } else if let Some(b) = local
+            .hygiene
+            .backup_accounts
+            .iter()
+            .find(|b| b.org_prefix.eq_ignore_ascii_case(&lower))
+        {
+            b.email_masked.clone()
+        } else {
+            known_map.get(&lower).and_then(|k| k.email_masked.clone())
+        };
+        let plan_m = if in_cloud {
+            cloud_snap
+                .as_ref()
+                .map(|s| s.plan.clone())
+                .filter(|p| !p.is_empty() && p != "未知")
+        } else if in_cli {
+            local.claude_json.plan_label.clone()
+        } else if let Some(b) = local
+            .hygiene
+            .backup_accounts
+            .iter()
+            .find(|b| b.org_prefix.eq_ignore_ascii_case(&lower))
+        {
+            b.plan_label.clone()
+        } else {
+            known_map.get(&lower).and_then(|k| k.plan.clone())
+        };
+        let is_primary = org_id_prefix8
+            .as_deref()
+            .map(|p| p.eq_ignore_ascii_case(&lower))
+            .unwrap_or(false);
+        let display_label = format_org_account_label(&lower, &local, known_map);
+        detected_accounts.push(DetectedAccountBadge {
+            org_prefix8: lower,
+            email_masked: email_m,
+            plan: plan_m,
+            client_source: src.to_string(),
+            display_label,
+            is_primary,
+        });
+    };
+    if let Some(ref o) = org_id_prefix8 {
+        push_org_badge(o);
+    }
+    for d in &local.desktop.org_id_prefixes {
+        push_org_badge(d);
+    }
+    if let Some(ref c) = cli_org {
+        push_org_badge(c);
+    }
+    for b in &local.hygiene.backup_accounts {
+        push_org_badge(&b.org_prefix);
+    }
 
     let (subscription_renew_label, subscription_renew_is_estimated) = match cloud_snap
         .as_ref()
@@ -566,18 +1267,46 @@ pub fn build_account_audit_report(
     let non_official_endpoint = local.hygiene.settings_non_official_endpoint.is_some()
         || !local.hygiene.system_env_endpoint_conflicts.is_empty();
     let ban_residue_or_cross_org_404 =
-        local.desktop.account_banned_hits > 0 || local.desktop.cross_org_404_hits > 0;
+        topology.hygiene_state == AccountHygieneState::HighRiskBanContamination;
     let cross_client_or_multi_org_mix =
-        local.cross_client_org_mismatch || local.desktop.org_id_prefixes.len() > 1;
-    let severe_automation_or_429 = local.hygiene.scheduled_tasks_count > 0
-        || local.behavior.overnight_bot_rhythm_suspected
+        topology.hygiene_state == AccountHygieneState::CrossSurfaceMix;
+    let stale_or_polluted_cli_residue =
+        topology.hygiene_state == AccountHygieneState::SingleSurfaceStaleOrPolluted;
+    // 定时任务按真实行为分级：
+    // - 历史留存 (>72h) 0 扣分不标红；
+    // - 活跃定时任务 0~5 个正常绿灯，>= 6 个归为轻微风险（黄灯 -5 分）；
+    // - 仅真实跨夜机刷、高频 429 (>=3) 或高并发才进严重红灯 (-10 分)。
+    let active_sched = local.hygiene.active_scheduled_tasks_count;
+    let severe_automation_or_429 = local.behavior.overnight_bot_rhythm_suspected
         || local.desktop.rate_limit_429_hits >= 3
         || local.desktop.high_side_session_hits > 0;
     let mild_rate_limit_429 =
         !severe_automation_or_429 && local.desktop.rate_limit_429_hits > 0;
-    let proxy_or_hold_unready = !runtime.clash_online
-        || !runtime.tun_online
-        || (runtime.bg_claude_procs > 0 && !runtime.kill_hold_active);
+    let mild_scheduled_tasks =
+        !severe_automation_or_429 && active_sched >= ACTIVE_SCHEDULED_TASKS_WARN_THRESHOLD;
+    let disconnect_gaps = evaluate_disconnect_guard_strict(runtime);
+    let proxy_or_hold_unready = !disconnect_gaps.is_empty();
+    let disconnect_detail = if !disconnect_gaps.is_empty() {
+        Some(format!(
+            "运行中 5 重防漏链存在缺口：{}，请先前往控制台或守卫配置补齐",
+            disconnect_gaps.join("；")
+        ))
+    } else {
+        None
+    };
+    let cli_telemetry_exempt =
+        !local.hygiene.cli_installed && local.hygiene.telemetry_total_bytes == 0;
+
+    let multi_acct_detail = if matches!(
+        topology.hygiene_state,
+        AccountHygieneState::HighRiskBanContamination
+            | AccountHygieneState::CrossSurfaceMix
+            | AccountHygieneState::SingleSurfaceStaleOrPolluted
+    ) {
+        Some(topology.headline.clone())
+    } else {
+        None
+    };
 
     let score_input = RiskScoreInput {
         confidence_mode: Some(confidence_mode),
@@ -615,15 +1344,8 @@ pub fn build_account_audit_report(
             .or_else(|| local.hygiene.system_env_endpoint_conflicts.first().cloned()),
         ban_residue_or_cross_org_404,
         cross_client_or_multi_org_mix,
-        multi_acct_detail: if local.cross_client_org_mismatch {
-            Some(format!(
-                "CLI ({}) 与桌面端日志 ({}) 组织不一致，存在跨端残留风险",
-                local.claude_json.org_uuid_prefix8.as_deref().unwrap_or("无"),
-                local.desktop.org_id_prefixes.join(", ")
-            ))
-        } else {
-            None
-        },
+        stale_or_polluted_cli_residue,
+        multi_acct_detail,
         cloud_warning_active: cloud_snap
             .as_ref()
             .map(|s| s.has_monitoring_notice)
@@ -635,11 +1357,23 @@ pub fn build_account_audit_report(
         high_risk_window_detail: None,
         severe_automation_or_429,
         mild_rate_limit_429,
-        rhythm_detail: None,
+        mild_scheduled_tasks,
+        rhythm_detail: if mild_scheduled_tasks && !mild_rate_limit_429 {
+            Some(format!(
+                "检测到 {} 个近期活跃定时任务（≥{} 个轻微提醒阈值），建议控制频率避免压线限流",
+                active_sched, ACTIVE_SCHEDULED_TASKS_WARN_THRESHOLD
+            ))
+        } else {
+            None
+        },
         quit_cookie_403_hit: local.desktop.cookie_403_hits > 0,
         proxy_or_hold_unready,
-        disconnect_detail: None,
-        telemetry_env_missing_count: local.hygiene.privacy_missing_keys.len(),
+        disconnect_detail,
+        telemetry_env_missing_count: if cli_telemetry_exempt {
+            0
+        } else {
+            local.hygiene.privacy_missing_keys.len()
+        },
         telemetry_dir_bytes: local.hygiene.telemetry_total_bytes,
         persona_kyc_verified_over_72h,
     };
@@ -652,7 +1386,7 @@ pub fn build_account_audit_report(
     if in_high_risk_window {
         pending_issue_count += 1;
     }
-    if severe_automation_or_429 || mild_rate_limit_429 {
+    if severe_automation_or_429 || mild_rate_limit_429 || mild_scheduled_tasks {
         pending_issue_count += 1;
         if severe_automation_or_429 {
             has_danger_issue = true;
@@ -662,7 +1396,7 @@ pub fn build_account_audit_report(
         pending_issue_count += 1;
         has_danger_issue = true;
     }
-    if ban_residue_or_cross_org_404 || cross_client_or_multi_org_mix {
+    if ban_residue_or_cross_org_404 || cross_client_or_multi_org_mix || stale_or_polluted_cli_residue {
         pending_issue_count += 1;
         if ban_residue_or_cross_org_404 {
             has_danger_issue = true;
@@ -674,11 +1408,18 @@ pub fn build_account_audit_report(
     }
     if local.desktop.cookie_403_hits > 0 || proxy_or_hold_unready {
         pending_issue_count += 1;
-        if local.desktop.cookie_403_hits > 0 || !runtime.clash_online || !runtime.tun_online {
+        if local.desktop.cookie_403_hits > 0
+            || !runtime.clash_online
+            || !runtime.tun_online
+            || runtime.live_flow_anomalies > 0
+        {
             has_danger_issue = true;
         }
     }
-    if !local.hygiene.privacy_missing_keys.is_empty() || local.hygiene.telemetry_total_bytes > 0 {
+    if !cli_telemetry_exempt
+        && (!local.hygiene.privacy_missing_keys.is_empty()
+            || local.hygiene.telemetry_total_bytes > 0)
+    {
         pending_issue_count += 1;
     }
     if account_banned || portal_hold {
@@ -715,10 +1456,15 @@ pub fn build_account_audit_report(
         runtime_bg_procs: runtime.bg_claude_procs,
         runtime_kill_hold_active: runtime.kill_hold_active,
         runtime_kill_hold_secs: runtime.kill_hold_remaining_secs,
+        runtime_disconnect_guard_ok: !proxy_or_hold_unready,
+        runtime_disconnect_gaps: disconnect_gaps,
         denoised_oauth_403_count,
         log_flow_items,
         pending_issue_count,
         has_danger_issue,
+        primary_source,
+        detected_accounts,
+        topology,
     }
 }
 
@@ -762,14 +1508,28 @@ fn build_quota_summary(
                 stamp_short: short,
                 stamp_tooltip: tooltip,
                 five_hour_offline_note: offline_note,
+                seven_day_offline_note: None,
                 soft_locked,
                 source: DataSource::OfficialProbe,
             };
         }
     }
 
-    // 回退到本地 ~/.claude.json 缓存 + 层 2 离线 .jsonl 校正
-    if let Some(ref cu) = local.claude_json.cached_usage {
+    // 回退到本地缓存（优先 CLI ~/.claude.json，其次桌面端 plan-usage-history.json）+ 层 2 离线 .jsonl 校正
+    let local_cached_usage: Option<(&local_scan::CachedUsageSummary, &str)> = local
+        .claude_json
+        .cached_usage
+        .as_ref()
+        .map(|u| (u, "本地缓存"))
+        .or_else(|| {
+            local
+                .desktop
+                .cached_usage
+                .as_ref()
+                .map(|u| (u, "桌面端本地缓存"))
+        });
+
+    if let Some((cu, source_label)) = local_cached_usage {
         let fetched_ms = cu.fetched_at_ms.unwrap_or(0);
         let short = if fetched_ms > 0 {
             format_short_age(fetched_ms, now_ms)
@@ -777,9 +1537,9 @@ fn build_quota_summary(
             "缓存".into()
         };
         let tooltip = if fetched_ms > 0 {
-            format!("本地缓存 · {short}采样")
+            format!("{source_label} · {short}采样")
         } else {
-            "本地缓存采样".into()
+            format!("{source_label}采样")
         };
         let cache_expired_5h = fetched_ms > 0 && now_ms.saturating_sub(fetched_ms) > FIVE_HOUR_MS;
         let resets_passed = cu
@@ -802,17 +1562,47 @@ fn build_quota_summary(
                 (raw_5h, None)
             };
 
-        let source = if offline_note.is_some() {
+        let seven_day_resets_passed = cu
+            .seven_day_resets_at
+            .as_deref()
+            .and_then(|iso| DateTime::parse_from_rfc3339(iso).ok())
+            .map(|dt| dt.timestamp_millis() < now_ms)
+            .unwrap_or(false);
+        let cache_expired_7d =
+            fetched_ms > 0 && now_ms.saturating_sub(fetched_ms) > CLOUD_CACHE_TTL_MS;
+        let raw_7d = cu.seven_day_pct.map(|v| v.round().clamp(0.0, 100.0) as u32);
+        let (seven_pct, seven_offline_note) = if seven_day_resets_passed || cache_expired_7d {
+            if local.behavior.last_7d.assistant_turns == 0 {
+                (
+                    Some(0),
+                    Some(format!(
+                        "本地缓存为 {short}旧采样（原 7d 窗口已重置），近 7 天本地 CLI 0 轮，已校正为 0%；实际实时额度可按需 sk 核验刷新"
+                    )),
+                )
+            } else {
+                (
+                    None,
+                    Some(format!(
+                        "本地 7d 缓存（{short}采样）所属周期已重置，暂停显示过期旧值，请按需云端 sk 核验刷新"
+                    )),
+                )
+            }
+        } else {
+            (raw_7d, None)
+        };
+
+        let source = if offline_note.is_some() || seven_offline_note.is_some() {
             DataSource::OfflineJsonl
         } else {
             DataSource::LocalConfig
         };
         return QuotaDisplaySummary {
             five_hour_pct: five_pct,
-            seven_day_pct: cu.seven_day_pct.map(|v| v.round().clamp(0.0, 100.0) as u32),
+            seven_day_pct: seven_pct,
             stamp_short: short,
             stamp_tooltip: tooltip,
             five_hour_offline_note: offline_note,
+            seven_day_offline_note: seven_offline_note,
             soft_locked,
             source,
         };
@@ -824,6 +1614,7 @@ fn build_quota_summary(
         stamp_short: "暂无".into(),
         stamp_tooltip: "本机尚无额度缓存，按需云端核验后可同步".into(),
         five_hour_offline_note: None,
+        seven_day_offline_note: None,
         soft_locked,
         source: DataSource::Unknown,
     }
@@ -1063,11 +1854,16 @@ pub fn restore_claude_official_endpoint(
 }
 
 /// 桌面端按需 `sk` 核验并落盘脱敏缓存
+///
+/// 不再强行假定本机 CLI (`~/.claude.json`) 一定是唯一主力档案：
+/// - 若 `allow_switch_primary == true`、或本机无 CLI、或 `sk` 组织等于 CLI 组织、或 `sk` 组织已出现在桌面端日志/配置中，均直接放行并设为当前主审计档案；
+/// - 仅当本机 CLI 存在另一号，且本次 `sk` 既非 CLI 号也不在桌面端记录中、且尚未确认切换时，才返回带 `[ORG_MISMATCH_CONFIRM]` 的双账号脱敏对比提示，由前端一键确认切换。
 pub async fn run_desktop_cloud_verify(
     ctx: &ProfileContext,
     cache_path: &Path,
     raw_input: &str,
     runtime: &RuntimeGuardContext,
+    allow_switch_primary: bool,
 ) -> Result<AccountAuditReport, CloudProbeError> {
     let local = tokio::task::spawn_blocking({
         let c = ctx.clone();
@@ -1089,25 +1885,79 @@ pub async fn run_desktop_cloud_verify(
         None
     };
 
+    // 先完成只读探测，以便获取云端脱敏邮箱与套餐，不再盲目用 CLI orgId 拦死桌面端/网页端用户
     let snap = probe_session_key_readonly(
         raw_input,
         CloudProbeOptions {
             proxy_url,
-            expected_org_prefix8: local.claude_json.org_uuid_prefix8.clone(),
+            expected_org_prefix8: None,
             base_url: None,
             timeout_secs: Some(15),
-            bypass_cooldown: false,
+            bypass_cooldown: allow_switch_primary,
         },
     )
     .await?;
 
+    // 无论后续是否切主档案，先将云端脱敏邮箱登记到反查表（严禁存明文邮箱/sk）
+    if let Some(ref org) = snap.org_id_prefix8 {
+        record_known_account_meta(
+            cache_path,
+            KnownAccountMeta {
+                org_prefix8: org.to_ascii_lowercase(),
+                email_masked: snap.email_masked.clone(),
+                plan: Some(snap.plan.clone()).filter(|p| !p.is_empty() && p != "未知"),
+                source: "云端已识".into(),
+                updated_at_ms: snap.verified_at_ms,
+            },
+        );
+    }
+
+    // 跨端确认保护：仅当本机 CLI 存在另一号，且 sk 组织不在桌面端记录里、且用户未显式确认切换时提示对比
+    if !allow_switch_primary {
+        if let (Some(cli_org), Some(actual_org)) = (
+            local.claude_json.org_uuid_prefix8.as_deref(),
+            snap.org_id_prefix8.as_deref(),
+        ) {
+            let matches_cli = cli_org.eq_ignore_ascii_case(actual_org);
+            let matches_desktop = local
+                .desktop
+                .org_id_prefixes
+                .iter()
+                .any(|d| d.eq_ignore_ascii_case(actual_org));
+            if !matches_cli && !matches_desktop {
+                let sk_email = snap.email_masked.as_deref().unwrap_or("未含邮箱");
+                let cli_email = local.claude_json.email_masked.as_deref().unwrap_or("CLI账号");
+                let cli_plan = local.claude_json.plan_label.as_deref().unwrap_or("未知");
+                return Err(CloudProbeError {
+                    code: CloudProbeErrorCode::OrgMismatch,
+                    http_status: 409,
+                    message: format!(
+                        "[ORG_MISMATCH_CONFIRM] 当前浏览器账号 {sk_email} ({} · {actual_org}) 与本机 CLI 账号 {cli_email} ({cli_plan} · {cli_org}) 不一致。你可以直接以此浏览器/桌面端账号为主档案继续核验，或先去浏览器切回 CLI 账号。",
+                        snap.plan
+                    ),
+                    retry_after_secs: None,
+                });
+            }
+        }
+    }
+
     let prev = load_profile_cloud_cache(cache_path, &ctx.profile_id);
+    let org_changed = match (
+        prev.as_ref().and_then(|p| p.bound_org_prefix8.as_deref()),
+        snap.org_id_prefix8.as_deref(),
+    ) {
+        (Some(old), Some(new_org)) => !old.eq_ignore_ascii_case(new_org),
+        _ => false,
+    };
     let next_cache = ProfileCloudCache {
         profile_id: ctx.profile_id.clone(),
-        bound_workspace_geo: snap
-            .workspace_geo
-            .clone()
-            .or_else(|| prev.as_ref().and_then(|p| p.bound_workspace_geo.clone())),
+        bound_workspace_geo: if org_changed {
+            snap.workspace_geo.clone()
+        } else {
+            snap.workspace_geo
+                .clone()
+                .or_else(|| prev.as_ref().and_then(|p| p.bound_workspace_geo.clone()))
+        },
         bound_org_prefix8: snap
             .org_id_prefix8
             .clone()
@@ -1118,7 +1968,13 @@ pub async fn run_desktop_cloud_verify(
     };
     let _ = save_profile_cloud_cache(cache_path, &next_cache);
 
-    Ok(build_account_audit_report(local, Some(&next_cache), runtime))
+    let known = load_known_accounts_map(cache_path);
+    Ok(build_account_audit_report_with_known(
+        local,
+        Some(&next_cache),
+        runtime,
+        &known,
+    ))
 }
 
 // ==================== 外部查分 API 预留契约：POST /v1/audit/check-sk ====================
@@ -1488,6 +2344,305 @@ mod tests {
         assert_eq!(restored_json["oauthAccount"]["emailAddress"], "a@b.com");
     }
 
+    #[test]
+    fn free_account_oauth_len164_not_misclassified_as_restricted_org() {
+        // 回归：Free 号桌面端背景 OAuth 403 (len=164/len=156) 属于正常权限边界，绝不打进 restricted_org_ids
+        let log_free = r#"
+2026-11-25 07:53:34 [info] Org changed from null to a4722ea6-5260-4b99-b90e-184c66adb1d7
+2026-11-25 07:53:37 [info] oauth failed: authorize returned 403 <json error=permission_error len=164>
+2026-11-25 07:53:39 [info] oauth failed: authorize returned 403 <json error=permission_error len=156>
+"#;
+        let mut audit = crate::watchdog::AccountLogAudit::default();
+        crate::watchdog::audit_log_text_for_accounts(log_free, &mut audit);
+        assert!(
+            audit.restricted_org_ids.is_empty(),
+            "Free 号 len=164/156 OAuth 403 不应被误标为受限号: {:?}",
+            audit.restricted_org_ids
+        );
+
+        // 真正封号/门户核验（len=130 / portal.anthropic.com/verify）仍必须准确捕获
+        let log_real_ban = r#"
+2026-11-25 08:00:00 [warn] orgId=deadbeef-1111-2222-3333-444455556666
+2026-11-25 08:00:01 [error] authorize returned 403 <json error=permission_error len=130>
+"#;
+        let mut audit_ban = crate::watchdog::AccountLogAudit::default();
+        crate::watchdog::audit_log_text_for_accounts(log_real_ban, &mut audit_ban);
+        assert_eq!(audit_ban.restricted_org_ids, vec!["deadbeef".to_string()]);
+    }
+
+    #[test]
+    fn scheduled_tasks_threshold_and_historical_scripts_scoring() {
+        let rt = RuntimeGuardContext {
+            clash_online: true,
+            clash_port: 7890,
+            tun_online: true,
+            ..Default::default()
+        };
+        let mut local = LocalAccountAudit::default();
+        local.scanned_at_ms = 1_795_600_000_000;
+
+        // 场景 A：0 个活跃 + 10 个历史旧脚本(>72h) => 0 扣分、不进 severe 也不进 mild
+        local.hygiene.active_scheduled_tasks_count = 0;
+        local.hygiene.scheduled_tasks_count = 0;
+        local.hygiene.historical_scheduled_tasks_count = 10;
+        let rep_hist = build_account_audit_report_with_known(local.clone(), None, &rt, &HashMap::new());
+        assert!(
+            !rep_hist
+                .score_result
+                .deductions
+                .iter()
+                .any(|d| d.id.contains("automation") || d.id.contains("scheduled")),
+            "历史留存脚本不应扣分: {:?}",
+            rep_hist.score_result.deductions
+        );
+
+        // 场景 B：5 个活跃定时任务 => 仍在正常范围(0~5)，0 扣分
+        local.hygiene.active_scheduled_tasks_count = 5;
+        local.hygiene.scheduled_tasks_count = 5;
+        let rep_5 = build_account_audit_report_with_known(local.clone(), None, &rt, &HashMap::new());
+        assert!(
+            !rep_5
+                .score_result
+                .deductions
+                .iter()
+                .any(|d| d.id.contains("automation") || d.id.contains("scheduled")),
+            "5 个活跃定时任务应为绿灯正常"
+        );
+
+        // 场景 C：6 个活跃定时任务 => 轻微风险黄灯 (-5)，绝不判红灯机刷 (-10)
+        local.hygiene.active_scheduled_tasks_count = 6;
+        local.hygiene.scheduled_tasks_count = 6;
+        let rep_6 = build_account_audit_report_with_known(local, None, &rt, &HashMap::new());
+        let item = rep_6
+            .score_result
+            .deductions
+            .iter()
+            .find(|d| d.id == "mild_scheduled_tasks")
+            .expect("6 个活跃定时任务应触发 mild_scheduled_tasks 黄灯");
+        assert_eq!(item.delta, -5);
+        assert_eq!(item.tone, "warn");
+    }
+
+    #[test]
+    fn cloud_verified_desktop_account_takes_primary_over_stale_cli() {
+        let rt = RuntimeGuardContext {
+            clash_online: true,
+            clash_port: 7890,
+            tun_online: true,
+            exit_country: Some("US".into()),
+            ..Default::default()
+        };
+        let mut local = LocalAccountAudit::default();
+        local.scanned_at_ms = 1_795_600_000_000;
+        local.claude_json.exists = true;
+        local.claude_json.email_masked = Some("star***t4@gmail.com".into());
+        local.claude_json.org_uuid_prefix8 = Some("7aacf131".into());
+        local.claude_json.plan_label = Some("Pro".into());
+        local.desktop.org_id_prefixes = vec!["a4722ea6".into()];
+        local.cross_client_org_mismatch = true;
+
+        let snap = CloudProbeSnapshot {
+            verified_at_ms: 1_795_599_000_000,
+            checked_at_iso: "2026-11-26T00:00:00Z".into(),
+            email_masked: Some("desk***99@gmail.com".into()),
+            org_id_prefix8: Some("a4722ea6".into()),
+            plan: "Free".into(),
+            merchant_channel: Some("Free".into()),
+            workspace_geo: Some("US".into()),
+            edge_country: Some("US".into()),
+            edge_colo: Some("SJC".into()),
+            account_age_days: Some(20),
+            subscription_age_days: None,
+            subscription_ends_at: None,
+            chat_available: true,
+            is_banned: false,
+            appeals_redirect_enabled: false,
+            has_monitoring_notice: false,
+            active_flag_types: Vec::new(),
+            warning_summary_zh: None,
+            persona_kyc_status: None,
+            persona_kyc_completed_at: None,
+            persona_kyc_age_hours: None,
+            portal_hold: false,
+            portal_state: "clear".into(),
+            five_hour_pct: Some(5.0),
+            five_hour_resets_at: None,
+            seven_day_pct: Some(12.0),
+            seven_day_resets_at: None,
+            warnings: Vec::new(),
+        };
+        let cache = ProfileCloudCache {
+            profile_id: "default".into(),
+            bound_workspace_geo: Some("US".into()),
+            bound_org_prefix8: Some("a4722ea6".into()),
+            verify_count: 1,
+            last_verified_at_ms: Some(1_795_599_000_000),
+            last_snapshot: Some(snap),
+        };
+        let mut known = HashMap::new();
+        known.insert(
+            "a4722ea6".into(),
+            KnownAccountMeta {
+                org_prefix8: "a4722ea6".into(),
+                email_masked: Some("desk***99@gmail.com".into()),
+                plan: Some("Free".into()),
+                source: "云端已识".into(),
+                updated_at_ms: 1_795_599_000_000,
+            },
+        );
+
+        let report = build_account_audit_report_with_known(local, Some(&cache), &rt, &known);
+        assert_eq!(report.email_masked, "desk***99@gmail.com");
+        assert_eq!(report.org_id_prefix8.as_deref(), Some("a4722ea6"));
+        assert_eq!(report.plan, "Free");
+        assert_eq!(report.primary_source, "desktop_web");
+        assert!(report.detected_accounts.len() >= 2);
+    }
+
+    #[test]
+    fn cleanup_preview_defaults_cli_checked_and_shows_masked_accounts() {
+        let dir = tempdir().unwrap();
+        let home = dir.path().join("home");
+        let cli_dir = home.join(".claude");
+        let roaming = dir.path().join("Roaming");
+        let local_base = dir.path().join("Local");
+        fs::create_dir_all(cli_dir.join("backups")).unwrap();
+        fs::create_dir_all(roaming.join("Claude").join("logs")).unwrap();
+        fs::write(
+            home.join(".claude.json"),
+            r#"{"oauthAccount":{"emailAddress":"starktest4@gmail.com","organizationUuid":"7aacf131-0000-0000-0000-000000000000","billingType":"stripe_subscription","organizationType":"claude_pro"}}"#,
+        )
+        .unwrap();
+        fs::write(
+            roaming.join("Claude").join("logs").join("main.log"),
+            "orgId=a4722ea6-5260-4b99-b90e-184c66adb1d7",
+        )
+        .unwrap();
+
+        let roots = crate::maintenance::discover_claude_data_roots_from(
+            Some(&roaming),
+            Some(&local_base),
+            Some(&home),
+        );
+        let preview = crate::maintenance::preview_claude_cleanup_plan_with_roots(&roots, 0);
+        let cli_cat = preview
+            .categories
+            .iter()
+            .find(|c| c.id == crate::maintenance::CLEAN_CAT_CLI_AUTH)
+            .expect("cli_auth_and_backups category must exist");
+        assert!(cli_cat.default_selected, "CLI 登录态清理必须默认勾选");
+        let cli_acct = cli_cat.account_summary.as_deref().unwrap_or("");
+        assert!(
+            cli_acct.contains("star***t4@gmail.com") && cli_acct.contains("7aacf131"),
+            "CLI 清理项必须展示脱敏账号与组织: {cli_acct}"
+        );
+
+        let auth_cat = preview
+            .categories
+            .iter()
+            .find(|c| c.id == crate::maintenance::CLEAN_CAT_AUTH)
+            .expect("auth category must exist");
+        let desk_acct = auth_cat.account_summary.as_deref().unwrap_or("");
+        assert!(
+            desk_acct.contains("a4722ea6") && desk_acct.contains("桌面端"),
+            "桌面端清理项必须展示桌面端识别信息: {desk_acct}"
+        );
+    }
+
+    #[test]
+    fn topology_detects_stale_cli_and_internal_cross_account_mismatch_never_fakes_synced() {
+        let dir = tempdir().unwrap();
+        let home = dir.path().join("home");
+        let cli_dir = home.join(".claude");
+        fs::create_dir_all(&cli_dir).unwrap();
+
+        // 构造真实真机场景：桌面端已清空，但 CLI ~/.claude.json 内部双账号交叉(b3a8b422 != 078cfdb1) 且 .credentials.json expiresAt=0
+        let claude_json = home.join(".claude.json");
+        fs::write(
+            &claude_json,
+            r#"{
+                "oauthAccount": {
+                    "accountUuid": "b3a8b422-1111-2222-3333-444455556666",
+                    "emailAddress": "starktest4@gmail.com",
+                    "organizationUuid": "7aacf131-1111-2222-3333-444455556666",
+                    "organizationType": "claude_pro",
+                    "billingType": "stripe_subscription"
+                },
+                "cachedUsageUtilization": {
+                    "fetchedAtMs": 1794848917463,
+                    "accountUuid": "078cfdb1-0f3b-4e3c-b2bb-44f0c3b8d5a3",
+                    "utilization": {
+                        "seven_day": { "utilization": 72, "resets_at": "2026-11-20T18:00:00Z" }
+                    }
+                },
+                "theme": "dark"
+            }"#,
+        )
+        .unwrap();
+        fs::write(
+            cli_dir.join(".credentials.json"),
+            r#"{"claudeAiOauth":{"subscriptionType":"pro","expiresAt":0,"scopes":["user:inference"]}}"#,
+        )
+        .unwrap();
+
+        let ctx = ProfileContext {
+            profile_id: "default".into(),
+            cli_config_dir: Some(cli_dir.clone()),
+            claude_json_path: Some(claude_json.clone()),
+            desktop_data_dirs: Vec::new(),
+            expected_geo: None,
+            bound_proxy_port: None,
+            scan_system_env: false,
+        };
+        let local = local_scan::scan_local_profile_at(&ctx, 1_795_600_000_000);
+        assert!(local.claude_json.internal_account_mismatch);
+        assert_eq!(local.credentials.is_expired, Some(true));
+
+        let rt = RuntimeGuardContext {
+            clash_online: true,
+            clash_port: 7890,
+            tun_online: true,
+            ..Default::default()
+        };
+        let report = build_account_audit_report_with_known(local, None, &rt, &HashMap::new());
+        assert_eq!(
+            report.topology.hygiene_state,
+            AccountHygieneState::SingleSurfaceStaleOrPolluted
+        );
+        assert_eq!(report.primary_source, "cli_stale");
+        assert!(report.topology.has_cli_cleanup_target);
+        assert!(
+            !report.topology.headline.contains("组织一致"),
+            "桌面端为空时绝不可谎称 CLI 与桌面端组织一致: {}",
+            report.topology.headline
+        );
+        assert!(report
+            .score_result
+            .deductions
+            .iter()
+            .any(|d| d.id == "cli_stale_or_cross_residue"));
+
+        // 一键清理 CLI 后：同步剥离 oauthAccount 与 cachedUsageUtilization（保留 theme）
+        let bdir = dir.path().join("backups");
+        let _ = crate::maintenance::clean_claude_cli_credentials_with_backup_in(&bdir, Some(&home))
+            .unwrap();
+        let after_val: Value =
+            serde_json::from_str(&fs::read_to_string(&claude_json).unwrap()).unwrap();
+        assert!(after_val.get("oauthAccount").is_none());
+        assert!(after_val.get("cachedUsageUtilization").is_none());
+        assert_eq!(after_val["theme"], "dark");
+
+        // 清理后再扫：彻底进入 CleanEmpty 纯净待登态
+        let local_after = local_scan::scan_local_profile_at(&ctx, 1_795_600_000_000);
+        let report_after =
+            build_account_audit_report_with_known(local_after, None, &rt, &HashMap::new());
+        assert_eq!(
+            report_after.topology.hygiene_state,
+            AccountHygieneState::CleanEmpty
+        );
+        assert!(!report_after.topology.has_cli_cleanup_target);
+    }
+
     #[tokio::test]
     #[ignore = "Gate 2 真机双向闭环实测：初始态扫描(检出真实 2/4 降噪缺失与跨端混登) -> 正向补齐 settings.json 验证 4/4 生效 -> 反向精准撤回并验证 100% 还原原文件"]
     async fn live_m2_real_machine_settings_and_audit_bidirectional() {
@@ -1603,5 +2758,133 @@ mod tests {
             let _ = fs::write(&baseline_path, orig_bl);
         }
         println!("[M2-Gate2] BIDIRECTIONAL CLOSED-LOOP PASSED 100%!");
+    }
+
+    #[test]
+    fn strict_disconnect_guard_passes_when_running_with_5_protections_and_catches_any_gap() {
+        let base_running = RuntimeGuardContext {
+            clash_online: true,
+            clash_port: 7890,
+            tun_online: true,
+            group_rules_ok: true,
+            fake_ip_dns_ok: true,
+            auto_kill_switch_enabled: true,
+            live_flow_anomalies: 0,
+            bg_claude_procs: 8,
+            kill_hold_active: false,
+            ..Default::default()
+        };
+        assert!(
+            evaluate_disconnect_guard_strict(&base_running).is_empty(),
+            "5 重防护全绿时运行 8 个 Claude 进程绝不应判为存在漏链"
+        );
+
+        let mut local = LocalAccountAudit::default();
+        local.scanned_at_ms = 1_795_650_000_000;
+        let rep_ok = build_account_audit_report_with_known(local.clone(), None, &base_running, &HashMap::new());
+        assert!(rep_ok.runtime_disconnect_guard_ok);
+        assert!(rep_ok.runtime_disconnect_gaps.is_empty());
+        assert!(!rep_ok
+            .score_result
+            .deductions
+            .iter()
+            .any(|d| d.id == "disconnect_guard_unready"));
+
+        // 逐项验证 5 重缺口均会被严格拦截
+        let mut no_rules = base_running.clone();
+        no_rules.group_rules_ok = false;
+        assert!(evaluate_disconnect_guard_strict(&no_rules)
+            .iter()
+            .any(|g| g.contains("策略组")));
+
+        let mut no_dns = base_running.clone();
+        no_dns.fake_ip_dns_ok = false;
+        assert!(evaluate_disconnect_guard_strict(&no_dns)
+            .iter()
+            .any(|g| g.contains("Fake-IP")));
+
+        let mut live_leak = base_running.clone();
+        live_leak.live_flow_anomalies = 2;
+        assert!(evaluate_disconnect_guard_strict(&live_leak)
+            .iter()
+            .any(|g| g.contains("2 条")));
+
+        let mut no_auto_ks = base_running.clone();
+        no_auto_ks.auto_kill_switch_enabled = false;
+        let rep_gap = build_account_audit_report_with_known(local, None, &no_auto_ks, &HashMap::new());
+        assert!(!rep_gap.runtime_disconnect_guard_ok);
+        assert!(rep_gap
+            .runtime_disconnect_gaps
+            .iter()
+            .any(|g| g.contains("热熔断")));
+        assert!(rep_gap
+            .score_result
+            .deductions
+            .iter()
+            .any(|d| d.id == "disconnect_guard_unready"));
+    }
+
+    #[test]
+    fn desktop_plan_usage_fallback_and_no_cli_telemetry_exemption() {
+        let dir = tempdir().unwrap();
+        let desktop_root = dir.path().join("Claude-Data").join("claude_pkg");
+        let sessions_dir = desktop_root.join("claude-code-sessions").join("org-1");
+        fs::create_dir_all(&sessions_dir).unwrap();
+
+        let now_ms = 1_795_650_000_000i64;
+        fs::write(
+            desktop_root.join("plan-usage-history.json"),
+            format!(
+                r#"{{"version":2,"samples":[{{"t":{},"org":"a4722ea6","u":{{"five_hour":{{"utilization":28}},"seven_day":{{"utilization":41}}}}}}]}}"#,
+                now_ms - 60_000
+            ),
+        )
+        .unwrap();
+        fs::write(
+            sessions_dir.join("session.jsonl"),
+            r#"{"type":"assistant","timestamp":"2026-11-26T00:00:00Z","message":{"usage":{"input_tokens":100,"output_tokens":50}}}"#,
+        )
+        .unwrap();
+
+        let ctx = ProfileContext {
+            profile_id: "default".into(),
+            cli_config_dir: Some(dir.path().join("nonexistent-cli")),
+            claude_json_path: Some(dir.path().join("nonexistent.claude.json")),
+            desktop_data_dirs: vec![local_scan::DesktopDataRoot {
+                kind: "Claude-Data(claude_pkg)".into(),
+                dir: desktop_root,
+            }],
+            expected_geo: None,
+            bound_proxy_port: None,
+            scan_system_env: false,
+        };
+        let local = local_scan::scan_local_profile_at(&ctx, now_ms);
+        assert!(!local.hygiene.cli_installed, "未安装 CLI 时 cli_installed 必须为 false");
+        assert_eq!(local.behavior.desktop_sessions_files_7d, 1);
+        assert!(local.desktop.cached_usage.is_some());
+
+        let rt = RuntimeGuardContext {
+            clash_online: true,
+            clash_port: 7890,
+            tun_online: true,
+            group_rules_ok: true,
+            fake_ip_dns_ok: true,
+            auto_kill_switch_enabled: true,
+            ..Default::default()
+        };
+        let report = build_account_audit_report_with_known(local, None, &rt, &HashMap::new());
+        assert_eq!(report.quota.five_hour_pct, Some(28));
+        assert_eq!(report.quota.seven_day_pct, Some(41));
+        assert!(report.quota.stamp_tooltip.contains("桌面端本地缓存"));
+        assert!(
+            !report
+                .score_result
+                .deductions
+                .iter()
+                .any(|d| d.id == "telemetry_env_missing"),
+            "未安装 CLI 且 0 B 遥测时应自动豁免，不扣遥测分: {:?}",
+            report.score_result.deductions
+        );
+        assert_eq!(report.pending_issue_count, 0);
     }
 }

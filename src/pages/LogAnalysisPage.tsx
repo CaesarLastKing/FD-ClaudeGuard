@@ -375,13 +375,15 @@ export function LogAnalysisPage() {
             )}
             <span>{loading ? "扫描中..." : "扫描日志"}</span>
           </button>
-          <button
-            type="button"
-            className="guard-btn guard-btn-flat guard-btn-sm"
-            onClick={() => void handleSimulate()}
-          >
-            + 模拟高并发 429 异常
-          </button>
+          {(import.meta.env.DEV || import.meta.env.MODE === "test") && (
+            <button
+              type="button"
+              className="guard-btn guard-btn-flat guard-btn-sm"
+              onClick={() => void handleSimulate()}
+            >
+              + 模拟高并发 429 异常
+            </button>
+          )}
         </div>
       </div>
 

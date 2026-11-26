@@ -477,6 +477,8 @@ export function HudCard({ initialConfig, initialSnapshot, onGoConsole }: HudCard
 
   const nodeMetaText = snapshot.killSwitchActive
     ? "防火墙已锁死全部出站"
+    : !snapshot.clashOnline
+    ? "等待连接 Clash · 尚未锁定"
     : snapshot.nodeDown
     ? "当前节点不可用 · 请手动更换"
     : flowAnomCount > 0
@@ -487,7 +489,7 @@ export function HudCard({ initialConfig, initialSnapshot, onGoConsole }: HudCard
   const flowTileTone =
     snapshot.killSwitchActive || snapshot.nodeDown
       ? "is-fail"
-      : liveFlowCount > 0 || hasNodeDrift
+      : !snapshot.clashOnline || liveFlowCount > 0 || hasNodeDrift
       ? "is-warn"
       : "is-ok";
   const holdActive = Boolean(snapshot.killHoldActive);

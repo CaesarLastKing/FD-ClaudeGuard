@@ -242,9 +242,15 @@ describe("v0.2.4 UI 核心回归门禁", () => {
       // 4. 点击弹窗中的真实执行确认按钮
       fireEvent.click(await screen.findByTestId("btn-clean-modal-confirm"));
 
-      // 5. 断言 ipc.backupAndCleanClaude 被真实调用 1 次且仅传默认 4 项（不含 mcp_sessions）
+      // 5. 断言 ipc.backupAndCleanClaude 被真实调用 1 次且包含默认 5 项（桌面端+CLI全清，不含 mcp_sessions）
       await waitFor(() => expect(backupCleanSpy).toHaveBeenCalledTimes(1));
-      expect(backupCleanSpy).toHaveBeenCalledWith(["auth", "logs", "telemetry", "cache"]);
+      expect(backupCleanSpy).toHaveBeenCalledWith([
+        "auth",
+        "cli_auth_and_backups",
+        "logs",
+        "telemetry",
+        "cache",
+      ]);
     });
   });
 

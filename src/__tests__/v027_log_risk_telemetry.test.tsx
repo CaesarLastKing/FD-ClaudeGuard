@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HudCard } from "@/components/HudCard";
 import { Sidebar } from "@/components/Sidebar";
@@ -101,13 +101,15 @@ describe("v0.2.7 日志风险/异常分开统计、OAuth v2 拆分折叠与匿�
     expect(badgeWarn).toHaveTextContent("1");
     expect(badgeWarn.getAttribute("title")).toBe("审计待处理 0 · 日志风险 1 · 异常 0");
 
-    useGuardStore.setState({
-      accountAudit: null,
-      snapshot: makeSnapshot({
-        unreadLogAnomalies: 0,
-        unreadLogCritical: 0,
-        unreadLogWarnings: 0,
-      }),
+    act(() => {
+      useGuardStore.setState({
+        accountAudit: null,
+        snapshot: makeSnapshot({
+          unreadLogAnomalies: 0,
+          unreadLogCritical: 0,
+          unreadLogWarnings: 0,
+        }),
+      });
     });
     rerender(<Sidebar />);
     expect(screen.getByTestId("nav-badge-audit")).toHaveTextContent("OK");
@@ -161,7 +163,7 @@ describe("v0.2.7 日志风险/异常分开统计、OAuth v2 拆分折叠与匿�
         watchingFiles: ["main.log"],
       },
     });
-    const ackSpy = vi.spyOn(ipc, "ackLogEvents").mockResolvedValue(
+    const ackSpy = vi.spyOn(ipc, "ackAllLogEvents").mockResolvedValue(
       makeSnapshot({ unreadLogAnomalies: 0, unreadLogCritical: 0, unreadLogWarnings: 0 })
     );
 

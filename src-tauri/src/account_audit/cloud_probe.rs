@@ -384,13 +384,41 @@ fn detect_cf_challenge(status_code: u16, headers: &HashMap<String, String>, body
     false
 }
 
-/// 通过 Windows 原生 `curl.exe` (Schannel) 发送严格只读 HTTP `GET` 请求（绝不打印 `sk` 或代理账密）
+/// 构造通过 `curl.exe --config -`（stdin）传入的敏感配置文本，避免在 Windows 进程命令行明文暴露 `sessionKey` 与代理账密
+pub(crate) fn build_curl_stdin_config(session_key: &str, proxy_url: Option<&str>) -> String {
+    fn escape_curl_value(raw: &str) -> String {
+        let mut out = String::with_capacity(raw.len());
+        for ch in raw.chars() {
+            if ch == '\r' || ch == '\n' || ch.is_control() {
+                continue;
+            }
+            if ch == '\\' || ch == '"' {
+                out.push('\\');
+            }
+            out.push(ch);
+        }
+        out
+    }
+
+    let safe_sk = escape_curl_value(session_key);
+    let mut cfg = format!("header = \"Cookie: sessionKey={safe_sk}\"\n");
+    if let Some(proxy) = proxy_url.map(str::trim).filter(|s| !s.is_empty()) {
+        let safe_proxy = escape_curl_value(proxy);
+        cfg.push_str(&format!("proxy = \"{safe_proxy}\"\n"));
+    }
+    cfg
+}
+
+/// 通过 Windows 原生 `curl.exe` (Schannel) 发送严格只读 HTTP `GET` 请求（敏感 Cookie 与代理经 stdin 传入，命令行 0 明文泄露）
 fn curl_readonly_get(
     url: &str,
     session_key: &str,
     proxy_url: Option<&str>,
     timeout_secs: u64,
 ) -> RawHttpResponse {
+    use std::io::Write;
+    use std::process::Stdio;
+
     const MARKER: &str = "__FD_HTTP_META__";
     let mut cmd = Command::new("curl.exe");
     #[cfg(windows)]
@@ -410,8 +438,8 @@ fn curl_readonly_get(
         "--include",
         "--request",
         "GET",
-        "-H",
-        &format!("Cookie: sessionKey={session_key}"),
+        "--config",
+        "-",
         "-H",
         "anthropic-client-platform: web_claude_ai",
         "-H",
@@ -427,17 +455,34 @@ fn curl_readonly_get(
         "-w",
         &format!("\n{MARKER}%{{http_code}}"),
     ]);
-    if let Some(proxy) = proxy_url {
-        cmd.args(["--proxy", proxy]);
-    }
-    cmd.arg(url);
+    cmd.arg(url)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
 
-    let out = match cmd.output() {
-        Ok(o) => o,
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
         Err(_) => {
             return RawHttpResponse {
                 network_error: true,
                 error_message: Some("调用系统 curl.exe 失败，请检查代理或网络环境".into()),
+                ..Default::default()
+            };
+        }
+    };
+
+    let stdin_cfg = build_curl_stdin_config(session_key, proxy_url);
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(stdin_cfg.as_bytes());
+        let _ = stdin.flush();
+    }
+
+    let out = match child.wait_with_output() {
+        Ok(o) => o,
+        Err(_) => {
+            return RawHttpResponse {
+                network_error: true,
+                error_message: Some("等待系统 curl.exe 响应失败，请检查代理或网络环境".into()),
                 ..Default::default()
             };
         }
@@ -1226,5 +1271,17 @@ mod tests {
         assert!(snap.is_banned);
         assert!(snap.appeals_redirect_enabled);
         assert!(!snap.chat_available);
+    }
+
+    #[test]
+    fn curl_stdin_config_keeps_secrets_escaped_and_strips_newlines() {
+        let cfg = build_curl_stdin_config(
+            "sk-ant-sid01-abc\r\nurl = \"https://evil.com\"",
+            Some("http://user:p\"w@127.0.0.1:7897\n--output evil"),
+        );
+        // 严格只有两行配置，不可注入新配置指令
+        assert_eq!(cfg.lines().count(), 2);
+        assert!(cfg.contains("header = \"Cookie: sessionKey=sk-ant-sid01-abc"));
+        assert!(cfg.contains("proxy = \"http://user:p\\\"w@127.0.0.1:7897--output evil\""));
     }
 }

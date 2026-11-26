@@ -207,6 +207,7 @@ export interface NodeItem {
   cfBlocked?: boolean;
   claudeStatus?: string;
   claudeLabel?: string;
+  claudeProbeDetail?: string;
   geminiStatus?: string;
   geminiLabel?: string;
   dualAiOk?: boolean;
@@ -222,6 +223,8 @@ export interface NodeReport {
   groupName: string;
   currentNode: string;
   totalRawNodes: number;
+  subscriptionTotalNodes?: number;
+  nameBlockedCount?: number;
   filteredBlockedCount: number;
   nodes: NodeItem[];
   currentExitSummary?: string | null;
@@ -347,6 +350,7 @@ export interface CleanupCategoryPreview {
   totalBytes: number;
   sizeLabel: string;
   samplePaths: string[];
+  accountSummary?: string | null;
 }
 
 export interface ProtectedSummary {
@@ -492,6 +496,7 @@ export interface QuotaDisplaySummary {
   stampShort: string;
   stampTooltip: string;
   fiveHourOfflineNote?: string | null;
+  sevenDayOfflineNote?: string | null;
   softLocked: boolean;
   source: AuditDataSource;
 }
@@ -520,6 +525,9 @@ export interface ClaudeJsonSummary {
   parseError?: string | null;
   emailMasked?: string | null;
   orgUuidPrefix8?: string | null;
+  accountUuidPrefix8?: string | null;
+  cachedUsageAccountUuidPrefix8?: string | null;
+  internalAccountMismatch?: boolean;
   planLabel?: string | null;
   billingType?: string | null;
   merchantChannel?: string | null;
@@ -545,6 +553,7 @@ export interface CredentialsMetaSummary {
 }
 
 export interface SettingsHygieneSummary {
+  cliInstalled?: boolean;
   settingsExists: boolean;
   settingsPath?: string | null;
   privacyEnvFlags: Record<string, boolean>;
@@ -555,6 +564,9 @@ export interface SettingsHygieneSummary {
   telemetryFileCount: number;
   telemetryTotalBytes: number;
   scheduledTasksCount: number;
+  activeScheduledTasksCount?: number;
+  historicalScheduledTasksCount?: number;
+  scheduledTasksDir?: string | null;
   backupFileCount: number;
   backupAccounts: BackupAccountRecord[];
 }
@@ -570,6 +582,7 @@ export interface WindowBehaviorStats {
 export interface OfflineBehaviorSummary {
   projectsDirExists: boolean;
   filesScanned7d: number;
+  desktopSessionsFiles7d?: number;
   last5h: WindowBehaviorStats;
   last24h: WindowBehaviorStats;
   last7d: WindowBehaviorStats;
@@ -591,6 +604,7 @@ export interface DesktopLogsSummary {
   discoveredDirs: string[];
   scannedLogFiles: number;
   orgIdPrefixes: string[];
+  sessionDirOrgPrefixes?: string[];
   accountBannedHits: number;
   portalVerifyHits: number;
   crossOrg404Hits: number;
@@ -605,6 +619,7 @@ export interface DesktopLogsSummary {
   mcpErrorHits: number;
   mcpErrorStorm: boolean;
   disconnectHits: number;
+  cachedUsage?: CachedUsageSummary | null;
   recentSamples: LocalLogSample[];
 }
 
@@ -664,6 +679,36 @@ export interface AuditLogFlowItem {
   count: number;
 }
 
+export type AccountHygieneState =
+  | "clean_empty"
+  | "clean_synced_single"
+  | "single_surface_clean"
+  | "single_surface_stale_or_polluted"
+  | "cross_surface_mix"
+  | "high_risk_ban_contamination";
+
+export interface LocalAccountTopology {
+  hygieneState: AccountHygieneState;
+  headline: string;
+  detail: string;
+  desktopStatus: "empty" | "single" | "multi" | string;
+  desktopAccounts: string[];
+  cliStatus: "empty" | "active" | "stale_or_polluted" | string;
+  cliAccount?: string | null;
+  cliStaleReasons: string[];
+  sessionDirOrphans: string[];
+  hasCliCleanupTarget: boolean;
+}
+
+export interface DetectedAccountBadge {
+  orgPrefix8: string;
+  emailMasked?: string | null;
+  plan?: string | null;
+  clientSource: string;
+  displayLabel: string;
+  isPrimary: boolean;
+}
+
 export interface AccountAuditReport {
   profileId: string;
   auditedAtMs: number;
@@ -697,11 +742,16 @@ export interface AccountAuditReport {
   runtimeBgProcs: number;
   runtimeKillHoldActive: boolean;
   runtimeKillHoldSecs: number;
+  runtimeDisconnectGuardOk?: boolean;
+  runtimeDisconnectGaps?: string[];
 
   denoisedOauth403Count: number;
   logFlowItems: AuditLogFlowItem[];
   pendingIssueCount: number;
   hasDangerIssue: boolean;
+  primarySource?: string;
+  detectedAccounts?: DetectedAccountBadge[];
+  topology?: LocalAccountTopology;
 }
 
 export interface AccountAuditActionResult {

@@ -249,7 +249,7 @@ pub async fn fetch_anthropic_official_status(mixed_port: Option<u16>) -> Anthrop
     }
 }
 
-/// 并行执行全部两级三大纯粹操作边界真实探针（11 项必须 + 6 项建议，共 17 项）
+/// 并行执行全部两级三大纯粹操作边界真实探针（12 项必须 + 7 项建议，共 19 项）
 pub async fn run_all_preflight_checks(cfg: &AppConfig, bg_claude_procs: u32) -> PreflightBundle {
     let total_start = std::time::Instant::now();
     let endpoint = discover_endpoint().await;
@@ -259,7 +259,7 @@ pub async fn run_all_preflight_checks(cfg: &AppConfig, bg_claude_procs: u32) -> 
         "preflight_start",
         None,
         format!(
-            "开始执行 17 项真实探针（11必须+6建议） | mihomo_endpoint={} | bg_claude_procs={bg_claude_procs}",
+            "开始执行 19 项真实探针（12必须+7建议） | mihomo_endpoint={} | bg_claude_procs={bg_claude_procs}",
             endpoint
                 .as_ref()
                 .map(|e| e.display_label())
@@ -307,6 +307,7 @@ pub async fn run_all_preflight_checks(cfg: &AppConfig, bg_claude_procs: u32) -> 
         item_dns,
         (
             item_geo,
+            item_opt_exit_geo,
             exit_ip_masked,
             exit_latency_ms,
             exit_latency_label,
@@ -359,7 +360,7 @@ pub async fn run_all_preflight_checks(cfg: &AppConfig, bg_claude_procs: u32) -> 
     };
     let item_tz = probe_system_timezone_consistency(&effective_region_for_tz);
 
-    // 严格按「修改对象」三大纯粹边界排序：改 Clash(5) + 改系统(3) + 改 Claude(4) + 建议优化(6)
+    // 严格按「修改对象」三大纯粹边界排序：改 Clash(5) + 改系统(3) + 改 Claude(4) + 建议优化(7，其中出口合规性紧跟时区下方)
     let items = vec![
         item_proxy,
         item_group,
@@ -378,6 +379,7 @@ pub async fn run_all_preflight_checks(cfg: &AppConfig, bg_claude_procs: u32) -> 
         item_fw,
         item_webrtc,
         item_tz,
+        item_opt_exit_geo,
         item_browser_ext,
     ];
 
@@ -748,7 +750,7 @@ fn probe_group_and_rules(
 
             // 严格策略组边界校验：
             // 1) Direct 模式直接禁行（全直连裸奔）；
-            // 2) Global 模式下必须由 GLOBAL 指向 Claude-Fixed，若切到天悦云或其他非 Claude-Fixed 节点立刻标红（脱离策略组保护）；
+            // 2) Global 模式下必须由 GLOBAL 指向 Claude-Fixed，若切到DemoAirport或其他非 Claude-Fixed 节点立刻标红（脱离策略组保护）；
             // 3) Rule 模式下必须命中 Claude 全家桶规则且覆盖出口 IP 监测域名（保证出口体检与 Claude 100% 同源）；
             // 4) 在 Claude-Fixed 内切换合规节点（软件内或 Clash 内均可）自动跟随生效，不重复卡死（3A）。
             let mode_direct_fail = clash_mode == "direct";
@@ -907,7 +909,9 @@ fn probe_group_and_rules(
     }
 }
 
-/// 增量 11/12/16：出口节点合规与真实可达性（白名单 + 落地 IP 静默漂移 + ASN 纯净度 + Anthropic 无状态防 CF 403 探针）
+/// 拆分输出：
+/// 1) 必须项 `node_geo`（「出口节点真实可达性」）：仅校硬底线（非禁区、非 CF 403 拉黑、非高危滥用/公共代理、`api.anthropic.com` 真实可达）；
+/// 2) 建议项 `opt_exit_geo`（「出口节点合规性与属地一致性」，排在 `opt_tz` 时区正下方）：承接账号属地跨洲一致性、24h 落地 IP 漂移、网页 CF 弹盾与 IP 纯净度参考，不阻断启动。
 async fn probe_exit_geo(
     mixed_port: u16,
     clash_online: bool,
@@ -915,6 +919,7 @@ async fn probe_exit_geo(
     current_node: &str,
     cfg: &AppConfig,
 ) -> (
+    PreflightItem,
     PreflightItem,
     String,
     Option<u32>,
@@ -925,6 +930,22 @@ async fn probe_exit_geo(
     bool,
     bool,
 ) {
+    let make_opt_placeholder = |status: CheckStatus, summary: String, evidence: String, guide: String| PreflightItem {
+        id: "opt_exit_geo".into(),
+        part: CheckPart::Opt,
+        cat: "系统辅助优化".into(),
+        icon: "geo".into(),
+        mode: "只读风险监测".into(),
+        title: "出口节点合规性与属地一致性".into(),
+        status,
+        summary,
+        evidence,
+        guide,
+        fix_label: None,
+        is_kill_item: false,
+        is_failover: false,
+    };
+
     if !clash_online {
         return (
             PreflightItem {
@@ -933,15 +954,21 @@ async fn probe_exit_geo(
                 cat: "1. 代理与节点（改 Clash 配置）".into(),
                 icon: "geo".into(),
                 mode: "自动一键".into(),
-                title: "出口节点合规与真实可达性".into(),
+                title: "出口节点真实可达性".into(),
                 status: CheckStatus::Fail,
                 summary: format!("[{FD_ERR_PROXY_OFFLINE}] 本地代理未就绪，无法经代理探测真实出口 IP 与 Anthropic 可达性"),
                 evidence: format!("Proxy: http://127.0.0.1:{mixed_port} (Offline)"),
-                guide: "请先确保 Clash Verge 在线后再重测出口归属地与可达性。".into(),
+                guide: "请先确保 Clash Verge 在线后再重测出口可达性。".into(),
                 fix_label: None,
                 is_kill_item: false,
                 is_failover: false,
             },
+            make_opt_placeholder(
+                CheckStatus::Warn,
+                "代理离线，待联网后自动比对账号归属地、IP 稳定性与网页弹盾".into(),
+                format!("Proxy: http://127.0.0.1:{mixed_port} (Offline)"),
+                "该项仅作合规与风控参考，不阻断启动；待代理上线后自动实测。".into(),
+            ),
             "代理离线".into(),
             None,
             "离线".into(),
@@ -973,12 +1000,12 @@ async fn probe_exit_geo(
                 .unwrap_or_else(|| "核验中".into());
             let summary = if !ok_base {
                 format!(
-                    "当前节点「{target_node}」核验未通过（{} · {}），后台正在继续核验其余备选节点 ({}/{})",
+                    "当前节点「{target_node}」可达性未通过（{} · {}），后台正在继续核验其余备选节点 ({}/{})",
                     rec.country_code, rec.claude_label, audit_prog.current_index, audit_prog.total
                 )
             } else {
                 format!(
-                    "当前主节点已核验合规（{} · {} · 后台静默评估其余备选节点 {}/{}）",
+                    "当前主节点真实可达（{} · {} · 后台静默评估其余备选节点 {}/{}）",
                     rec.country_code, rec.asn_purity, audit_prog.current_index, audit_prog.total
                 )
             };
@@ -989,7 +1016,7 @@ async fn probe_exit_geo(
                     cat: "1. 代理与节点（改 Clash 配置）".into(),
                     icon: "geo".into(),
                     mode: "深度核验中".into(),
-                    title: "出口节点合规与真实可达性".into(),
+                    title: "出口节点真实可达性".into(),
                     status: if ok_base {
                         CheckStatus::Ok
                     } else {
@@ -1008,11 +1035,17 @@ async fn probe_exit_geo(
                         audit_prog.total,
                         audit_prog.current_node
                     ),
-                    guide: "后台正在逐个核验备选节点的真实 IP 类型与风控状态，期间暂禁启动 Claude；全部完成并自动切回你的锁定节点后立刻恢复绿灯放行（也可点击停止核验）。".into(),
+                    guide: "后台正在逐个核验备选节点的真实 IP 类型与可达性，期间暂禁启动 Claude；全部完成并自动切回你的锁定节点后立刻恢复放行（也可点击停止核验）。".into(),
                     fix_label: None,
                     is_kill_item: rec.blocked_country || rec.cf_blocked || high_risk,
                     is_failover: false,
                 },
+                make_opt_placeholder(
+                    CheckStatus::Ok,
+                    format!("节点深度核验中 ({}/{})，完成后同步刷新属地与稳定性", audit_prog.current_index, audit_prog.total),
+                    format!("Target Locked Node: {target_node} ({})", rec.country_code),
+                    "深度核验完成后自动比对账号归属地与 24h IP 稳定性。".into(),
+                ),
                 rec.masked_ip,
                 rec.claude_delay_ms,
                 lat_label,
@@ -1031,7 +1064,7 @@ async fn probe_exit_geo(
                 cat: "1. 代理与节点（改 Clash 配置）".into(),
                 icon: "geo".into(),
                 mode: "深度核验中".into(),
-                title: "出口节点合规与真实可达性".into(),
+                title: "出口节点真实可达性".into(),
                 status: CheckStatus::Fail,
                 summary: format!(
                     "正在优先深度核验当前锁定节点（{}，进度 {}/{}），请稍候...",
@@ -1041,11 +1074,17 @@ async fn probe_exit_geo(
                     "Deep Audit Running: {}/{}\nCurrent Probing: {}\nTarget Locked Node: {}",
                     audit_prog.current_index, audit_prog.total, audit_prog.current_node, target_node
                 ),
-                guide: "正在优先核验你当前选中的节点真实出口 IP、ASN 纯净度与 Claude 可达性，核验完成前暂不放行启动 Claude。".into(),
+                guide: "正在优先核验你当前选中的节点真实出口 IP 与 Claude 可达性，核验完成前暂不放行启动 Claude。".into(),
                 fix_label: None,
                 is_kill_item: false,
                 is_failover: false,
             },
+            make_opt_placeholder(
+                CheckStatus::Ok,
+                "等待主节点核验完成后评估属地与稳定性".into(),
+                format!("Target Locked Node: {target_node}"),
+                "该项不阻断启动，主节点核验完毕后自动刷新。".into(),
+            ),
             "核验中".into(),
             None,
             "核验中".into(),
@@ -1085,13 +1124,29 @@ async fn probe_exit_geo(
         Ok(geo) => {
             let ip = geo.ip;
             let country = geo.country;
+            let region_name = geo.region_name;
+            let city = geo.city;
+            let timezone = geo.timezone;
             let asn_org = geo.asn_org;
             let source = geo.source;
+            if let Ok(mut guard) = latest_exit_geo_precision().write() {
+                *guard = Some(ExitGeoPrecision {
+                    country: country.clone(),
+                    region_name: region_name.clone(),
+                    city: city.clone(),
+                    timezone: timezone.clone(),
+                });
+            }
+            let loc_detail = match (region_name.is_empty(), city.is_empty()) {
+                (false, false) => format!(" · {region_name} / {city}"),
+                (false, true) => format!(" · {region_name}"),
+                (true, false) => format!(" · {city}"),
+                (true, true) => String::new(),
+            };
             let masked = mask_ip_address(&ip);
             let blocked = is_blocked_country(&country);
             let lat_label = format!("{elapsed_ms} ms");
 
-            // 结合真实 IP 风险情报（ip-api / ipapi.is 的 hosting / proxy / vpn / abuser + ASN 关键词）分级并回填节点表
             let (asn_purity, risk_level, risk_detail) = classify_ip_purity_and_risk(
                 &asn_org,
                 geo.is_datacenter,
@@ -1110,8 +1165,6 @@ async fn probe_exit_geo(
                 group_ok,
             );
 
-            // 落地 IP 静默漂移判定：
-            // 仅当「节点名未变且 24h 历史中确实记录到 >= 1 次不同落地 IP」才触发漂移预警，彻底杜绝切节点误报「漂移 0 次预警」
             let landing_sig = format!("{country}:{masked}");
             let baseline_changed = match (&cfg.locked_node_for_ip, &cfg.locked_landing_ip) {
                 (Some(prev_node), Some(prev_sig))
@@ -1142,15 +1195,10 @@ async fn probe_exit_geo(
             let (anthropic_ok, cf_blocked, anthropic_label) = anthropic_probe;
             let high_risk_ip = matches!(risk_level, "abuser" | "proxy");
 
-            // 严格三级合规与可用性标准（用户已确认 1A + 2B）：
-            // - Fail（红灯阻断）：落入禁区 / Anthropic API 不可达或 CF 403 拉黑 / 高危滥用或公共代理 IP
-            // - Warn（黄灯预警）：同一节点 24h 内真实发生落地 IP 静默漂移 (drift_24h >= 1)
-            // - Ok（绿灯放行）：合规地区 + API 可达无拉黑 + 非高危代理/滥用 + 24h 0 漂移
-            //   （1A：普通机房放行并在节点表标注「常规机房」；2B：仅 claude.ai 网页弹 CF 盾时控制台放行，在节点表标风险盾「Claude 弹盾」）
+            // 必须项 `node_geo`（出口节点真实可达性）仅校验 4 条硬底线：
+            // 非禁区、非 CF 403 拉黑、非高危滥用/公共代理、api.anthropic.com 真实可达。
             let passed = !blocked && !cf_blocked && anthropic_ok && !high_risk_ip;
 
-            // 仅在策略组已锁死 (group_ok == true) 时才将本次实测结果写入该节点的持久化核验缓存！
-            // 严禁在未建组或 GLOBAL=DIRECT 脱组时，把本机直连 IP（如 CN）栽赃污染到正常海外节点缓存中！
             if group_ok {
                 crate::mihomo::record_verified_node_claude_probe(
                     current_node,
@@ -1162,19 +1210,7 @@ async fn probe_exit_geo(
                 );
             }
 
-            let cf_note = if web_cf_challenge {
-                " · 网页有 CF 盾（节点表已标风险盾）"
-            } else {
-                ""
-            };
-
-            let bound_geo = crate::account_audit::load_bound_workspace_geo("default");
-            let geo_cross_mismatch = crate::account_audit::evaluate_geo_consistency(
-                bound_geo.as_deref(),
-                Some(&country),
-            ) == crate::account_audit::GeoConsistency::CrossContinentMismatch;
-
-            let summary = if !group_ok && (cf_blocked || blocked) {
+            let reach_summary = if !group_ok && (cf_blocked || blocked) {
                 format!("策略组尚未锁死，当前走了默认/直连路由（{country} · {masked}），请先完成上方「策略组与全家桶规则锁死」后再复测")
             } else if cf_blocked {
                 format!("当前出口被 Cloudflare 403 拉黑（{country} · {masked}），请立即前往节点流量更换纯净节点")
@@ -1184,88 +1220,142 @@ async fn probe_exit_geo(
                 format!("当前出口命中高危 IP 风险：{asn_purity}（{risk_detail} · {country} · {masked}），禁止启动")
             } else if !anthropic_ok {
                 format!("当前节点无法连通 Anthropic API（{country} · {masked}），请切换可用节点")
-            } else if geo_cross_mismatch {
+            } else {
+                format!(
+                    "Anthropic API 真实可达 · {country} · {masked}（{elapsed_ms} ms · 非禁区无拉黑）"
+                )
+            };
+
+            let reach_evidence = format!(
+                "Source: {source} (via {proxy_url}) | Latency: {elapsed_ms} ms\nExit IP: {masked} ({country}{loc_detail} · {})\nASN / Org: {} → {asn_purity} ({risk_detail})\nAnthropic API (api.anthropic.com): {anthropic_label}\n说明：账号属地一致性与 24h IP 稳定性已独立移至下方「二、建议优化 → 出口节点合规性与属地一致性」（不阻断启动）。",
+                if blocked { format!("BLOCKED ({FD_ERR_RULE_DRIFT})") } else { "Whitelisted".into() },
+                if asn_org.is_empty() { "Unknown".into() } else { asn_org.clone() },
+            );
+
+            let item_reach = PreflightItem {
+                id: "node_geo".into(),
+                part: CheckPart::Must,
+                cat: "1. 代理与节点（改 Clash 配置）".into(),
+                icon: "geo".into(),
+                mode: "自动一键 / 选节点".into(),
+                title: "出口节点真实可达性".into(),
+                status: if passed {
+                    CheckStatus::Ok
+                } else {
+                    CheckStatus::Fail
+                },
+                summary: reach_summary,
+                evidence: reach_evidence,
+                guide: if !group_ok && (cf_blocked || blocked) {
+                    "当前检测到的是未建组/直连下的本机出口，不代表你的海外节点本身不可用；请先完成「策略组与全家桶规则锁死」后再重新实测。".into()
+                } else if cf_blocked {
+                    "当前节点出口 IP 已被 Cloudflare 403 拦截盾拉黑，请前往「节点流量」选择低风控 ISP/原生节点后重测。".into()
+                } else if blocked {
+                    "当前代理出口落入 Anthropic 不支持的禁区国家，请前往「节点流量」切回白名单安全节点后复测。".into()
+                } else if high_risk_ip {
+                    "当前出口 IP 命中高危公共代理或滥用标记，极易触发账号风控，请前往「节点流量」切换纯净节点。".into()
+                } else if !anthropic_ok {
+                    "当前节点无法连通 api.anthropic.com，请前往「节点流量」切换延迟稳定且可达的合规节点。".into()
+                } else {
+                    "已实测验证出口位于非禁区白名单、非高危代理/拉黑且 Anthropic API 真实可达（放行启动）。".into()
+                },
+                fix_label: if !passed {
+                    Some("节点不可用，前往「节点流量」手动更换节点 →".into())
+                } else {
+                    None
+                },
+                is_kill_item: blocked || cf_blocked || high_risk_ip,
+                is_failover: !passed,
+            };
+
+            // 建议项 `opt_exit_geo`（出口节点合规性与属地一致性，排在时区下方，不阻断启动）
+            let bound_geo = crate::account_audit::load_bound_workspace_geo("default");
+            let geo_cons = crate::account_audit::evaluate_geo_consistency(
+                bound_geo.as_deref(),
+                Some(&country),
+            );
+            let geo_cross_mismatch =
+                geo_cons == crate::account_audit::GeoConsistency::CrossContinentMismatch;
+            let opt_has_warn = geo_cross_mismatch || landing_drifted || web_cf_challenge;
+
+            let bound_geo_line = match &bound_geo {
+                Some(g) if geo_cross_mismatch => format!(
+                    "Bound Account Geo vs Exit: 属地 {g} × 出口 {country}（跨洲错配 · 高风险诱因）"
+                ),
+                Some(g)
+                    if geo_cons
+                        == crate::account_audit::GeoConsistency::SameContinentDiffCountry =>
+                {
+                    format!("Bound Account Geo vs Exit: 属地 {g} × 出口 {country}（同洲异国 · 温和兼容）")
+                }
+                Some(g) => format!("Bound Account Geo vs Exit: 属地 {g} × 出口 {country}（同区一致）"),
+                None => "Bound Account Geo vs Exit: 尚未在「账户审计」绑定注册属地（待按需核验）".into(),
+            };
+
+            let opt_summary = if geo_cross_mismatch {
                 format!(
                     "账号绑定属地 {} 与当前出口 {country} 跨洲错配（{masked}），建议前往节点流量切回同区节点",
                     bound_geo.as_deref().unwrap_or("?")
                 )
             } else if landing_drifted {
                 format!("{country} · {asn_purity} · 24h 落地 IP 漂移 {drift_24h} 次预警（{masked}）")
+            } else if web_cf_challenge {
+                format!("{country} · {asn_purity} · claude.ai 网页触发 CF 人机盾（API 畅通，不阻断启动）")
+            } else if let Some(ref g) = bound_geo {
+                format!("属地 {g} × 出口 {country} 一致 · {asn_purity} · 24h 0 漂移 · 无 CF 弹盾")
             } else {
-                format!(
-                    "{country} · {asn_purity} · Anthropic 可达（{masked} · 24h 0 漂移）{cf_note}"
-                )
+                format!("{country} · {asn_purity} · 24h 0 漂移 · 无 CF 弹盾（注册属地可在账户审计按需绑定）")
             };
 
-            let bound_geo_line = match &bound_geo {
-                Some(g) if geo_cross_mismatch => format!(
-                    "\nBound Account Geo vs Exit: 属地 {g} × 出口 {country}（跨洲错配 · 高风险诱因）"
-                ),
-                Some(g) => format!("\nBound Account Geo vs Exit: 属地 {g} × 出口 {country}（一致）"),
-                None => String::new(),
-            };
-
-            let evidence = format!(
-                "Source: {source} (via {proxy_url}) | Latency: {elapsed_ms} ms\nExit IP: {masked} ({country} · {})\nASN / Org: {} → {asn_purity} ({risk_detail})\n24h Landing IP Drift: {} (count={drift_24h})\nAnthropic API (api.anthropic.com): {anthropic_label}\nClaude Web (claude.ai/login): {}{bound_geo_line}",
-                if blocked { format!("BLOCKED ({FD_ERR_RULE_DRIFT})") } else { "Whitelisted".into() },
+            let opt_evidence = format!(
+                "{bound_geo_line}\nExit IP & Purity: {masked} ({country}{loc_detail}) · {} → {asn_purity} ({risk_detail})\n24h Landing IP Drift: {} (count={drift_24h})\nClaude Web (claude.ai/login): {}",
                 if asn_org.is_empty() { "Unknown".into() } else { asn_org },
                 if landing_drifted { "DRIFT DETECTED (机场后台切换落地 IP)" } else { "Stable (24h 内未漂移)" },
-                if web_cf_challenge { "触发 CF 人机盾（API 畅通，节点表已标风险盾）" } else { "无 CF 弹盾 (OK)" }
+                if web_cf_challenge { "触发 CF 人机盾（网页端可能反复弹人机验证）" } else { "无 CF 弹盾 (OK)" }
             );
 
-            let item = PreflightItem {
-                id: "node_geo".into(),
-                part: CheckPart::Must,
-                cat: "1. 代理与节点（改 Clash 配置）".into(),
+            let opt_guide = if geo_cross_mismatch {
+                format!(
+                    "你在「账户审计」已绑定账号注册属地 {}，但当前出口位于 {country}（跨洲错配）。本项位于建议优化区不阻断启动，但为降低长期风控概率，仍建议前往「节点流量」切回与属地一致的稳定节点。",
+                    bound_geo.as_deref().unwrap_or("?")
+                )
+            } else if landing_drifted {
+                "同一节点 24 小时内落地 IP 发生静默漂移（机场后台换了出口 IP）。若确认新 IP 已稳定可点击下方重置漂移基准，或前往「节点流量」更换更稳定的静态/ISP 节点。".into()
+            } else if web_cf_challenge {
+                "Anthropic API 畅通且不阻断启动，但 claude.ai 网页登录入口触发了 Cloudflare 人机盾；如频繁弹验证可前往「节点流量」更换无弹盾节点。".into()
+            } else {
+                "当前出口合规性、IP 纯净度、24h 稳定性与网页端无弹盾状态均表现良好。".into()
+            };
+
+            let item_opt_compliance = PreflightItem {
+                id: "opt_exit_geo".into(),
+                part: CheckPart::Opt,
+                cat: "系统辅助优化".into(),
                 icon: "geo".into(),
-                mode: "自动一键 / 选节点".into(),
-                title: "出口节点合规与真实可达性".into(),
-                status: if !passed {
-                    CheckStatus::Fail
-                } else if geo_cross_mismatch || landing_drifted {
+                mode: "只读风险监测".into(),
+                title: "出口节点合规性与属地一致性".into(),
+                status: if opt_has_warn {
                     CheckStatus::Warn
                 } else {
                     CheckStatus::Ok
                 },
-                summary,
-                evidence,
-                guide: if !group_ok && (cf_blocked || blocked) {
-                    "当前检测到的是未建组/直连下的本机出口，不代表你的海外节点本身不可用；请先完成「策略组与全家桶规则锁死」后再重新实测。".into()
-                } else if cf_blocked {
-                    "当前节点出口 IP 已被 Cloudflare 403 拦截盾拉黑，请前往「节点流量」选择低风控 ISP/原生节点后重测。".into()
-                } else if blocked {
-                    "当前代理出口落入 Anthropic 不支持的禁区国家，请点击下方一键切回白名单安全节点后复测。".into()
-                } else if high_risk_ip {
-                    "当前出口 IP 命中高危公共代理或滥用标记，极易触发账号风控，请前往「节点流量」切换纯净节点。".into()
-                } else if !anthropic_ok {
-                    "当前节点无法连通 api.anthropic.com，请前往「节点流量」切换延迟稳定且可达的合规节点。".into()
-                } else if geo_cross_mismatch {
-                    format!(
-                        "你在「账户审计」已绑定注册属地 {}，但当前出口位于 {country}（跨洲错配），强烈建议前往「节点流量」切回与属地一致的稳定节点。",
-                        bound_geo.as_deref().unwrap_or("?")
-                    )
-                } else if landing_drifted {
-                    "同一节点 24 小时内落地 IP 发生静默漂移（机场后台换了出口 IP），建议在「节点流量」重测核验或更换稳定节点。".into()
-                } else if web_cf_challenge {
-                    "合规地区、Anthropic API 真实可达且无高危代理标记（已放行）；检测到 claude.ai 网页触发 CF 人机盾，已在「节点流量」标注风险盾供参考。".into()
-                } else {
-                    "已实测验证出口合规、24h 0 漂移、非高危代理且 Anthropic 真实可达。".into()
-                },
-                fix_label: if !passed {
-                    Some("节点不可用，前往「节点流量」手动更换节点 →".into())
-                } else if geo_cross_mismatch {
-                    Some("跨洲错配，前往「节点流量」切回同区节点 →".into())
-                } else if landing_drifted {
+                summary: opt_summary,
+                evidence: opt_evidence,
+                guide: opt_guide,
+                fix_label: if geo_cross_mismatch {
+                    Some("前往「节点流量」切回同区节点 →".into())
+                } else if landing_drifted || web_cf_challenge {
                     Some("前往「节点流量」更换稳定节点 →".into())
                 } else {
                     None
                 },
-                is_kill_item: blocked || cf_blocked || high_risk_ip,
-                is_failover: !passed || geo_cross_mismatch || landing_drifted,
+                is_kill_item: false,
+                is_failover: opt_has_warn,
             };
 
             (
-                item,
+                item_reach,
+                item_opt_compliance,
                 masked,
                 Some(elapsed_ms),
                 lat_label,
@@ -1283,7 +1373,7 @@ async fn probe_exit_geo(
                 cat: "1. 代理与节点（改 Clash 配置）".into(),
                 icon: "geo".into(),
                 mode: "自动一键 / 选节点".into(),
-                title: "出口节点合规与真实可达性".into(),
+                title: "出口节点真实可达性".into(),
                 status: CheckStatus::Fail,
                 summary: "经代理探测真实出口 IP 超时或失败，当前节点可能不可用".into(),
                 evidence: format!("Proxy: {proxy_url}\nError: {err}"),
@@ -1292,6 +1382,12 @@ async fn probe_exit_geo(
                 is_kill_item: false,
                 is_failover: true,
             },
+            make_opt_placeholder(
+                CheckStatus::Warn,
+                "出口 IP 探测超时，暂无法比对注册属地与 24h 漂移".into(),
+                format!("Proxy: {proxy_url}\nError: {err}"),
+                "请先在上方恢复可用节点后再自动比对合规性。".into(),
+            ),
             "探测失败".into(),
             None,
             "超时".into(),
@@ -1304,10 +1400,27 @@ async fn probe_exit_geo(
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct ExitGeoPrecision {
+    pub country: String,
+    pub region_name: String,
+    pub city: String,
+    pub timezone: String,
+}
+
+fn latest_exit_geo_precision() -> &'static std::sync::RwLock<Option<ExitGeoPrecision>> {
+    static CACHE: std::sync::OnceLock<std::sync::RwLock<Option<ExitGeoPrecision>>> =
+        std::sync::OnceLock::new();
+    CACHE.get_or_init(|| std::sync::RwLock::new(None))
+}
+
 #[derive(Debug, Clone)]
 pub struct GeoProbeInfo {
     pub ip: String,
     pub country: String,
+    pub region_name: String,
+    pub city: String,
+    pub timezone: String,
     pub asn_org: String,
     pub source: &'static str,
     pub is_datacenter: Option<bool>,
@@ -1475,9 +1588,30 @@ pub async fn probe_geo_via_proxy(proxy_url: &str) -> Result<GeoProbeInfo, String
                         .or_else(|| val.get("company").and_then(|c| c.get("name")).and_then(|v| v.as_str()))
                         .unwrap_or("");
                     let org = format!("{asn_num} {asn_org_name}").trim().to_string();
+                    let region_name = val
+                        .get("location")
+                        .and_then(|l| l.get("state"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let city = val
+                        .get("location")
+                        .and_then(|l| l.get("city"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let timezone = val
+                        .get("location")
+                        .and_then(|l| l.get("timezone"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     return Ok(GeoProbeInfo {
                         ip: ip.to_string(),
                         country: country.to_uppercase(),
+                        region_name,
+                        city,
+                        timezone,
                         asn_org: org,
                         source: "api.ipapi.is",
                         is_datacenter: val.get("is_datacenter").and_then(|v| v.as_bool()),
@@ -1490,7 +1624,7 @@ pub async fn probe_geo_via_proxy(proxy_url: &str) -> Result<GeoProbeInfo, String
         }
     }
 
-    // 2. 备选 HTTPS：ipinfo.io（返回 country 与 org/ASN）
+    // 2. 备选 HTTPS：ipinfo.io（返回 country / region / city / timezone 与 org/ASN）
     if let Ok(resp) = client.get("https://ipinfo.io/json").send().await {
         if resp.status().is_success() {
             if let Ok(val) = resp.json::<Value>().await {
@@ -1503,9 +1637,27 @@ pub async fn probe_geo_via_proxy(proxy_url: &str) -> Result<GeoProbeInfo, String
                         .and_then(|v| v.as_str())
                         .unwrap_or("")
                         .to_string();
+                    let region_name = val
+                        .get("region")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let city = val
+                        .get("city")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let timezone = val
+                        .get("timezone")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     return Ok(GeoProbeInfo {
                         ip: ip.to_string(),
                         country: country.to_uppercase(),
+                        region_name,
+                        city,
+                        timezone,
                         asn_org: org,
                         source: "ipinfo.io",
                         is_datacenter: None,
@@ -1520,7 +1672,7 @@ pub async fn probe_geo_via_proxy(proxy_url: &str) -> Result<GeoProbeInfo, String
 
     // 3. 兜底回退：ip-api.com（当 HTTPS 源限流或不可达时启用）
     if let Ok(resp) = client
-        .get("http://ip-api.com/json/?fields=status,countryCode,query,org,isp,as,proxy,hosting,mobile")
+        .get("http://ip-api.com/json/?fields=status,countryCode,regionName,city,timezone,query,org,isp,as,proxy,hosting,mobile")
         .send()
         .await
     {
@@ -1540,6 +1692,21 @@ pub async fn probe_geo_via_proxy(proxy_url: &str) -> Result<GeoProbeInfo, String
                         return Ok(GeoProbeInfo {
                             ip: ip.to_string(),
                             country: country.to_uppercase(),
+                            region_name: val
+                                .get("regionName")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            city: val
+                                .get("city")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            timezone: val
+                                .get("timezone")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
                             asn_org,
                             source: "ip-api.com",
                             is_datacenter: val.get("hosting").and_then(|v| v.as_bool()),
@@ -1563,6 +1730,9 @@ pub async fn probe_geo_via_proxy(proxy_url: &str) -> Result<GeoProbeInfo, String
                     return Ok(GeoProbeInfo {
                         ip: ip.to_string(),
                         country: country.to_uppercase(),
+                        region_name: String::new(),
+                        city: String::new(),
+                        timezone: String::new(),
                         asn_org: String::new(),
                         source: "api.country.is",
                         is_datacenter: None,
@@ -2732,55 +2902,27 @@ async fn probe_local_ban_contamination() -> (PreflightItem, bool) {
 }
 
 fn scan_claude_logs_for_ban() -> (usize, Vec<String>, bool) {
-    let mut log_paths: Vec<PathBuf> = Vec::new();
-    if let Some(local) = dirs::data_local_dir() {
-        log_paths.push(local.join("Claude").join("logs"));
-        let packages = local.join("Packages");
-        if let Ok(entries) = fs::read_dir(packages) {
-            for e in entries.flatten() {
-                let name = e.file_name().to_string_lossy().to_lowercase();
-                if name.contains("claude") || name.contains("anthropic") {
-                    log_paths.push(e.path().join("LocalCache").join("Roaming").join("Claude").join("logs"));
-                    log_paths.push(e.path().join("LocalCache").join("Local").join("Claude").join("logs"));
-                }
-            }
-        }
-    }
-    if let Some(roaming) = dirs::config_dir() {
-        log_paths.push(roaming.join("Claude").join("logs"));
-    }
-
+    // 统一复用 watchdog 的目录发现（已覆盖 Classic + MSIX + Claude-Data），消除多套路径口径不一致
+    let log_files = crate::watchdog::discover_claude_log_files();
     let mut scanned = 0usize;
     let mut hit_set: Vec<String> = Vec::new();
     let mut has_kyc_notice = false;
 
-    for dir in log_paths {
-        let Ok(entries) = fs::read_dir(dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let Some(ext) = path.extension().and_then(|s| s.to_str()) else {
-                continue;
+    for path in log_files {
+        scanned += 1;
+        if let Ok(bytes) = fs::read(&path) {
+            let slice = if bytes.len() > 2 * 1024 * 1024 {
+                &bytes[bytes.len() - 2 * 1024 * 1024..]
+            } else {
+                &bytes
             };
-            if !ext.eq_ignore_ascii_case("log") {
-                continue;
+            let text = String::from_utf8_lossy(slice);
+            if scan_text_for_kyc_or_perm_notice(&text) {
+                has_kyc_notice = true;
             }
-            scanned += 1;
-            if let Ok(bytes) = fs::read(&path) {
-                let slice = if bytes.len() > 2 * 1024 * 1024 {
-                    &bytes[bytes.len() - 2 * 1024 * 1024..]
-                } else {
-                    &bytes
-                };
-                let text = String::from_utf8_lossy(slice);
-                if scan_text_for_kyc_or_perm_notice(&text) {
-                    has_kyc_notice = true;
-                }
-                for hit in scan_text_for_ban_contamination(&text) {
-                    if !hit_set.iter().any(|x| x == hit) {
-                        hit_set.push(hit.to_string());
-                    }
+            for hit in scan_text_for_ban_contamination(&text) {
+                if !hit_set.iter().any(|x| x == hit) {
+                    hit_set.push(hit.to_string());
                 }
             }
         }
@@ -2792,14 +2934,29 @@ fn scan_claude_logs_for_ban() -> (usize, Vec<String>, bool) {
 /// 增量 16：单号卫生锁（防混号与跨 orgId 竞态；仅当实测检出多个不同账号/跨号竞态时拦截，绝不因单号 KYC/auth_error 误杀）
 async fn probe_single_account_lock(bound_primary_org: Option<&str>) -> (PreflightItem, bool, Option<String>) {
     // 与账户审计 100% 同源：同步联合扫描 Desktop 日志与 ~/.claude.json + 历史备份
-    let (audit, local_audit) = tokio::task::spawn_blocking(|| {
+    let (audit, local_audit, known_accounts) = tokio::task::spawn_blocking(|| {
         let log_audit = crate::watchdog::audit_claude_logs_for_accounts();
         let ctx = crate::account_audit::local_scan::ProfileContext::default_local(None, None, None);
         let acc_audit = crate::account_audit::local_scan::scan_local_profile(&ctx);
-        (log_audit, acc_audit)
+        let known = crate::account_audit::load_known_accounts_map(
+            &crate::account_audit::default_audit_cache_path(),
+        );
+        (log_audit, acc_audit, known)
     })
     .await
     .unwrap_or_default();
+
+    let fmt_org = |o: &str| -> String {
+        crate::account_audit::format_org_account_label(o, &local_audit, &known_accounts)
+    };
+
+    // 100% 单一真源：与账户审计共享同一套 6 态拓扑引擎，彻底消除“桌面端已清空却谎报两端一致”
+    let topology = crate::account_audit::evaluate_account_topology(
+        &local_audit,
+        &audit.restricted_org_ids,
+        audit.cross_account_hits.len(),
+        &known_accounts,
+    );
 
     let mut merged_orgs: Vec<String> = audit.unique_org_ids.clone();
     if let Some(ref cli_org) = local_audit.claude_json.org_uuid_prefix8 {
@@ -2814,79 +2971,102 @@ async fn probe_single_account_lock(bound_primary_org: Option<&str>) -> (Prefligh
     }
 
     let cli_org = local_audit.claude_json.org_uuid_prefix8.clone();
-    let cross_client_mismatch = local_audit.cross_client_org_mismatch;
-    let latest_org = cli_org.clone().or_else(|| merged_orgs.last().cloned());
-    let multi_orgs =
-        merged_orgs.len() > 1 || audit.unique_account_ids.len() > 1 || cross_client_mismatch;
+    // 主力候选不强行绑定 CLI：优先桌面端活跃组织，若无再回退 CLI 或最近观测组织
+    let latest_org = local_audit
+        .desktop
+        .org_id_prefixes
+        .first()
+        .cloned()
+        .or_else(|| cli_org.clone())
+        .or_else(|| merged_orgs.last().cloned());
+    let multi_orgs = matches!(
+        topology.hygiene_state,
+        crate::account_audit::AccountHygieneState::CrossSurfaceMix
+            | crate::account_audit::AccountHygieneState::HighRiskBanContamination
+    ) || merged_orgs.len() > 1
+        || audit.unique_account_ids.len() > 1;
     let bound_mismatch = match (bound_primary_org, latest_org.as_deref()) {
         (Some(bound), Some(cur)) if !bound.is_empty() && !bound.eq_ignore_ascii_case(cur) => true,
         _ => false,
     };
     let has_cross_race =
         !audit.cross_account_hits.is_empty() || local_audit.desktop.cross_org_404_hits > 0;
-    let has_restricted_mix = multi_orgs && !audit.restricted_org_ids.is_empty();
+    let has_restricted_mix =
+        topology.hygiene_state == crate::account_audit::AccountHygieneState::HighRiskBanContamination;
+    let cli_stale_warn = topology.hygiene_state
+        == crate::account_audit::AccountHygieneState::SingleSurfaceStaleOrPolluted;
 
     let conflict = multi_orgs || bound_mismatch || has_cross_race;
 
-    let bound_display = bound_primary_org
+    let bound_raw = bound_primary_org
         .filter(|s| !s.is_empty())
-        .or(latest_org.as_deref())
-        .unwrap_or("尚未登录");
+        .or(latest_org.as_deref());
+    let bound_display = bound_raw.map(&fmt_org).unwrap_or_else(|| "尚未登录".into());
+
+    let restricted_labels: Vec<String> = audit.restricted_org_ids.iter().map(|o| fmt_org(o)).collect();
+    let desktop_labels = topology.desktop_accounts.clone();
+    let merged_labels: Vec<String> = merged_orgs.iter().map(|o| fmt_org(o)).collect();
 
     let summary = if !conflict {
-        if latest_org.is_some() {
-            format!("已锁定唯一主号 {bound_display}... · CLI 与桌面端组织一致，无混登或跨 orgId 竞态")
+        if cli_stale_warn {
+            format!("[CLI 残留预警] {}", topology.headline)
         } else {
-            "未检测到多账号混登或跨 orgId 竞态记录 · 单号状态纯净".into()
+            topology.headline.clone()
         }
     } else if has_cross_race {
-        format!("[{FD_ERR_LOG_POLLUTE}] 检出跨账号 orgId 竞态请求，高危连坐风险！需二选一确认处理")
+        format!(
+            "[{FD_ERR_LOG_POLLUTE}] 检出跨账号 orgId 竞态请求（{}），高危连坐风险！需二选一确认处理",
+            merged_labels.join(" / ")
+        )
     } else if has_restricted_mix {
         format!(
             "[{FD_ERR_LOG_POLLUTE}] 最高危连坐预警：本机混登 {} 个账号且包含已受限/待验证号（{}），极易拖累主力号触发同款审核！",
-            merged_orgs.len().max(audit.unique_account_ids.len()),
-            audit.restricted_org_ids.join(", ")
+            merged_orgs.len().max(audit.unique_account_ids.len()).max(1),
+            if restricted_labels.is_empty() {
+                merged_labels.join(" / ")
+            } else {
+                restricted_labels.join(" / ")
+            }
         )
-    } else if cross_client_mismatch {
+    } else if local_audit.cross_client_org_mismatch {
         format!(
-            "[{FD_ERR_LOG_POLLUTE}] 跨端混登预警：CLI ({}) 与桌面端日志 ({}) 组织不一致，请清理旧端残留",
-            cli_org.as_deref().unwrap_or("未知"),
-            local_audit.desktop.org_id_prefixes.join(", ")
+            "[{FD_ERR_LOG_POLLUTE}] {}",
+            topology.headline
         )
     } else if multi_orgs {
         format!(
-            "[{FD_ERR_LOG_POLLUTE}] 同一本机检出多账号混登（orgId: {} / accountId: {}），需二选一确认",
-            merged_orgs.len(),
-            audit.unique_account_ids.len()
+            "[{FD_ERR_LOG_POLLUTE}] 同一本机检出多账号混登（{}），需二选一确认",
+            merged_labels.join(" / ")
         )
     } else {
         format!(
-            "[{FD_ERR_LOG_POLLUTE}] 当前登录 orgId（{}...）与已绑定主号（{}...）不一致，需二选一确认",
-            latest_org.as_deref().unwrap_or("?"),
-            bound_primary_org.unwrap_or("?")
+            "[{FD_ERR_LOG_POLLUTE}] 当前账号 [{}] 与已绑定主号 [{}] 不一致，需二选一确认",
+            latest_org.as_deref().map(&fmt_org).unwrap_or_else(|| "未知".into()),
+            bound_primary_org.map(&fmt_org).unwrap_or_else(|| "未知".into())
         )
     };
 
     let mut ev_lines = vec![
+        format!("Topology Hygiene State: {:?}", topology.hygiene_state),
         format!("Scanned Claude Log Files: {}", audit.scanned_files),
         format!(
-            "CLI (~/.claude.json) orgId: {} ({})",
-            cli_org.as_deref().unwrap_or("未登录"),
-            local_audit
-                .claude_json
-                .email_masked
-                .as_deref()
-                .unwrap_or("无邮箱记录")
-        ),
-        format!(
-            "Desktop Logs orgIds: {}",
-            if local_audit.desktop.org_id_prefixes.is_empty() {
-                "None".into()
+            "Desktop Accounts: {}",
+            if desktop_labels.is_empty() {
+                "Empty (桌面端已清空/未登录)".into()
             } else {
-                local_audit.desktop.org_id_prefixes.join(", ")
+                desktop_labels.join(" | ")
             }
         ),
-        format!("Bound Primary orgId: {bound_display}"),
+        format!(
+            "CLI (~/.claude.json): {} [status={}]",
+            topology.cli_account.as_deref().unwrap_or("未登录"),
+            topology.cli_status
+        ),
+        format!("Bound Primary Account: {bound_display}"),
+        format!(
+            "Primary Candidate Label: {}",
+            latest_org.as_deref().map(&fmt_org).unwrap_or_else(|| "未检测到".into())
+        ),
         format!(
             "Observed Unique orgIds ({}): {}",
             merged_orgs.len(),
@@ -2905,12 +3085,27 @@ async fn probe_single_account_lock(bound_primary_org: Option<&str>) -> (Prefligh
                 audit.unique_account_ids.join(", ")
             }
         ),
-        format!("Cross-orgId Race Hits: {}", audit.cross_account_hits.len() + local_audit.desktop.cross_org_404_hits),
+        format!(
+            "Cross-orgId Race Hits: {}",
+            audit.cross_account_hits.len() + local_audit.desktop.cross_org_404_hits
+        ),
     ];
-    if !audit.restricted_org_ids.is_empty() {
+    if !topology.cli_stale_reasons.is_empty() {
         ev_lines.push(format!(
-            "Restricted / Portal-Verify orgIds: {}",
-            audit.restricted_org_ids.join(", ")
+            "CLI Stale / Cross-Polluted Reasons: {}",
+            topology.cli_stale_reasons.join(" | ")
+        ));
+    }
+    if !topology.session_dir_orphans.is_empty() {
+        ev_lines.push(format!(
+            "Claude-Data Session Dir Orphans: {}",
+            topology.session_dir_orphans.join(", ")
+        ));
+    }
+    if !restricted_labels.is_empty() {
+        ev_lines.push(format!(
+            "Restricted / Portal-Verify Accounts: {}",
+            restricted_labels.join(" | ")
         ));
     }
     if !audit.auth_403_hits.is_empty() {
@@ -2933,20 +3128,26 @@ async fn probe_single_account_lock(bound_primary_org: Option<&str>) -> (Prefligh
             title: "单号卫生锁（防混号与跨 orgId）".into(),
             status: if conflict {
                 CheckStatus::Fail
+            } else if cli_stale_warn {
+                CheckStatus::Warn
             } else {
                 CheckStatus::Ok
             },
             summary,
             evidence: ev_lines.join("\n"),
             guide: if has_restricted_mix {
-                "最高危连坐警告：同一本机安装目录（含经典 Electron、微软商店 MSIX 与 CLI）内曾登录已触发验证限制/受限的旧号，同时混登了其他主力号，极易触发同机连坐！强烈建议立即点击下方分项备份清理污染目录，清理干净后再仅登录单一健康主力号。".into()
+                "最高危连坐警告：同一本机安装目录（含经典 Electron、微软商店 MSIX 与 CLI）内曾登录已触发验证限制/受限的旧号，极易触发同机连坐！强烈建议立即点击下方分项备份清理污染目录，清理干净后再仅登录单一健康主力号。".into()
             } else if conflict {
-                "检测到多账号混登或 CLI 与桌面端组织不一致，绝不擅自乱删你的账号目录。点击下方二选一确认：① 打开透明分项清单备份清理桌面端或 CLI 残留；② 明确永久更换主力新号且环境干净 → 更新绑定主号。".into()
+                "检测到多账号混登或 CLI 与桌面端组织不一致，绝不擅自乱删你的账号目录。点击下方二选一确认：① 打开透明分项清单备份清理桌面端或 CLI 残留（默认双端全清，可取消勾选保留单端）；② 明确永久更换主力新号且环境干净 → 更新绑定主号。".into()
+            } else if cli_stale_warn {
+                topology.detail.clone()
             } else {
-                "通过联合校验 CLI (~/.claude.json) 与桌面端日志全部唯一 orgId 及跨号竞态记录，确认当前为纯净单号。".into()
+                topology.detail.clone()
             },
             fix_label: if conflict {
                 Some("引导处理单号冲突（二选一确认）".into())
+            } else if cli_stale_warn {
+                Some("打开分项清理清单（清除 CLI 旧号残留）".into())
             } else {
                 None
             },
@@ -3032,10 +3233,11 @@ fn claude_settings_path() -> Option<PathBuf> {
 }
 
 async fn probe_claude_privacy_settings() -> PreflightItem {
-    // 与账户审计第 7 项 100% 同源：严格校验 4/4 隐私降噪环境变量 + telemetry/ 待传目录
+    // 与账户审计第 7 项 100% 同源：校验 Claude Code CLI 的 4/4 隐私降噪环境变量 + telemetry/ 待传目录
+    // 若本机未安装 Claude Code CLI 且无遥测残留，自动豁免通过（绝不要求纯桌面端用户强写无用配置文件）
     let hygiene = tokio::task::spawn_blocking(|| {
         let cli_dir = dirs::home_dir().map(|h| h.join(".claude"));
-        crate::account_audit::local_scan::scan_settings_and_hygiene(cli_dir.as_deref(), false)
+        crate::account_audit::local_scan::scan_settings_and_hygiene(cli_dir.as_deref(), true)
     })
     .await
     .unwrap_or_default();
@@ -3044,26 +3246,41 @@ async fn probe_claude_privacy_settings() -> PreflightItem {
     let total = crate::account_audit::local_scan::PRIVACY_ENV_KEYS.len();
     let missing = &hygiene.privacy_missing_keys;
     let telemetry_bytes = hygiene.telemetry_total_bytes;
+    let cli_exempt = !hygiene.cli_installed && telemetry_bytes == 0;
 
-    let passed = missing.is_empty() && telemetry_bytes == 0;
+    let passed = cli_exempt || (missing.is_empty() && telemetry_bytes == 0);
 
-    let summary = if passed {
-        format!("已开启 {enabled}/{total} 官方隐私降噪变量并清空 ~/.claude/telemetry/ 缓存")
+    let summary = if cli_exempt {
+        "本机未检测到 Claude Code CLI 且无遥测缓存（自动豁免通过 · 仅作用于 CLI）".into()
+    } else if passed {
+        format!("已开启 {enabled}/{total} 官方 CLI 隐私降噪变量并清空 ~/.claude/telemetry/ 缓存")
     } else if !missing.is_empty() {
         format!(
-            "~/.claude/settings.json 仅开启 {enabled}/{total}（缺 {}）",
+            "~/.claude/settings.json 仅开启 {enabled}/{total}（缺 {} · 仅作用于 CLI）",
             missing.join(" & ")
         )
     } else {
-        format!("4/4 隐私开关已全，但 ~/.claude/telemetry/ 仍有 {telemetry_bytes} B 离线缓存待清")
+        format!("4/4 隐私开关已全，但 ~/.claude/telemetry/ 仍有 {telemetry_bytes} B 离线待传遥测缓存")
     };
 
-    let mut ev_lines = vec!["File: ~/.claude/settings.json".to_string()];
+    let mut ev_lines = vec![
+        format!(
+            "Claude Code CLI Installed: {}",
+            if hygiene.cli_installed { "Yes" } else { "No (Auto-Exempt)" }
+        ),
+        "File: ~/.claude/settings.json (仅作用于 Claude Code CLI)".to_string(),
+    ];
     for k in crate::account_audit::local_scan::PRIVACY_ENV_KEYS {
         let ok = hygiene.privacy_env_flags.get(k).copied().unwrap_or(false);
         ev_lines.push(format!(
             "{k}: {}",
-            if ok { "\"1\" (OK)" } else { "Missing" }
+            if ok {
+                "\"1\" (已开启降噪)"
+            } else if cli_exempt {
+                "Exempt (未安装 CLI)"
+            } else {
+                "Missing"
+            }
         ));
     }
     ev_lines.push(format!(
@@ -3085,15 +3302,17 @@ async fn probe_claude_privacy_settings() -> PreflightItem {
         },
         summary,
         evidence: ev_lines.join("\n"),
-        guide: if passed {
-            "4 项官方隐私降噪环境变量与离线遥测清理均已实测生效；未触碰账号登录态与聊天记录。".into()
+        guide: if cli_exempt {
+            "【什么是遥测与降噪】「遥测（Telemetry）」是 Claude Code CLI 在后台自动向官方上报使用习惯、崩溃堆栈、版本检查等非对话数据，断网失败时会暂存在 ~/.claude/telemetry/ 等联网后重试；开启「4 项官方降噪开关」即通知 CLI 关闭这些非必要后台上报（不影响任何对话、登录或代码功能）。本机未检测到 Claude Code CLI 且无缓存，已自动豁免通过；若日后安装 CLI 将自动切回严格校验。".into()
+        } else if passed {
+            "【已生效说明】已开启全部 4 项官方 CLI 隐私降噪开关（关闭非必要统计上报、错误堆栈上报、/bug 上报与非必要后台请求）并保持 ~/.claude/telemetry/ 待传队列为 0 B；仅作用于 Claude Code CLI，不影响对话质量，安全退出或热熔断时也会自动清空残留缓存。".into()
         } else {
-            "仅无损合并写入 ~/.claude/settings.json 的 4 项降噪开关（自动保存首次基线可撤回）并清空 ~/.claude/telemetry/ 缓存，绝不碰登录态与自定义 hooks。".into()
+            "【什么是遥测与降噪】「遥测」是 Claude Code CLI 后台自动发送的统计/崩溃/非对话请求，断网时会囤积在 ~/.claude/telemetry/；开启 4 项官方降噪开关即关闭这些非必要上报以减少无关指纹与噪音（不影响正常对话，仅作用于 CLI）。点击下方按钮将无损合并写入 ~/.claude/settings.json（自动存首次基线随时可撤回）并清空待传缓存。".into()
         },
         fix_label: if passed {
             None
         } else {
-            Some("一键补齐 4/4 隐私降噪并清空缓存".into())
+            Some("一键补齐 4/4 CLI 隐私降噪并清空缓存".into())
         },
         is_kill_item: false,
         is_failover: false,
@@ -3482,7 +3701,66 @@ pub fn compute_timezone_hour_gap(local_utc_hours: i32, country_code: &str) -> Op
     Some((gap, range_label))
 }
 
-/// 建议优化：只读检查 Windows 系统时区与当前出口国家时区是否差异过大（绝不强改用户时钟）
+/// 将常见 IANA 时区映射为标准 UTC 偏移小时与对应的 Windows 时区建议名（供用户精细对齐到具体州/城市）
+pub fn iana_timezone_to_utc_and_windows(iana: &str) -> Option<(i32, &'static str)> {
+    match iana.trim() {
+        "America/Los_Angeles" | "America/Vancouver" | "America/Tijuana" => {
+            Some((-8, "Pacific Standard Time (太平洋时间 · 美西)"))
+        }
+        "America/Denver" | "America/Phoenix" | "America/Salt_Lake_City" | "America/Edmonton" => {
+            Some((-7, "Mountain Standard Time (山地时间 · 美中西部)"))
+        }
+        "America/Chicago" | "America/Dallas" | "America/Houston" | "America/Winnipeg" => {
+            Some((-6, "Central Standard Time (中部时间 · 美中)"))
+        }
+        "America/New_York" | "America/Toronto" | "America/Detroit" | "America/Miami" => {
+            Some((-5, "Eastern Standard Time (东部时间 · 美东)"))
+        }
+        "America/Halifax" => Some((-4, "Atlantic Standard Time (大西洋时间)")),
+        "America/Anchorage" => Some((-9, "Alaskan Standard Time (阿拉斯加时间)")),
+        "Pacific/Honolulu" => Some((-10, "Hawaiian Standard Time (夏威夷时间)")),
+        "Asia/Tokyo" => Some((9, "Tokyo Standard Time (日本标准时间)")),
+        "Asia/Seoul" => Some((9, "Korea Standard Time (韩国标准时间)")),
+        "Asia/Singapore" => Some((8, "Singapore Standard Time (新加坡标准时间)")),
+        "Asia/Taipei" => Some((8, "Taipei Standard Time (台北标准时间)")),
+        "Australia/Sydney" | "Australia/Melbourne" | "Australia/Canberra" => {
+            Some((10, "AUS Eastern Standard Time (澳东标准时间)"))
+        }
+        "Australia/Brisbane" => Some((10, "E. Australia Standard Time (布里斯班时间)")),
+        "Australia/Perth" => Some((8, "W. Australia Standard Time (澳西标准时间)")),
+        "Europe/London" | "Europe/Dublin" => Some((0, "GMT Standard Time (英国/爱尔兰时间)")),
+        "Europe/Berlin" | "Europe/Frankfurt" | "Europe/Paris" | "Europe/Amsterdam"
+        | "Europe/Zurich" | "Europe/Stockholm" => {
+            Some((1, "W. Europe Standard Time (中欧/西欧时间)"))
+        }
+        _ => None,
+    }
+}
+
+/// 判断 Windows 当前 TimeZoneKeyName 是否已精确匹配推荐的 Windows 时区（避免夏令时 DST 期间产生 ±1h 误报）
+fn windows_tz_key_matches_recommendation(local_win_tz: &str, recommended_label: &str) -> bool {
+    let expected_key = recommended_label
+        .split('(')
+        .next()
+        .unwrap_or(recommended_label)
+        .trim();
+    !expected_key.is_empty() && local_win_tz.trim().eq_ignore_ascii_case(expected_key)
+}
+
+/// 计算本机与精准州/城市时区的有效小时差（优先按 Windows TimeZoneKeyName 匹配以免疫夏令时 ±1h 漂移）
+pub fn compute_precise_state_hour_gap(
+    local_hours: i32,
+    local_win_tz: &str,
+    state_std_utc: i32,
+    recommended_win_tz: &str,
+) -> i32 {
+    if windows_tz_key_matches_recommendation(local_win_tz, recommended_win_tz) {
+        return 0;
+    }
+    (local_hours - state_std_utc).abs()
+}
+
+/// 建议优化：只读检查 Windows 系统时区与当前出口国家/州时区一致性（同国/同区即通过，同时展示精确落地州与建议时区）
 fn probe_system_timezone_consistency(region_code: &str) -> PreflightItem {
     let local_offset_secs = chrono::Local::now().offset().local_minus_utc();
     let local_hours = (local_offset_secs as f64 / 3600.0).round() as i32;
@@ -3506,9 +3784,95 @@ fn probe_system_timezone_consistency(region_code: &str) -> PreflightItem {
     let tz_name = local_utc_str.clone();
 
     let cc = region_code.trim().to_uppercase();
+    let precision = latest_exit_geo_precision()
+        .read()
+        .ok()
+        .and_then(|g| g.clone())
+        .filter(|p| p.country.eq_ignore_ascii_case(&cc));
+
+    let precise_loc = precision.as_ref().and_then(|p| {
+        match (p.region_name.is_empty(), p.city.is_empty()) {
+            (false, false) => Some(format!("{} / {}", p.region_name, p.city)),
+            (false, true) => Some(p.region_name.clone()),
+            (true, false) => Some(p.city.clone()),
+            (true, true) => None,
+        }
+    });
+    let precise_iana = precision
+        .as_ref()
+        .map(|p| p.timezone.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let precise_tz_info = precise_iana
+        .as_deref()
+        .and_then(iana_timezone_to_utc_and_windows);
+
     match compute_timezone_hour_gap(local_hours, &cc) {
         Some((gap, range_label)) => {
+            // 判定口径：只要落入同一国家时区范围（gap == 0）即直接通过；跨国近时区（<=4h）亦兼容放行；
+            // 具体落地州/城市时区仅作精准展示，供追求 100% 州级一致的用户按需手动微调。
+            let same_country = gap == 0;
             let matched = gap <= 4;
+            let state_tag = precise_loc
+                .as_deref()
+                .map(|l| format!(" · {l}"))
+                .unwrap_or_default();
+            let iana_line = match (&precise_iana, precise_tz_info) {
+                (Some(iana), Some((state_utc, win_tz))) => {
+                    let s_utc = if state_utc >= 0 {
+                        format!("UTC+{state_utc}")
+                    } else {
+                        format!("UTC{state_utc}")
+                    };
+                    let state_gap =
+                        compute_precise_state_hour_gap(local_hours, &tz_name, state_utc, win_tz);
+                    format!(
+                        "\n落地州/城市: {}\n节点精准时区: {iana} ({s_utc}) → 建议 Windows 时区：{win_tz}（{}）",
+                        precise_loc.as_deref().unwrap_or("未提供"),
+                        if state_gap == 0 {
+                            "与本机时区精确一致".to_string()
+                        } else {
+                            format!("与本机差 {state_gap} 小时，仅作精细微调参考")
+                        }
+                    )
+                }
+                (Some(iana), None) => format!(
+                    "\n落地州/城市: {}\n节点精准时区: {iana}",
+                    precise_loc.as_deref().unwrap_or("未提供")
+                ),
+                (None, _) => {
+                    if let Some(ref loc) = precise_loc {
+                        format!("\n落地州/城市: {loc}")
+                    } else {
+                        String::new()
+                    }
+                }
+            };
+
+            let state_hint_guide = match (same_country, matched, &precise_loc, precise_tz_info) {
+                (true, _, Some(loc), Some((state_utc, win_tz))) => {
+                    let state_gap =
+                        compute_precise_state_hour_gap(local_hours, &tz_name, state_utc, win_tz);
+                    if state_gap == 0 {
+                        format!(
+                            "判定规则：同国时区即显示通过。当前本机时区与节点落地州（{loc}）完全一致，无需调整。"
+                        )
+                    } else {
+                        format!(
+                            "判定规则：只要本机时区与出口处于同一国家（{cc} · {range_label}）即显示通过，无需强改。上方已为你精确识别节点落地州为 {loc}（与本机差 {state_gap}h），若想精准对齐到该州，可手动调整至 {win_tz}（调好后请保持固定，切勿频繁来回改时区）。"
+                        )
+                    }
+                }
+                (true, _, _, _) => {
+                    "判定规则：同国时区即显示通过；当前系统时区已落入出口国家合法时区范围内，特征自然一致。".into()
+                }
+                (false, true, _, _) => {
+                    "当前与出口国虽非同一国家，但属于近时区兼容范围（时差 ≤ 4h），已放行通过；若长期固定使用该节点，可参考上方节点精准时区微调。".into()
+                }
+                (false, false, _, _) => {
+                    "仅做风险提示，强烈建议保持 Windows 系统时区固定、优先切换近时区合规节点（如新加坡 / 澳洲 / 台湾等）；若长期固定使用当前节点，也可对照上方「节点精准时区」一次对齐后保持不变，切勿频繁来回修改系统时区。".into()
+                }
+            };
+
             PreflightItem {
                 id: "opt_tz".into(),
                 part: CheckPart::Opt,
@@ -3521,21 +3885,23 @@ fn probe_system_timezone_consistency(region_code: &str) -> PreflightItem {
                 } else {
                     CheckStatus::Warn
                 },
-                summary: if matched {
-                    format!("本机 {local_utc_str} 与出口 {cc}（{range_label}）时差 {gap} 小时，无需调整系统时区")
+                summary: if same_country {
+                    format!(
+                        "本机 {local_utc_str} 与出口 {cc}{state_tag}（{range_label}）同国匹配，已通过（具体州时区见详情）"
+                    )
+                } else if matched {
+                    format!(
+                        "本机 {local_utc_str} 与出口 {cc}{state_tag}（{range_label}）近时区兼容（时差 {gap}h），已通过"
+                    )
                 } else {
                     format!(
-                        "本机 {local_utc_str} 与出口 {cc}（{range_label}）相差 {gap} 小时，新号敏感期建议选近时区节点"
+                        "本机 {local_utc_str} 与出口 {cc}{state_tag}（{range_label}）相差 {gap} 小时，新号敏感期建议选近时区节点"
                     )
                 },
                 evidence: format!(
-                    "本机系统时区: {tz_name} ({local_utc_str})\n当前锁定出口: {cc} ({range_label})\n最小时差: {gap} 小时（≤ 4h 视为近时区匹配）"
+                    "本机系统时区: {tz_name} ({local_utc_str})\n当前锁定出口: {cc} ({range_label}){iana_line}\n判定规则: 同国时区即显示通过（当前最小时差 {gap} 小时；上方州/城市时区仅供精细调整参考）"
                 ),
-                guide: if matched {
-                    "当前系统时区与出口地区时差在合理范围内，Electron / 网页端读取的本地时区特征自然一致。".into()
-                } else {
-                    "仅做风险提示，强烈建议保持 Windows 系统时区固定、优先切换近时区合规节点（如新加坡 / 澳洲 / 台湾等）；切勿为了迎合远区节点频繁手动来回修改 Windows 系统时区（例如 UTC+8 与 UTC-7 剧烈跳变反而会触发异常风控特征）。".into()
-                },
+                guide: state_hint_guide,
                 fix_label: if matched {
                     None
                 } else {
@@ -4778,7 +5144,7 @@ pub fn pick_best_compliant_node(candidates: &[String]) -> Option<String> {
 
 /// 纯函数（T-102）：更新 Clash Verge `profiles.yaml` 中当前活跃订阅的 `selected` 列表：
 /// 1) 强制将 `{ name: "Claude-Fixed", now: target_node }` 写入首位（index 0）；
-/// 2) 同步将 `synced_groups`（如订阅原主组「天悦云」）更新为同一 `target_node`，保持 Clash 客户端与工具 100% 一致。
+/// 2) 同步将 `synced_groups`（如订阅原主组「DemoAirport」）更新为同一 `target_node`，保持 Clash 客户端与工具 100% 一致。
 pub fn patch_profiles_yaml_selected(
     raw: &str,
     target_node: &str,
@@ -4877,7 +5243,7 @@ pub fn sync_clash_profiles_selected(dir: &Path, target_node: &str, synced_groups
 
 /// T-102 核心双向同步引擎：
 /// 1) 在 Mihomo 内核将 Claude-Fixed 切换到 `target_node`；
-/// 2) 同步将包含 `target_node` 的顶层主 Selector 组（如「天悦云」）切到同一节点，确保 Clash 首页与工具显示 100% 一致；
+/// 2) 同步将包含 `target_node` 的顶层主 Selector 组（如「DemoAirport」）切到同一节点，确保 Clash 首页与工具显示 100% 一致；
 /// 3) 若处于 GLOBAL 模式，自动把 GLOBAL 锁回 Claude-Fixed；
 /// 4) 回写磁盘 `profiles.yaml`，将 `Claude-Fixed` 置于 `selected[0]`。
 pub async fn sync_clash_selection_everywhere(
@@ -4943,7 +5309,7 @@ async fn apply_clash_rules_directly_and_reload(endpoint: &MihomoEndpoint) -> Res
     // 2. 自动排查并修复当前订阅损坏的空扩展脚本（如缺 return config 的脚本会吞掉全局 Script.js）
     let (repaired_note, saved_profile_node) = repair_broken_active_profile_script(&dir);
 
-    // 3. 仅当已存在 Claude-Fixed 历史合规节点时才保留；首次建组绝不盲抄其他策略组（如天悦云）节点，统一走最佳合规节点算法
+    // 3. 仅当已存在 Claude-Fixed 历史合规节点时才保留；首次建组绝不盲抄其他策略组（如DemoAirport）节点，统一走最佳合规节点算法
     let proxies_before = fetch_proxies_raw(endpoint).await.ok();
     let preferred_node = proxies_before
         .as_ref()
@@ -5479,7 +5845,7 @@ mod tests {
         );
         proxies.insert(
             "GLOBAL".to_string(),
-            json!({"name": "GLOBAL", "type": "Selector", "now": "天悦云", "all": ["Claude-Fixed", "天悦云"]}),
+            json!({"name": "GLOBAL", "type": "Selector", "now": "DemoAirport", "all": ["Claude-Fixed", "DemoAirport"]}),
         );
         let cfg_global = MihomoConfigs {
             mixed_port: 7890,
@@ -5498,7 +5864,7 @@ mod tests {
         // 切回 GLOBAL -> Claude-Fixed，且 Claude-Fixed 内从 日本1 切到了 日本2（符合 3A 自动跟随绿灯）
         proxies.insert(
             "GLOBAL".to_string(),
-            json!({"name": "GLOBAL", "type": "Selector", "now": "Claude-Fixed", "all": ["Claude-Fixed", "天悦云"]}),
+            json!({"name": "GLOBAL", "type": "Selector", "now": "Claude-Fixed", "all": ["Claude-Fixed", "DemoAirport"]}),
         );
         let (ok_item, cur_node, ok_pass, ok_danger) =
             probe_group_and_rules(Some(&proxies), Some(&new_rules), Some(&cfg_global), Some("🇯🇵日本1|流媒体AI"));
@@ -5528,10 +5894,14 @@ mod tests {
         );
         for item in &bundle.report.items {
             println!("[{:?}] {} => {}", item.status, item.id, item.summary);
+            if item.id == "opt_tz" {
+                println!("    opt_tz.evidence: {}", item.evidence.replace('\n', " | "));
+                println!("    opt_tz.guide: {}", item.guide);
+            }
         }
-        assert_eq!(bundle.report.items.len(), 18);
+        assert_eq!(bundle.report.items.len(), 19);
         assert_eq!(bundle.snapshot.must_total, 12);
-        assert_eq!(bundle.snapshot.opt_total, 6);
+        assert_eq!(bundle.snapshot.opt_total, 7);
         assert!(bundle.snapshot.clash_online);
     }
 
@@ -5599,14 +5969,14 @@ proxies:
   - name: "🇯🇵日本3|流媒体AI"
     type: anytls
 proxy-groups:
-  - name: "天悦云"
+  - name: "DemoAirport"
     type: select
     proxies:
       - "🇦🇺澳大利亚|原生"
 rules:
-  - "DOMAIN-SUFFIX,claude.ai,天悦云"
+  - "DOMAIN-SUFFIX,claude.ai,DemoAirport"
   - "DOMAIN-SUFFIX,anthropic.com,Claude-Fixed"
-  - "MATCH,天悦云"
+  - "MATCH,DemoAirport"
 "#;
         let mut doc: serde_yaml::Value = serde_yaml::from_str(sample_yaml).unwrap();
         let safe_cnt = inject_claude_fixed_into_yaml_value(&mut doc).unwrap();
@@ -5645,7 +6015,7 @@ rules:
             .unwrap();
         let old_rule_idx = rules
             .iter()
-            .position(|r| *r == "DOMAIN-SUFFIX,claude.ai,天悦云")
+            .position(|r| *r == "DOMAIN-SUFFIX,claude.ai,DemoAirport")
             .unwrap();
         assert!(
             claude_rule_idx < old_rule_idx,
@@ -6018,9 +6388,9 @@ current: RccF24o0kwqF
 items:
 - uid: RccF24o0kwqF
   type: remote
-  name: 天悦云
+  name: DemoAirport
   selected:
-  - name: 天悦云
+  - name: DemoAirport
     now: 🇦🇺澳大利亚|原生
   - name: 其他分流
     now: 🇭🇰香港1
@@ -6028,14 +6398,14 @@ items:
         let patched = patch_profiles_yaml_selected(
             raw,
             "🇸🇬新加坡1|流媒体AI",
-            &["天悦云".to_string()],
+            &["DemoAirport".to_string()],
         )
         .unwrap();
         let doc: serde_yaml::Value = serde_yaml::from_str(&patched).unwrap();
         let sel = doc["items"][0]["selected"].as_sequence().unwrap();
         assert_eq!(sel[0]["name"].as_str(), Some("Claude-Fixed"));
         assert_eq!(sel[0]["now"].as_str(), Some("🇸🇬新加坡1|流媒体AI"));
-        assert_eq!(sel[1]["name"].as_str(), Some("天悦云"));
+        assert_eq!(sel[1]["name"].as_str(), Some("DemoAirport"));
         assert_eq!(sel[1]["now"].as_str(), Some("🇸🇬新加坡1|流媒体AI"));
         // 保留其他分流组不丢失
         assert_eq!(sel[2]["name"].as_str(), Some("其他分流"));

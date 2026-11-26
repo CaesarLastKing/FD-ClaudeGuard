@@ -1,0 +1,18 @@
+# 统一跨平台文本换行符，消除 Windows 下 git diff 的 LF/CRLF 警告
+* text=auto eol=lf
+
+# Windows 批处理 / PowerShell / NSIS 脚本保持 CRLF 兼容性
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.nsh text eol=crlf
+
+# 二进制资源不做换行符转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.icns binary
+*.zip binary
+*.exe binary
+*.sig binary

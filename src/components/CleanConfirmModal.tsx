@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Check, Loader2, ShieldCheck, X } from "lucide-react";
+import { AlertTriangle, Check, Loader2, ShieldCheck, User, X } from "lucide-react";
 import { ipc } from "@/lib/ipc";
 import { useGuardStore } from "@/stores/guardStore";
 import type { CleanupPlanPreview } from "@/types/guard";
@@ -74,6 +74,17 @@ export function CleanConfirmModal() {
       cancelled = true;
     };
   }, [modal?.open]);
+
+  useEffect(() => {
+    if (!modal?.open) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !executing) {
+        close();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [modal?.open, executing, close]);
 
   const stats = useMemo(() => {
     if (!preview) {
@@ -224,7 +235,7 @@ export function CleanConfirmModal() {
                 )}
               </div>
               <div style={{ fontSize: 12, color: "var(--text-2)", marginTop: 3, lineHeight: 1.45 }}>
-                已实时扫描本机 Claude 目录，请按需勾选清理项。带「先备份 ZIP」标记的数据将原子打包后删除，随时可在环境维护页一键还原。
+                默认同时勾选<strong>桌面端与 CLI 登录态</strong>以保障本机环境彻底干净；如需保留某端账号，直接取消勾选对应项即可。带「先备份 ZIP」标记的数据将原子打包后删除，随时可在环境维护页一键还原。
               </div>
             </div>
           </div>
@@ -411,6 +422,54 @@ export function CleanConfirmModal() {
                         >
                           {cat.description}
                         </div>
+                        {cat.accountSummary && (
+                          <div
+                            data-testid={`clean-account-${cat.id}`}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 6,
+                              marginTop: 5,
+                              padding: "3px 8px",
+                              borderRadius: 6,
+                              background: checked
+                                ? "var(--warning-soft)"
+                                : "var(--bg-card)",
+                              border: `1px solid ${
+                                checked ? "rgba(245, 158, 11, 0.28)" : "var(--border)"
+                              }`,
+                              fontSize: 11.5,
+                              fontFamily: "var(--font-mono)",
+                              color: checked ? "var(--text-1)" : "var(--text-2)",
+                              maxWidth: "100%",
+                            }}
+                          >
+                            <User size={12} strokeWidth={2} style={{ flexShrink: 0, opacity: 0.85 }} />
+                            <span
+                              style={{
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                              title={cat.accountSummary}
+                            >
+                              {cat.accountSummary}
+                            </span>
+                            {!checked && (
+                              <span
+                                style={{
+                                  fontFamily: "inherit",
+                                  fontSize: 10.5,
+                                  color: "var(--success)",
+                                  fontWeight: 600,
+                                  flexShrink: 0,
+                                }}
+                              >
+                                · 将保留
+                              </span>
+                            )}
+                          </div>
+                        )}
                         {cat.samplePaths.length > 0 && (
                           <div
                             title={cat.samplePaths.join(" | ")}

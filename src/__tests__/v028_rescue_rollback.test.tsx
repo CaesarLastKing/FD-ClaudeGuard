@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_CONFIG, FALLBACK_SNAPSHOT, ipc } from "@/lib/ipc";
 import { MaintenancePage } from "@/pages/MaintenancePage";
@@ -122,7 +122,9 @@ describe("v0.2.8 无门槛网络急救与 6 项精准撤回中心回归", () => 
     expect(modal).not.toBeNull();
     expect(modal?.title).toContain("Clash 策略组与覆写脚本");
 
-    await modal?.onDanger?.();
+    await act(async () => {
+      await modal?.onDanger?.();
+    });
 
     await waitFor(() => {
       expect(rollbackSpy).toHaveBeenCalledWith("clash_rules");

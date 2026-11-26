@@ -161,7 +161,7 @@ export function ConsolePage() {
    * 增量 16：单号卫生锁（claude_acct）严禁擅自乱删，统一引导二选一确认弹窗
    */
   const handleFixItemClick = (item: PreflightItem) => {
-    if (item.id === "node_geo") {
+    if (item.id === "node_geo" || item.id === "opt_exit_geo") {
       setActiveTab("nodes");
       setNodesSubTab("quality");
       return;
@@ -174,12 +174,20 @@ export function ConsolePage() {
     }
 
     if (item.id === "claude_acct") {
+      if (item.status === "warn") {
+        openCleanModal({
+          sourceLabel: "来自控制台 · CLI 失效凭据与旧号残留清理",
+        });
+        return;
+      }
       const orgMatch = item.evidence.match(/Observed(?: Unique)? orgIds(?:\s*\(\d+\))?:\s*([^\n]+)/);
       const observedOrgs = (orgMatch?.[1] ?? "")
         .split(",")
         .map((s) => s.trim())
         .filter((s) => s && s !== "None");
       const latestOrg = observedOrgs[observedOrgs.length - 1] ?? "";
+      const primaryLabelMatch = item.evidence.match(/Primary Candidate Label:\s*([^\n]+)/);
+      const primaryCandidateLabel = primaryLabelMatch?.[1]?.trim() || (latestOrg ? `${latestOrg}...` : "");
       const highRiskMix =
         item.summary.includes("最高危连坐") || item.summary.includes("受限");
       const isSingleNewOrg =
@@ -200,7 +208,7 @@ export function ConsolePage() {
           : "多账号混登 / 跨 orgId 冲突处理确认",
         subtitle: isSingleNewOrg
           ? "当前日志仅观测到 1 个新账号，与历史绑定主号不同；若确认已永久换号可直接换绑，否则可先分项清理"
-          : "绝不擅自乱删你的账号目录；清理登录态后会自动解绑旧主号，并同时消除本地封号残留与混号记录",
+          : "绝不擅自乱删你的账号目录；分项清理弹窗会展示各端脱敏账号，默认桌面端与 CLI 全清，也可取消勾选保留你想留的那一端",
         rows: [
           {
             label: "当前检测",
@@ -210,13 +218,13 @@ export function ConsolePage() {
           {
             label: "分项清理",
             value:
-              "打开透明分项清单（勾选清理 Cookie / 日志 / 缓存，默认保留 MCP 与 VM 镜像），清完自动重置主号绑定",
+              "打开透明分项清单（默认勾选清理桌面端与 CLI 登录态/日志/缓存，展示各端脱敏账号供自主保留，默认保护 MCP 与 VM 镜像）",
             tone: "ok",
           },
           {
             label: "仅换绑主号",
-            value: latestOrg
-              ? `不删目录，直接将本机绑定主号更新为 ${latestOrg}...（仅在确认本机无混号风险时使用）`
+            value: primaryCandidateLabel
+              ? `不删目录，直接将本机绑定主号更新为 ${primaryCandidateLabel}（仅在确认本机无混号风险时使用）`
               : "不删目录，直接重置主号绑定基线（仅在确认本机环境干净时使用）",
           },
         ],
@@ -593,6 +601,46 @@ export function ConsolePage() {
             gap: 18,
           }}
         >
+          {snapshot.bgClaudeProcs > 0 && mustFail > 0 && !snapshot.killSwitchActive && (
+            <div
+              data-testid="console-running-must-fail-banner"
+              style={{
+                padding: "11px 14px",
+                borderRadius: "var(--r-card)",
+                border: "1px solid rgba(245, 165, 36, 0.42)",
+                background: "var(--warning-soft)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+              }}
+            >
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--warning)" }}>
+                  运行中防护警示：Claude 当前有 {snapshot.bgClaudeProcs} 个进程存活，且 {mustFail} 项必须项未通过
+                </div>
+                <div style={{ fontSize: 11.5, color: "var(--text-2)", marginTop: 2, lineHeight: 1.5 }}>
+                  为避免直接强杀打断正在进行的对话，非致命断链项不会静默清退；若需修复配置或避免风险扩大，建议先安全清退并开启盯防。
+                </div>
+              </div>
+              <button
+                type="button"
+                data-testid="btn-banner-safe-exit-claude"
+                className="guard-btn guard-btn-danger-soft guard-btn-sm"
+                style={{ flexShrink: 0 }}
+                disabled={exitingClaude || checking || fixing}
+                onClick={() => void safeExitClaude()}
+              >
+                {exitingClaude ? (
+                  <Loader2 size={13} strokeWidth={2} className="guard-spin" />
+                ) : (
+                  <Power size={13} strokeWidth={1.9} />
+                )}
+                <span>{exitingClaude ? "正在清退..." : "立即清退 Claude 并盯防"}</span>
+              </button>
+            </div>
+          )}
+
           <div>
             <div style={partHdStyle}>
               <div style={{ ...partTitleStyle, whiteSpace: "nowrap", flexShrink: 0 }}>
@@ -759,7 +807,9 @@ export function ConsolePage() {
               ) : (
                 /* 只要 status !== "ok" 始终显示排障包导出 */
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {selectedItem.id === "node_geo" && selectedItem.status === "warn" ? (
+                  {(selectedItem.id === "opt_exit_geo" || selectedItem.id === "node_geo") &&
+                  selectedItem.status === "warn" &&
+                  selectedItem.evidence.includes("DRIFT DETECTED") ? (
                     <>
                       {/* 漂移风险提示：当仅 1 项待办时为唯一蓝色主焦点，当 >= 2 项待办时让位于右上角「一键处理全部」保持一屏唯一蓝 CTA */}
                       <button

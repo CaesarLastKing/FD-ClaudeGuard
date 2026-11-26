@@ -10,6 +10,7 @@ import type {
   AccountAuditReport,
   AppConfig,
   AppConfigPatch,
+  AppUpdateInfo,
   AuditSubTab,
   BackupInfo,
   DeepAuditProgress,
@@ -78,6 +79,10 @@ interface GuardStore {
   toasts: ToastMessage[];
   riskModal: RiskModalState | null;
   cleanModal: CleanModalState | null;
+  updateInfo: AppUpdateInfo | null;
+  updateChecking: boolean;
+  updateInstalling: boolean;
+  updateError: string | null;
   initialized: boolean;
 
   bootstrap: () => Promise<void>;
@@ -120,6 +125,8 @@ interface GuardStore {
   setPreflightFromEvent: (report: PreflightReport) => void;
   setConfigFromEvent: (cfg: AppConfig) => void;
   setSupportModalOpen: (open: boolean) => void;
+  checkForAppUpdate: (silent?: boolean) => Promise<AppUpdateInfo | null>;
+  installAppUpdate: () => Promise<void>;
 }
 
 function applyThemeToDom(theme: "dark" | "light") {
@@ -166,6 +173,10 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
   toasts: [],
   riskModal: null,
   cleanModal: null,
+  updateInfo: null,
+  updateChecking: false,
+  updateInstalling: false,
+  updateError: null,
   initialized: false,
 
   async bootstrap() {
@@ -550,18 +561,17 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
         unreadLogWarnings: 0,
       },
     }));
-    if (uniq.length > 0) {
-      void ipc
-        .ackLogEvents(uniq)
-        .then((snap) => {
-          if (seq === ackLogReqSeq) {
-            set({ snapshot: snap });
-          }
-        })
-        .catch((err) => {
-          get().pushToast("同步全部已读失败", String(err), "danger");
-        });
-    }
+    // 统一走后端 ack_all_log_events，将 watchdog 真实未读事件及折叠子 ID 一次性持久化标为已读并广播归零快照
+    void ipc
+      .ackAllLogEvents()
+      .then((snap) => {
+        if (seq === ackLogReqSeq) {
+          set({ snapshot: snap });
+        }
+      })
+      .catch((err) => {
+        get().pushToast("同步全部已读失败", String(err), "danger");
+      });
   },
 
   ackAllFlowIds(ids) {
@@ -648,5 +658,59 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
 
   setSupportModalOpen(open) {
     set({ supportModalOpen: open });
+  },
+
+  async checkForAppUpdate(silent = false) {
+    if (get().updateChecking || get().updateInstalling) return get().updateInfo;
+    set({ updateChecking: true, updateError: null });
+    try {
+      const info = await ipc.checkAppUpdate();
+      set({ updateInfo: info });
+      if (!silent) {
+        get().pushToast(
+          info.available ? `发现新版本 v${info.latestVersion ?? ""}` : "当前已是最新版本",
+          info.message,
+          info.available ? "info" : "ok"
+        );
+      } else if (info.available && info.latestVersion) {
+        get().pushToast(
+          `发现新版本 v${info.latestVersion}`,
+          "已通过 GitHub Releases 官方更新通道检测到新版本，可点击顶栏更新标签或前往「守卫配置」一键验签升级。",
+          "info",
+          {
+            durationMs: 7000,
+            action: {
+              label: "前往更新",
+              onClick: () => get().setActiveTab("config"),
+            },
+          }
+        );
+      }
+      return info;
+    } catch (err) {
+      const msg = String(err);
+      if (!silent) {
+        set({ updateError: msg });
+        get().pushToast("检查更新失败", msg, "danger");
+      }
+      return null;
+    } finally {
+      set({ updateChecking: false });
+    }
+  },
+
+  async installAppUpdate() {
+    if (get().updateInstalling) return;
+    set({ updateInstalling: true, updateError: null });
+    try {
+      const msg = await ipc.installAppUpdate();
+      get().pushToast("更新包校验通过", msg, "ok");
+    } catch (err) {
+      const msg = String(err);
+      set({ updateError: msg });
+      get().pushToast("自动更新安装失败", msg, "danger");
+    } finally {
+      set({ updateInstalling: false });
+    }
   },
 }));

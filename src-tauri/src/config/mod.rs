@@ -9,6 +9,18 @@ pub struct WindowPos {
     pub y: i32,
 }
 
+/// 主控制台窗口几何尺寸与位置（物理像素，用于恢复用户上次手动拖拽/缩放的布局）
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MainWindowBounds {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    #[serde(default)]
+    pub maximized: bool,
+}
+
 /// 全局守护配置（持久化至 ~/.fd-claude-guard/config.json）
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", default)]
@@ -43,6 +55,9 @@ pub struct AppConfig {
     pub hud_edge_docked: bool,
     /// 上次拖拽保存的悬浮窗坐标
     pub hud_position: Option<WindowPos>,
+    /// 上次手动缩放/拖拽保存的主控制台窗口几何尺寸与位置（恢复前会按当前显示器边界防呆校验）
+    #[serde(default)]
+    pub main_window_bounds: Option<MainWindowBounds>,
     /// 增量 11：上次锁定的节点名称（用于识别节点名未变但落地 IP 静默漂移）
     pub locked_node_for_ip: Option<String>,
     /// 增量 11：上次锁定节点的脱敏/前缀落地 IP（仅记录脱敏前两段或哈希，不存完整明文公网 IP）
@@ -84,6 +99,7 @@ impl Default for AppConfig {
             hud_folded: false,
             hud_edge_docked: false,
             hud_position: None,
+            main_window_bounds: None,
             locked_node_for_ip: None,
             locked_landing_ip: None,
             bound_primary_org_id: None,

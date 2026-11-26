@@ -64,6 +64,9 @@ pub struct RiskScoreInput {
     // 维度 3（16 分）：多号隔离与设备指纹防连坐
     pub ban_residue_or_cross_org_404: bool,
     pub cross_client_or_multi_org_mix: bool,
+    /// 单端存在失效凭据 / 同文件跨号交叉污染 / 旧号会话目录残留（轻度预警 -6 分，绝不假绿）
+    #[serde(default)]
+    pub stale_or_polluted_cli_residue: bool,
     pub multi_acct_detail: Option<String>,
 
     // 维度 4（12 分）：官方警告与静默监控标
@@ -77,6 +80,8 @@ pub struct RiskScoreInput {
     // 维度 6（10 分）：人机节律与 429 并发安全
     pub severe_automation_or_429: bool,
     pub mild_rate_limit_429: bool,
+    #[serde(default)]
+    pub mild_scheduled_tasks: bool,
     pub rhythm_detail: Option<String>,
 
     // 维度 7（8 分）：Clash 断连回传 Cookie 403 防护
@@ -219,6 +224,20 @@ pub fn compute_risk_score(input: &RiskScoreInput) -> ScoreResult {
                     "本机检测到多个不同组织记录，存在跨端残留连坐风险".into()
                 }),
             });
+        } else if input.stale_or_polluted_cli_residue {
+            score -= 6;
+            deductions.push(ScoreDeductionItem {
+                id: "cli_stale_or_cross_residue".into(),
+                weight_max: WEIGHT_MULTI_ACCT,
+                delta: -6,
+                delta_label: "-6".into(),
+                tone: "warn".into(),
+                title: "CLI 残留失效凭据或跨号缓存（权重 16 分）".into(),
+                desc: input.multi_acct_detail.clone().unwrap_or_else(|| {
+                    "检测到 CLI 旧号失效凭据或文件内双账号交叉缓存，登录新号前建议一键备份清理防连坐"
+                        .into()
+                }),
+            });
         }
     }
 
@@ -269,18 +288,38 @@ pub fn compute_risk_score(input: &RiskScoreInput) -> ScoreResult {
                     "检测到定时脚本、跨夜连续循环或高频 429 并发，建议恢复常规人工节奏".into()
                 }),
             });
-        } else if input.mild_rate_limit_429 {
+        } else if input.mild_rate_limit_429 || input.mild_scheduled_tasks {
             score -= 5;
+            let (id, title, default_desc) = if input.mild_rate_limit_429 && input.mild_scheduled_tasks {
+                (
+                    "mild_rhythm_and_tasks",
+                    "近期偶发 429 且活跃定时任务较多（权重 10 分）",
+                    "日志存在偶发 429 限流且活跃定时任务达 6 个及以上，建议适当错峰并降低并发",
+                )
+            } else if input.mild_scheduled_tasks {
+                (
+                    "mild_scheduled_tasks",
+                    "活跃定时任务偏多（≥6 个 · 轻微提醒，权重 10 分）",
+                    "检测到较多近期活跃定时任务，建议控制执行频率与并发，避免压线触发限流",
+                )
+            } else {
+                (
+                    "mild_429",
+                    "近期偶发 429 限流提醒（权重 10 分）",
+                    "近期日志捕获偶发 429 限流，建议适当降低并发会话数",
+                )
+            };
             deductions.push(ScoreDeductionItem {
-                id: "mild_429".into(),
+                id: id.into(),
                 weight_max: WEIGHT_RHYTHM_429,
                 delta: -5,
                 delta_label: "-5".into(),
                 tone: "warn".into(),
-                title: "近期偶发 429 限流提醒（权重 10 分）".into(),
-                desc: input.rhythm_detail.clone().unwrap_or_else(|| {
-                    "近期日志捕获偶发 429 限流，建议适当降低并发会话数".into()
-                }),
+                title: title.into(),
+                desc: input
+                    .rhythm_detail
+                    .clone()
+                    .unwrap_or_else(|| default_desc.into()),
             });
         }
     }
@@ -308,9 +347,9 @@ pub fn compute_risk_score(input: &RiskScoreInput) -> ScoreResult {
                 delta: -5,
                 delta_label: "-5".into(),
                 tone: "warn".into(),
-                title: "代理离线或后台进程未盯防（权重 8 分）".into(),
+                title: "断连防漏链保护存在缺口（权重 8 分）".into(),
                 desc: input.disconnect_detail.clone().unwrap_or_else(|| {
-                    "TUN 代理离线或后台残留 Claude 进程未开启防复活盯防，存在断连回传隐患".into()
+                    "TUN 代理、规则锁死、Fake-IP DNS 或运行中自动热熔断未完整就绪，存在断连回传隐患".into()
                 }),
             });
         }

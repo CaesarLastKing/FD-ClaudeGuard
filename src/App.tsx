@@ -1,5 +1,4 @@
 import { useEffect } from "react";
-import { HeroUIProvider } from "@heroui/react";
 import { CleanConfirmModal } from "@/components/CleanConfirmModal";
 import { PlaybookDrawer } from "@/components/PlaybookDrawer";
 import { RiskModal } from "@/components/RiskModal";
@@ -30,35 +29,16 @@ export function App() {
   const setPlaybookOpen = useGuardStore((s) => s.setPlaybookOpen);
   const openRiskModal = useGuardStore((s) => s.openRiskModal);
   const pushToast = useGuardStore((s) => s.pushToast);
+  const checkForAppUpdate = useGuardStore((s) => s.checkForAppUpdate);
 
   useEffect(() => {
     void bootstrap();
 
-    // T-059：仅真实桌面端在启动 3.5s 后静默检查一次更新，发现新版本时温和提示（绝不弹窗打扰或强制重启）
+    // T-059：仅真实桌面端在启动 3.5s 后静默检查一次更新，写入全局 updateInfo 点亮顶栏徽章与配置页按钮
     let updateTimer: number | null = null;
     if (isTauriRuntime()) {
       updateTimer = window.setTimeout(() => {
-        void ipc
-          .checkAppUpdate()
-          .then((info) => {
-            if (info.available && info.latestVersion) {
-              pushToast(
-                `发现新版本 v${info.latestVersion}`,
-                "已通过 GitHub Releases 官方更新通道检测到新版本，可前往「守卫配置」一键验签升级。",
-                "info",
-                {
-                  durationMs: 7000,
-                  action: {
-                    label: "前往更新",
-                    onClick: () => setActiveTab("config"),
-                  },
-                }
-              );
-            }
-          })
-          .catch(() => {
-            // 静默忽略离线或超时错误
-          });
+        void checkForAppUpdate(true);
       }, 3500);
     }
 
@@ -131,6 +111,16 @@ export function App() {
         });
       })
     );
+    register(
+      ipc.listenNakedLaunchIntercepted((count) => {
+        pushToast(
+          "已拦截非安全直接启动 Claude",
+          `检测到未全绿状态下直接启动 Claude（${count} 个进程），已自动阻断出站并切回控制台，请先修复必须项后再点「安全启动 Claude」。`,
+          "danger",
+          { durationMs: 7000 }
+        );
+      })
+    );
 
     return () => {
       disposed = true;
@@ -143,6 +133,7 @@ export function App() {
     };
   }, [
     bootstrap,
+    checkForAppUpdate,
     focusFirstUnhealthyCheck,
     openRiskModal,
     pushToast,
@@ -158,36 +149,34 @@ export function App() {
   ]);
 
   return (
-    <HeroUIProvider>
-      <div
-        style={{
-          width: "100vw",
-          height: "100vh",
-          background: "var(--bg-canvas)",
-          display: "flex",
-          flexDirection: "column",
-          overflow: "hidden",
-          border: "1px solid var(--border-strong)",
-        }}
-      >
-        <WindowChrome />
-        <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
-          <Sidebar />
-          <main style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
-            {activeTab === "console" && <ConsolePage />}
-            {(activeTab === "audit" || activeTab === "logs") && <AccountAuditPage />}
-            {activeTab === "nodes" && <NodesTrafficPage />}
-            {activeTab === "maintain" && <MaintenancePage />}
-            {activeTab === "config" && <SettingsPage />}
-          </main>
-        </div>
-        <PlaybookDrawer />
-        <RiskModal />
-        <CleanConfirmModal />
-        <SupportModal />
-        <ToastStack />
+    <div
+      style={{
+        width: "100vw",
+        height: "100vh",
+        background: "var(--bg-canvas)",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+        border: "1px solid var(--border-strong)",
+      }}
+    >
+      <WindowChrome />
+      <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
+        <Sidebar />
+        <main style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+          {activeTab === "console" && <ConsolePage />}
+          {(activeTab === "audit" || activeTab === "logs") && <AccountAuditPage />}
+          {activeTab === "nodes" && <NodesTrafficPage />}
+          {activeTab === "maintain" && <MaintenancePage />}
+          {activeTab === "config" && <SettingsPage />}
+        </main>
       </div>
-    </HeroUIProvider>
+      <PlaybookDrawer />
+      <RiskModal />
+      <CleanConfirmModal />
+      <SupportModal />
+      <ToastStack />
+    </div>
   );
 }
 

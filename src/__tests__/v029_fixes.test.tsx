@@ -1,8 +1,11 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { CleanConfirmModal } from "@/components/CleanConfirmModal";
 import { NetworkRescueRollbackPanel } from "@/components/NetworkRescueRollbackPanel";
 import { Sidebar } from "@/components/Sidebar";
-import { DEFAULT_CONFIG, FALLBACK_PREFLIGHT, FALLBACK_SNAPSHOT, ipc } from "@/lib/ipc";
+import { WindowChrome } from "@/components/WindowChrome";
+import { buildMockAccountAuditReport, DEFAULT_CONFIG, FALLBACK_PREFLIGHT, FALLBACK_SNAPSHOT, ipc } from "@/lib/ipc";
+import { AccountAuditPage } from "@/pages/AccountAuditPage";
 import { ConsolePage } from "@/pages/ConsolePage";
 import { NodesTrafficPage } from "@/pages/NodesTrafficPage";
 import { SettingsPage } from "@/pages/SettingsPage";
@@ -37,12 +40,15 @@ describe("v0.2.9 真机回归：开机启动项徽章语义校验（T-054）", (
     });
   });
 
-  it("Clash Verge 未开启自启且风险为 warn 时应显示「未开启（建议开启）」，Claude 已开启且 warn 时显示「已开启（有风险）」", () => {
+  it("Clash Verge 未开启自启且风险为 warn 时应显示「未开启（建议开启）」，Claude 已开启且 warn 时显示「已开启（有风险）」", async () => {
     render(<SettingsPage />);
 
     expect(screen.getByTestId("startup-chip-FD Claude Guard").textContent).toBe("已开启自启");
     expect(screen.getByTestId("startup-chip-Clash Verge Rev").textContent).toBe("未开启（建议开启）");
     expect(screen.getByTestId("startup-chip-Claude Desktop").textContent).toBe("已开启（有风险）");
+    await waitFor(() => {
+      expect(useGuardStore.getState().updateChecking).toBe(false);
+    });
   });
 });
 
@@ -164,6 +170,8 @@ describe("v0.2.9 真机回归：熔断与盯防联动、无锁文案清理与出
         groupName: "Claude-Fixed",
         currentNode: "🇺🇸美国2|流媒体AI",
         totalRawNodes: 2,
+        subscriptionTotalNodes: 5,
+        nameBlockedCount: 3,
         filteredBlockedCount: 4,
         nodes: [
           {
@@ -219,8 +227,157 @@ describe("v0.2.9 真机回归：熔断与盯防联动、无锁文案清理与出
     render(<NodesTrafficPage />);
     expect(screen.getByTestId("nodes-usable-count")).toHaveTextContent("1个");
     expect(screen.getByTestId("nodes-blocked-count")).toHaveTextContent("4个");
-    expect(screen.getByText("共评估 2 个（1 个不可用）")).toBeInTheDocument();
-    expect(screen.getByText("禁区不可用")).toBeInTheDocument();
+    expect(screen.getByTestId("nodes-usable-breakdown")).toHaveTextContent("订阅共 5 · 评估 2（1 个不可用）");
+    expect(screen.getByTestId("nodes-blocked-breakdown")).toHaveTextContent("名称禁区 3 · 落地禁区 1");
+    expect(screen.getByTestId("nodes-quarantine-section")).toBeInTheDocument();
+    expect(screen.getByTestId("nodes-quarantine-table")).toHaveTextContent("禁区不可用");
+    expect(screen.getByTestId("nodes-eval-table")).not.toHaveTextContent("🇨🇳台湾1|流媒体AI");
     expect(screen.queryByText("拉黑不可用")).not.toBeInTheDocument();
+  });
+
+  it("清理确认弹窗默认同时勾选桌面端与 CLI 登录态，并展示各端脱敏账号（取消勾选即可保留）", async () => {
+    useGuardStore.setState({
+      cleanModal: { open: true, sourceLabel: "来自控制台 · 单号卫生锁" },
+    });
+
+    render(<CleanConfirmModal />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("clean-check-cli_auth_and_backups")).toBeInTheDocument();
+    });
+    const authBox = screen.getByTestId("clean-check-auth") as HTMLInputElement;
+    const cliBox = screen.getByTestId("clean-check-cli_auth_and_backups") as HTMLInputElement;
+    expect(authBox.checked).toBe(true);
+    expect(cliBox.checked).toBe(true);
+
+    expect(screen.getByTestId("clean-account-auth")).toHaveTextContent("a4722ea6");
+    expect(screen.getByTestId("clean-account-cli_auth_and_backups")).toHaveTextContent("stev***88@gmail.com");
+
+    // 取消勾选 CLI 登录态后，明确展示「将保留」
+    fireEvent.click(cliBox);
+    expect(cliBox.checked).toBe(false);
+    expect(screen.getByTestId("clean-account-cli_auth_and_backups")).toHaveTextContent("将保留");
+  });
+
+  it("账户审计页升级 Application→Cookies 教程与 SVG 图、无效粘贴红字提示及定时任务 ≥6 轻度分级", () => {
+    const mockReport = buildMockAccountAuditReport("default");
+    mockReport.local.hygiene.activeScheduledTasksCount = 0;
+    mockReport.local.hygiene.historicalScheduledTasksCount = 10;
+    mockReport.local.hygiene.scheduledTasksCount = 0;
+    mockReport.local.hygiene.scheduledTasksDir = "C:\\Users\\demo\\.claude\\scheduled-tasks";
+
+    useGuardStore.setState({
+      accountAudit: mockReport,
+      accountAuditLoading: false,
+      auditSubTab: "audit",
+    });
+
+    render(<AccountAuditPage />);
+
+    // 1. 0 活跃 + 10 历史脚本：节律正常（绝不标红「存在机刷」）
+    const autoGroup = screen.getByTestId("audit-group-g-auto");
+    expect(autoGroup).toHaveTextContent("节律正常");
+    expect(autoGroup).not.toHaveTextContent("存在机刷");
+
+    // 2. 展开云端核验面板：粘贴静态 JS URL 显示明确红字纠错，展开教程显示 Application→Cookies + SVG
+    fireEvent.click(screen.getByTestId("audit-group-g-cloud").querySelector(".audit-row")!);
+    const input = screen.getByTestId("audit-sk-input");
+    fireEvent.change(input, {
+      target: { value: "https://assets-proxy.anthropic.com/claude-ai/v2/assets/v1/c601666a3.js" },
+    });
+    expect(screen.getByTestId("audit-sk-feedback")).toHaveTextContent("未识别到有效 sessionKey");
+    expect((screen.getByTestId("btn-verify-cloud-sk") as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(screen.getByTestId("btn-toggle-sk-how"));
+    const howPanel = screen.getByTestId("audit-sk-how-panel");
+    expect(howPanel).toHaveTextContent("Application（应用）");
+    expect(howPanel).toHaveTextContent("Cookies");
+    expect(howPanel.querySelector("svg")).toBeTruthy();
+
+    // 3. 未核验 sk 时 Portal 第 4 格与前 3 格统一显示「待 sk 实证」
+    expect(screen.getByTestId("portal-unverified-value")).toHaveTextContent("待 sk 实证");
+  });
+
+  it("顶栏显示新版本发布徽章，守卫配置页展示「立即更新 / 已是最新版本」与「GitHub 官网」按钮", () => {
+    useGuardStore.setState({
+      updateInfo: {
+        currentVersion: "0.3.0",
+        available: true,
+        latestVersion: "0.3.1",
+        publishedAt: "2026-11-26",
+        notes: "修复多项体验细节",
+        viaProxy: true,
+        message: "发现新版本 v0.3.1",
+      },
+      updateChecking: false,
+      updateInstalling: false,
+    });
+
+    const { unmount } = render(<WindowChrome />);
+    expect(screen.getByTestId("topbar-new-version-badge")).toHaveTextContent("新版 v0.3.1 发布啦");
+    const subtitleEl = screen.getByTestId("brand-subtitle");
+    fireEvent.mouseEnter(subtitleEl);
+    expect(screen.getByTestId("brand-subtitle-tooltip")).toHaveTextContent(
+      "Claude is awesome, but fuck Dario!"
+    );
+    fireEvent.mouseLeave(subtitleEl);
+    expect(screen.queryByTestId("brand-subtitle-tooltip")).not.toBeInTheDocument();
+    unmount();
+
+    const { unmount: unmountSettings } = render(<SettingsPage />);
+    expect(screen.getByTestId("btn-install-app-update")).toHaveTextContent("立即更新 v0.3.1");
+    expect(screen.getByTestId("btn-open-github-official")).toHaveTextContent("GitHub 官网");
+    unmountSettings();
+
+    // 无新版本时：配置页卡片右侧明确显示「已是最新版本」
+    useGuardStore.setState({
+      updateInfo: {
+        currentVersion: "0.3.1",
+        available: false,
+        latestVersion: "0.3.1",
+        publishedAt: null,
+        notes: null,
+        viaProxy: false,
+        message: "当前已是最新版本 v0.3.1",
+      },
+    });
+    render(<SettingsPage />);
+    expect(screen.getByTestId("btn-update-card-status")).toHaveTextContent("已是最新版本");
+    expect(screen.getByTestId("btn-open-github-official")).toHaveTextContent("GitHub 官网");
+  });
+
+  it("桌面端清空但 CLI 残留失效凭据/跨号缓存时：绝不报「纯净无混」，且清理 CLI 按钮保持可点击", () => {
+    const staleReport = buildMockAccountAuditReport("default");
+    staleReport.primarySource = "cli_stale";
+    staleReport.local.desktop.orgIdPrefixes = [];
+    staleReport.local.crossClientOrgMismatch = false;
+    staleReport.topology = {
+      hygieneState: "single_surface_stale_or_polluted",
+      headline:
+        "桌面端已清空，但 CLI 仍残留失效/跨号旧数据（star***t4@gmail.com）：~/.claude.json 内部双账号交叉污染；CLI 登录凭据已失效",
+      detail: "若该 CLI 旧号已封禁，切勿直接登新号，请先一键清理 CLI 残留。",
+      desktopStatus: "empty",
+      desktopAccounts: [],
+      cliStatus: "stale_or_polluted",
+      cliAccount: "star***t4@gmail.com (Pro · CLI · 7aacf131)",
+      cliStaleReasons: ["CLI 登录凭据 (.credentials.json) 已失效/过期"],
+      sessionDirOrphans: ["078cfdb1"],
+      hasCliCleanupTarget: true,
+    };
+
+    useGuardStore.setState({
+      accountAudit: staleReport,
+      accountAuditLoading: false,
+      auditSubTab: "audit",
+    });
+
+    render(<AccountAuditPage />);
+    const mixGroup = screen.getByTestId("audit-group-g-mix");
+    expect(mixGroup).toHaveTextContent("CLI 残留预警");
+    expect(mixGroup).not.toHaveTextContent("纯净无混");
+
+    fireEvent.click(mixGroup.querySelector(".audit-row")!);
+    const cleanBtn = screen.getByRole("button", { name: "立即清理 CLI 残留与备份" }) as HTMLButtonElement;
+    expect(cleanBtn.disabled).toBe(false);
   });
 });

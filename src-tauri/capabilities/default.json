@@ -20,7 +20,6 @@
     "core:event:default",
     "autostart:default",
     "notification:default",
-    "shell:allow-open",
     "updater:default"
   ]
 }

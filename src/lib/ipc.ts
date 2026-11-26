@@ -87,7 +87,7 @@ export const FALLBACK_SNAPSHOT: GuardSnapshot = {
   mustPassed: 0,
   mustTotal: 12,
   optPassed: 0,
-  optTotal: 6,
+  optTotal: 7,
   clashVersion: "待探测",
   clashPort: 7890,
   clashOnline: false,
@@ -181,11 +181,11 @@ export const FALLBACK_PREFLIGHT: PreflightReport = {
       cat: "1. 代理与节点（改 Clash 配置）",
       icon: "geo",
       mode: "自动一键 / 选节点",
-      title: "出口节点合规与真实可达性",
+      title: "出口节点真实可达性",
       status: "fail",
-      summary: "尚未探测出口白名单、落地 IP 防漂移、ASN 纯净度与 Anthropic 真实可达性",
+      summary: "尚未探测出口是否避开禁区、ASN 安全底线与 Anthropic 真实可达性",
       evidence: "Proxy Exit GeoIP & Anthropic Stateless Probe: 待探测",
-      guide: "强制经本地代理探测出口国家、ASN 纯净度与 api.anthropic.com 无状态可达性（筛除 CF 403）。",
+      guide: "强制经本地代理探测出口国家（非禁区）、非高危滥用节点与 api.anthropic.com 无状态可达性（筛除 CF 403）。",
       fixLabel: null,
       isKillItem: false,
       isFailover: false,
@@ -374,6 +374,21 @@ export const FALLBACK_PREFLIGHT: PreflightReport = {
       isFailover: false,
     },
     {
+      id: "opt_exit_geo",
+      part: "opt",
+      cat: "系统辅助优化",
+      icon: "geo",
+      mode: "只读风险监测",
+      title: "出口节点合规性与属地一致性",
+      status: "warn",
+      summary: "尚未比对账号注册属地、24h 落地 IP 漂移与网页 CF 弹盾状态",
+      evidence: "Exit Geo Compliance & 24h Drift: 待探测",
+      guide: "用于持续追踪账号属地跨洲一致性、24h 落地 IP 稳定性、网页 CF 弹盾与 IP 类型参考，不阻断正常启动。",
+      fixLabel: "前往「节点流量」核对并切换稳定节点",
+      isKillItem: false,
+      isFailover: false,
+    },
+    {
       id: "opt_browser_ext",
       part: "opt",
       cat: "系统辅助优化",
@@ -429,6 +444,7 @@ export const MOCK_BACKUPS: BackupInfo[] = [
   },
 ];
 const MOCK_CLEANED_CATS = new Set<string>();
+const MOCK_ACKED_LOG_IDS = new Set<string>();
 
 export const ipc = {
   async getConfig(): Promise<AppConfig> {
@@ -718,7 +734,7 @@ export const ipc = {
         connected: false,
         endpoint: "预览模式",
         groupName: "Claude-Fixed",
-        currentNode: "US-LA-Static-01",
+        currentNode: "未连接",
         totalRawNodes: 0,
         filteredBlockedCount: 0,
         nodes: [],
@@ -824,6 +840,7 @@ export const ipc = {
   async getLogAnalysis(): Promise<LogAnalysisReport> {
     if (!isTauriRuntime()) {
       const cleanedLogs = MOCK_CLEANED_CATS.has("logs");
+      const mockAckedAll = MOCK_ACKED_LOG_IDS.has("__ALL__");
       const events: LogEvent[] = cleanedLogs
         ? []
         : [
@@ -832,7 +849,7 @@ export const ipc = {
               ruleId: "pb_pay",
               anomaly: true,
               simulated: false,
-              acked: false,
+              acked: mockAckedAll || MOCK_ACKED_LOG_IDS.has("mock-oauth-v2-72"),
               level: "warn",
               tag: "OAuth v2 鉴权",
               time: "2026-11-25 04:47:45",
@@ -892,6 +909,9 @@ export const ipc = {
 
   async ackLogEvents(ids: string[]): Promise<GuardSnapshot> {
     if (!isTauriRuntime()) {
+      for (const id of ids) {
+        if (id) MOCK_ACKED_LOG_IDS.add(id);
+      }
       return {
         ...FALLBACK_SNAPSHOT,
         unreadLogAnomalies: 0,
@@ -902,12 +922,25 @@ export const ipc = {
     return invoke<GuardSnapshot>("ack_log_events", { ids });
   },
 
+  async ackAllLogEvents(): Promise<GuardSnapshot> {
+    if (!isTauriRuntime()) {
+      MOCK_ACKED_LOG_IDS.add("__ALL__");
+      return {
+        ...FALLBACK_SNAPSHOT,
+        unreadLogAnomalies: 0,
+        unreadLogCritical: 0,
+        unreadLogWarnings: 0,
+      };
+    }
+    return invoke<GuardSnapshot>("ack_all_log_events");
+  },
+
   async previewAnonymousFeedbackPayload(): Promise<string> {
     if (!isTauriRuntime()) {
       return JSON.stringify(
         {
           schemaVersion: 2,
-          appVersion: "0.2.7",
+          appVersion: __APP_VERSION__,
           installIdHash: "9f2a8c1d",
           toolDiagnostics: {
             clashVersion: "Mihomo v1.19.23",
@@ -915,8 +948,8 @@ export const ipc = {
             clashOnline: true,
             regionCode: "AU",
             killSwitchActive: false,
-            mustPassed: 11,
-            mustTotal: 11,
+            mustPassed: 12,
+            mustTotal: 12,
             failedChecks: [],
             recentToolErrors: [],
           },
@@ -1053,7 +1086,8 @@ export const ipc = {
         willBackup: boolean,
         fileCount: number,
         totalBytes: number,
-        samplePaths: string[]
+        samplePaths: string[],
+        accountSummary?: string
       ) => {
         const cleared = MOCK_CLEANED_CATS.has(id);
         const bytes = cleared ? 0 : totalBytes;
@@ -1067,6 +1101,7 @@ export const ipc = {
           totalBytes: bytes,
           sizeLabel: fmt(bytes),
           samplePaths: cleared ? [] : samplePaths,
+          accountSummary: cleared ? "当前未检测到登录态残留" : accountSummary,
         };
       };
       return {
@@ -1076,7 +1111,7 @@ export const ipc = {
           makeCat(
             "auth",
             "桌面端登录态、Cookie 与 OAuth 凭证",
-            "清除后立即退出本地桌面端登录态（Cookies / Local Storage / Session Storage / OAuth config.json）。",
+            "清除后立即退出本地桌面端登录态（Cookies / Local Storage / Session Storage / OAuth config.json）；若需保留桌面端账号请取消勾选。",
             true,
             true,
             18,
@@ -1084,7 +1119,19 @@ export const ipc = {
             [
               "MSIX\\AnthropicPBC.Claude\\Roaming\\Claude\\Network\\Cookies",
               "%LOCALAPPDATA%\\Claude-Data\\anthropicpbc.claude\\config.json",
-            ]
+            ],
+            "当前桌面端账号：桌面端账号 (本地不含邮箱 · org a4722ea6)"
+          ),
+          makeCat(
+            "cli_auth_and_backups",
+            "CLI 登录态与历史旧号备份（~/.claude）",
+            "默认勾选保障本机环境彻底干净：先 ZIP 备份后清除 ~/.claude.json 的 oauthAccount、.credentials.json 与 backups/；若需保留此 CLI 账号请取消勾选。",
+            true,
+            true,
+            7,
+            1_226_000,
+            ["~\\.claude.json (仅清除 oauthAccount)", "~\\.claude\\.credentials.json", "~\\.claude\\backups\\"],
+            "当前 CLI 账号：stev***88@gmail.com (Pro · CLI · 7aacf131) · 含 5 份历史备份"
           ),
           makeCat(
             "logs",
@@ -1254,6 +1301,11 @@ export const ipc = {
   async listenConfirmExit(cb: (bgProcs: number) => void): Promise<UnlistenFn> {
     if (!isTauriRuntime()) return () => {};
     return listen<number>("guard://confirm-exit", (e) => cb(e.payload));
+  },
+
+  async listenNakedLaunchIntercepted(cb: (count: number) => void): Promise<UnlistenFn> {
+    if (!isTauriRuntime()) return () => {};
+    return listen<number>("guard://naked-launch-intercepted", (e) => cb(e.payload));
   },
 
   async getDeepAuditStatus(): Promise<DeepAuditProgress> {
@@ -1443,7 +1495,8 @@ export const ipc = {
 
   async verifyAccountCloudWithSk(
     rawInput: string,
-    profileId?: string
+    profileId?: string,
+    allowSwitchPrimary = false
   ): Promise<AccountAuditReport> {
     if (!isTauriRuntime()) {
       mockAccountCloudVerifiedCount += 1;
@@ -1452,6 +1505,7 @@ export const ipc = {
     return invoke<AccountAuditReport>("verify_account_cloud_with_sk", {
       profileId: profileId ?? null,
       rawInput,
+      allowSwitchPrimary,
     });
   },
 
@@ -1522,13 +1576,13 @@ export const ipc = {
   async checkAppUpdate(): Promise<AppUpdateInfo> {
     if (!isTauriRuntime()) {
       return {
-        currentVersion: "0.3.0",
+        currentVersion: __APP_VERSION__,
         available: false,
-        latestVersion: "0.3.0",
+        latestVersion: __APP_VERSION__,
         publishedAt: null,
         notes: null,
         viaProxy: false,
-        message: "当前已是最新版本 v0.3.0（浏览器预览模式）。",
+        message: `当前已是最新版本 v${__APP_VERSION__}（浏览器预览模式）。`,
       };
     }
     return invoke<AppUpdateInfo>("check_app_update");
@@ -1539,6 +1593,16 @@ export const ipc = {
       return "浏览器预览模式不执行安装包下载。";
     }
     return invoke<string>("install_app_update");
+  },
+
+  async openExternalUrl(url: string): Promise<void> {
+    if (!isTauriRuntime()) {
+      if (typeof window !== "undefined") {
+        window.open(url, "_blank", "noopener,noreferrer");
+      }
+      return;
+    }
+    await invoke<void>("open_external_url", { url });
   },
 };
 
@@ -1552,7 +1616,9 @@ export function buildMockAccountAuditReport(profileId = "default"): AccountAudit
   const telMissing = mockTelemetryEnvFixed
     ? []
     : ["DISABLE_TELEMETRY", "DISABLE_BUG_COMMAND"];
-  const score = !verified ? 84 : secondVerify ? 98 : 69;
+  // 严格与 100 分权重模型一致：未核验封顶 85（100 - 10 混登 - 3 遥测 = 87 → 封顶 85）
+  const localRawScore = 100 - 10 - (telMissing.length > 0 ? 3 : 0);
+  const score = !verified ? Math.min(85, localRawScore) : secondVerify ? 98 : 69;
 
   return {
     profileId,
@@ -1728,6 +1794,7 @@ export function buildMockAccountAuditReport(profileId = "default"): AccountAudit
         mcpOauthProviders: [],
       },
       hygiene: {
+        cliInstalled: true,
         settingsExists: true,
         privacyEnvFlags: {
           DISABLE_TELEMETRY: mockTelemetryEnvFixed,
@@ -1742,6 +1809,9 @@ export function buildMockAccountAuditReport(profileId = "default"): AccountAudit
         telemetryFileCount: mockTelemetryDirBytes > 0 ? 3 : 0,
         telemetryTotalBytes: mockTelemetryDirBytes,
         scheduledTasksCount: 0,
+        activeScheduledTasksCount: 0,
+        historicalScheduledTasksCount: 0,
+        scheduledTasksDir: null,
         backupFileCount: 5,
         backupAccounts: [
           {
@@ -1791,6 +1861,8 @@ export function buildMockAccountAuditReport(profileId = "default"): AccountAudit
     runtimeBgProcs: 0,
     runtimeKillHoldActive: false,
     runtimeKillHoldSecs: 0,
+    runtimeDisconnectGuardOk: true,
+    runtimeDisconnectGaps: [],
     denoisedOauth403Count: 7,
     logFlowItems: [
       {
@@ -1832,6 +1904,63 @@ export function buildMockAccountAuditReport(profileId = "default"): AccountAudit
     ],
     pendingIssueCount: secondVerify ? 0 : (mockTelemetryEnvFixed ? 1 : 2) + (verified ? 1 : 0),
     hasDangerIssue: verified && !secondVerify,
+    primarySource: secondVerify ? "cli_and_desktop" : "desktop_web",
+    detectedAccounts: secondVerify
+      ? [
+          {
+            orgPrefix8: "7aacf131",
+            emailMasked: "stev***88@gmail.com",
+            plan: "Pro",
+            clientSource: "桌面端+CLI",
+            displayLabel: "stev***88@gmail.com (Pro · 桌面端+CLI · 7aacf131)",
+            isPrimary: true,
+          },
+        ]
+      : [
+          {
+            orgPrefix8: "7aacf131",
+            emailMasked: "stev***88@gmail.com",
+            plan: "Pro",
+            clientSource: "CLI",
+            displayLabel: "stev***88@gmail.com (Pro · CLI · 7aacf131)",
+            isPrimary: true,
+          },
+          {
+            orgPrefix8: "a4722ea6",
+            emailMasked: null,
+            plan: null,
+            clientSource: "桌面端",
+            displayLabel: "桌面端账号 (本地不含邮箱 · org a4722ea6)",
+            isPrimary: false,
+          },
+        ],
+    topology: secondVerify
+      ? {
+          hygieneState: "clean_synced_single",
+          headline: "桌面端与 CLI 同号一致（stev***88@gmail.com），无混登或跨 orgId 竞态",
+          detail: "双端组织完全一致、无失效凭据与跨号残留。",
+          desktopStatus: "single",
+          desktopAccounts: ["stev***88@gmail.com (Pro · 桌面端+CLI · 7aacf131)"],
+          cliStatus: "active",
+          cliAccount: "stev***88@gmail.com (Pro · 桌面端+CLI · 7aacf131)",
+          cliStaleReasons: [],
+          sessionDirOrphans: [],
+          hasCliCleanupTarget: true,
+        }
+      : {
+          hygieneState: "cross_surface_mix",
+          headline:
+            "跨端混登预警：桌面端 [桌面端账号 (本地不含邮箱 · org a4722ea6)] 与 CLI [stev***88@gmail.com (Pro · CLI · 7aacf131)] 账号不一致",
+          detail:
+            "桌面端与 CLI 当前记录属于不同账号；打开分项清理弹窗可默认双端全清，也可取消勾选保留你想留的那一端。",
+          desktopStatus: "single",
+          desktopAccounts: ["桌面端账号 (本地不含邮箱 · org a4722ea6)"],
+          cliStatus: "active",
+          cliAccount: "stev***88@gmail.com (Pro · CLI · 7aacf131)",
+          cliStaleReasons: [],
+          sessionDirOrphans: [],
+          hasCliCleanupTarget: true,
+        },
   };
 }
 

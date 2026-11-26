@@ -60,17 +60,18 @@
 | `T-053` | Bug (P0) | 修复 Clash Mihomo `ipv6: false` 未持久化写入 `config.yaml` 导致重启/开服务模式后 `node_group` 反复变红，并补齐 First-Write-Wins 基线与撤回还原 | **改**：`preflight/mod.rs` 持久化改写 `config.yaml` / `clash-verge.yaml` 顶层 `ipv6: false` + 规则模式隔离说明；`rollback/mod.rs` 记录并还原 `original_config_ipv6`；**不动**：缩进 `dns.ipv6`、不强杀 Clash、不干扰其他应用分流 | `preflight/mod.rs`、`rollback/mod.rs`、控制台 `node_group` | `实机验收通过` | 单测 `t053_*` + 真机 `live_v028_clash_rollback_and_reinject_bidirectional_audit` 通过，`config.yaml` 顶层 `ipv6: false` 落盘且基线记录 `originalConfigIpv6: true` |
 | `T-054` | Bug (P1) | 修复守卫配置页「Clash Verge Rev 未开启开机自启」徽章误显「已开启（有风险）」 | **改**：`SettingsPage.tsx` 按 `entry.enabled` + `entry.riskLevel` 组合渲染徽章文案；**不动**：后端只读启动项扫描逻辑 | `SettingsPage.tsx` | `单测通过` | `tsc --noEmit` + Vitest 41/41（含 `v029_fixes.test.tsx`）全绿 |
 | `T-055` | Bug (P0) | 修复日志分析无行首时间戳多行堆栈子行用 `Local::now()` 参与 ID 哈希导致已读游标跨秒失效、侧边栏角标永远卡 `1` | **改**：`watchdog/mod.rs` 扫描时继承上一行有效时间戳（无前文用固定占位），禁止 `Local::now()` 参与事件 ID 哈希；**不动**：原始 Claude 日志只读 | `watchdog/mod.rs`、侧边栏日志角标、日志分析页 | `实机验收通过` | 单测 `t055_*` + 真机 `live_v027_real_machine_log_audit` 实测 `main.log:3243` 已自动折叠入 `3069~3419 (共 10 次)` |
-| `T-056` | 发布 (P0) | 全量测试 + 真机闭环 + 开源前敏感信息审计，初始化 Git 并推送稳定版至 `CaesarLastKing/FD-ClaudeGuard` `main` 分支 | **改**：`.gitignore` 核验与历史文档/测试样例全面脱敏，剔除纯内部交接笔记，重建干净初始提交并推送远端 `main`；**严禁**：泄露 `.local-private/`、私钥、商业密钥、D1 ID、个人域名/路径或本地缓存 | 全仓库 Git 历史与远端仓库 | `实机验收通过` | 全仓零敏感残留，已就绪推送 `main` |
-| `T-057` | 需求 (P0) | 产品定位转型：免费开源 + 广告位机制（全面移除买断制与激活锁相关代码） | **改**：移除激活门禁/付费墙/锁图标/未激活脱敏，规划并接入温和广告位与开源协议；**待确认**：广告位形态、展示位置与降级策略 | 全仓前后端与开源发布 | `已登记` | 阶段一推送后基于最新版本规划 |
-| `T-058` | 需求 (P0) | 落地文档 01：单用户本地非侵入配置识别 + 403 精准消歧 + 综合风险评估（基于 `ProfileContext` 零硬编码） | **改**：依据 `docs/research/01-local-config-audit-and-403-disambiguation.md` 实施本地只读审计、403 消歧与 14 项风控；**不动**：保持向文档 02 多账户 100% 复用底座 | 日志审计、账号与风控评估模块 | `已登记` | 阶段一推送后与 `T-057` 统筹规划 |
+| `T-056` | 发布 (P0) | 全量测试 + 真机闭环 + 开源前敏感信息审计，初始化 Git 并推送稳定版至 `CaesarLastKing/FD-ClaudeGuard` `main` 分支 | **改**：`.gitignore` 核验与历史文档/测试样例全面脱敏，剔除纯内部交接笔记，重建干净初始提交并推送远端 `main`；**严禁**：泄露 `.local-private/`、私钥、商业密钥、D1 ID、个人域名/路径或本地缓存 | 全仓库 Git 历史与远端仓库 | `已发布关闭` | 已推送 `main`（`c5fe706`） |
+| `T-057` | 需求 (P0) | 产品定位转型：免费开源（全面移除买断制与激活锁相关代码） | **改**：移除激活门禁/付费墙/锁图标/未激活脱敏，全量免费开放；**待确认**：后续轻量赞助/致谢形态 | 全仓前后端与开源发布 | `去锁已发布（赞助待定）` | 已随 `v0.2.9`（`f92e0b7`）落地 |
+| `T-058` | 需求 (P0) | 落地文档 01：账户审计双层融合体系（本地只读 + 按需 `sk` 核验 + 100 分评分 + 控制台同源联动） | **改**：落地 `account_audit/`、403 消歧、100 分评分、防封宝典、控制台与维护同源改造；**不动**：保持向多账户复用的 `ProfileContext` 底座 | 账户审计、控制台、环境维护、悬浮窗 | `已发布关闭` | 已随 `v0.3.0`（`0f68374`）发布 |
+| `T-059` | 需求 (P1) | 客户端自动检查新版本与 Ed25519 签名一键更新（`tauri-plugin-updater` + GitHub Releases） | **改**：接入 `tauri-plugin-updater`、Ed25519 公钥验签、代理优先/直连回退与 `.github/workflows/release.yml` | 守卫配置、顶栏提醒、发布流水线 | `已发布关闭` | 已随 `v0.3.0` 发布，并在 `v0.3.2` 修复下载阶段直连回退与离线重检死循环 |
 
 ---
 
-## 后续候选优化池（`v0.3.0` 规划参考，非本版阻塞）
+## 后续候选优化池（现已统一转入 [todo-v032-roadmap-and-optimizations.md](./todo-v032-roadmap-and-optimizations.md) 跟踪）
 
-| ID | 分类 | 候选优化项 | 价值说明 |
+| ID | 分类 | 候选优化项 | 状态 / 价值说明 |
 | :--- | :--- | :--- | :--- |
-| `B-001` | 体验 | 记住主窗口上次手动缩放后的宽高与位置 | 当前已扩大默认启动尺寸至 `1380×860`，后续可持久化用户手动拖拽后的窗口几何尺寸 |
-| `B-003` | 发布 | Authenticode 代码签名（Azure Trusted Signing / OV / EV 证书）+ 应用内自动检查更新 | 彻底消除 Windows SmartScreen 拦截蓝窗，并支持一键升级新版本 |
-| `B-004` | 工程 | 初始化本地 `.git` 仓库（严格排除 `.local-private/`） | 便于按版本打 Tag、追溯差异与快速回滚 |
-| `B-005` | 功能 | 节点流量页增加「一键按国家/延迟/支持 AGY 筛选与排序」 | 节点数超过 20 个时更快筛出既过 Claude 又过 AGY 的低延迟主力节点 |
+| `B-001` | 体验 | 记住主窗口上次手动缩放后的宽高与位置 | 已落地（`O-06`，带多屏边界防呆校验与防抖持久化） |
+| `B-003` | 发布 | Authenticode 代码签名（Azure Trusted Signing / OV / EV 证书）+ 应用内自动检查更新 | 自动检查更新已完成（`T-059`）；代码签名待外部证书申请（`O-14`） |
+| `B-004` | 工程 | 初始化本地 `.git` 仓库（严格排除 `.local-private/`） | 已完成（`T-056`） |
+| `B-005` | 功能 | 节点流量页增加「一键按国家/延迟/支持 AGY 筛选与排序」 | 归入 `O-05`（涉及 UI，待后续出图确认） |

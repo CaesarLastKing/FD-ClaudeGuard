@@ -1,33 +1,34 @@
 import { useEffect, useState, type MouseEvent } from "react";
-import { Loader2, RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader2, RefreshCw, ShieldAlert } from "lucide-react";
 import { ipc } from "@/lib/ipc";
 import { DROP_RATE_REDLINE, extractRegionCode, isSameRegionSwitch } from "@/lib/protocol";
 import { useGuardStore } from "@/stores/guardStore";
-import type { ClaudeConn } from "@/types/guard";
+import type { ClaudeConn, NodeItem } from "@/types/guard";
 
-/** 大白话状态悬停解释（鼠标放上 0ms 浮现，让普通用户一秒看懂拉黑/弹盾/限区/代理风险含义） */
-function getClaudeBadgeTip(status: string, label: string): string {
+/** 大白话状态悬停解释（鼠标放上 0ms 浮现，让普通用户一秒看懂拉黑/弹盾/落地禁区/AGY 限区/超时原因） */
+function getClaudeBadgeTip(status: string, label: string, detail?: string): string {
+  const detailSuffix = detail && detail.trim() ? `\n实测明细：${detail.trim()}` : "";
   if (status === "cf_403" || label.includes("拉黑")) {
-    return "拉黑：该节点出口 IP 已被 Cloudflare 403 或 Anthropic 封禁，无法访问 Claude，已禁止切换。";
+    return `拉黑：该节点出口 IP 已被 Cloudflare 403 或 Anthropic 封禁，无法访问 Claude，已隔离禁用。${detailSuffix}`;
   }
   if (status === "cf_challenge" || label.includes("弹盾")) {
-    return "弹盾：API 勉强能通，但 claude.ai 网页登录触发 Cloudflare 人机拦截盾；桌面端/网页端易反复弹验证并提高风控，不推荐作主力。";
+    return `弹盾：API 勉强能通，但 claude.ai 网页登录触发 Cloudflare 人机拦截盾；桌面端/网页端易反复弹验证并提高风控，仅标风险不禁用，不推荐作主力。${detailSuffix}`;
   }
   if (status === "blocked" || label.includes("禁区")) {
-    return "落地禁区：实测该节点真实出口位于 HK / MO / CN / RU 等 Anthropic 禁区，严禁使用。";
+    return `落地禁区：节点名称虽看似合规，但实测真实出口 IP 落入 HK / MO / CN / RU 等 Anthropic 禁区黑名单（常见于广播 IP 或香港落地伪装线路），严禁使用 Claude。${detailSuffix}`;
   }
   if (status === "offline" || label.includes("超时")) {
-    return "超时：该节点连接 Anthropic 超时或已离线，当前不可用。";
+    return `Claude 超时：节点在 Clash 中基础网络可能正常，但访问 api.anthropic.com 连续 2 次超时或连接被重置；仅短缓存 5 分钟，可点右侧「重测」单独复核。${detailSuffix}`;
   }
   if (status === "ok") {
-    return "Anthropic API 与 claude.ai 网页登录均实测畅通，无 Cloudflare 拦截盾。";
+    return `Anthropic API 与 claude.ai 网页登录均实测畅通，无 Cloudflare 拦截盾。${detailSuffix}`;
   }
   return "尚未完成真实代理深度核验（我们绝不造假绿灯）；后台会自动逐个慢速核验，也可点右上角「深度核验全部」或切换锁定立即实测。";
 }
 
 function getGeminiBadgeTip(status: string, label: string): string {
   if (status === "cn_redirect" || status === "restricted" || label.includes("限区") || label.includes("送中")) {
-    return "AGY 限区：Google 判定该节点归属受限地区（如返回 User location is not supported / FAILED_PRECONDITION），Antigravity (AGY) 不可用；仅作附带参考，不影响 Claude。";
+    return "AGY 限区（标记风险 · 不禁用）：Google 将该节点出口识别为中国香港或受限地区（如跳转 google.com.hk / 返回地区不支持），说明该 IP 在 Google 侧存在地区混杂或送中风险，Antigravity (AGY) 不可用；但实测 Claude 畅通，故仅标记风险、允许继续用于 Claude。";
   }
   if (status === "ok") {
     return "Google Antigravity (AGY) 地区准入附带参考探针实测放行可用。";
@@ -52,9 +53,9 @@ function getNodeTypeTip(riskLevel: string, asnShort: string): string {
     return "常规机房：云服务商机房段（0 滥用记录、非公共 VPN），控制台允许通过，建议配合稳定不漂移使用。";
   }
   if (asnShort.includes("禁区")) {
-    return "落地禁区：实测该节点出口国家落入 Anthropic 禁区黑名单，严禁使用。";
+    return "落地禁区：实测该节点真实出口国家落入 Anthropic 禁区黑名单（例如挂台湾名实际落地香港 HK），严禁使用。";
   }
-  return "尚未对该节点执行真实出口 IP 核验；核验结果将永久缓存 24 小时（若发生落地 IP 漂移会自动失效重测）。";
+  return "尚未对该节点执行真实出口 IP 核验；核验结果将永久缓存 24 小时（超时节点仅缓存 5 分钟，发生漂移会自动失效重测）。";
 }
 
 export function NodesTrafficPage() {
@@ -65,7 +66,13 @@ export function NodesTrafficPage() {
   const [refreshingNodes, setRefreshingNodes] = useState(false);
   const [loadingConns, setLoadingConns] = useState(false);
   const [closingConnId, setClosingConnId] = useState<string | null>(null);
-  const [hoverTip, setHoverTip] = useState<{ text: string; x: number; y: number } | null>(null);
+  const [hoverTip, setHoverTip] = useState<{
+    text: string;
+    x: number;
+    y: number;
+    placeBelow: boolean;
+  } | null>(null);
+  const [showQuarantine, setShowQuarantine] = useState(true);
   const snapshot = useGuardStore((s) => s.snapshot);
   const nodeReport = useGuardStore((s) => s.nodeReport);
   const deepAudit = useGuardStore((s) => s.deepAudit);
@@ -236,14 +243,35 @@ export function NodesTrafficPage() {
   const activeAnomCount = conns.filter((c) => c.anomaly && !ackedFlowIds.includes(c.id)).length;
   const totalAnomCount = conns.filter((c) => c.anomaly).length;
   const shownConns = flowFilter === "anomaly" ? conns.filter((c) => c.anomaly) : conns;
-  const usableNodeCount = nodeReport.nodes.filter((n) => !n.blocked && !n.cfBlocked).length;
-  const unusableInListCount = Math.max(0, nodeReport.nodes.length - usableNodeCount);
+  // 严格互斥分类，确保所有数字加总 100% 与订阅总节点数对得上：
+  // 订阅总数 = 名称直筛禁区(未入组) + 入组评估数(可用 + 实测落地禁区 + 其他不可用)
+  const usableNodes = nodeReport.nodes.filter((n) => !n.blocked && !n.cfBlocked);
+  const unusableNodes = nodeReport.nodes.filter((n) => n.blocked || n.cfBlocked);
+  const landingBlockedNodes = unusableNodes.filter(
+    (n) =>
+      n.claudeStatus === "blocked" ||
+      n.claudeLabel?.includes("禁区") ||
+      n.asnShort?.includes("禁区") ||
+      n.recommendation?.includes("禁区")
+  );
+  const otherUnusableNodes = unusableNodes.filter((n) => !landingBlockedNodes.includes(n));
+  const nameBlockedCount =
+    nodeReport.nameBlockedCount ??
+    Math.max(0, nodeReport.filteredBlockedCount - landingBlockedNodes.length);
+  const subscriptionTotalNodes =
+    nodeReport.subscriptionTotalNodes && nodeReport.subscriptionTotalNodes >= nodeReport.nodes.length
+      ? nodeReport.subscriptionTotalNodes
+      : nodeReport.nodes.length + nameBlockedCount;
+  const totalUnavailableAndBlocked = nameBlockedCount + unusableNodes.length;
+  const usableNodeCount = usableNodes.length;
+  const unusableInListCount = unusableNodes.length;
 
   const showTip = (e: MouseEvent<HTMLElement>, text: string) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const x = Math.max(150, Math.min(window.innerWidth - 150, rect.left + rect.width / 2));
-    const y = Math.max(54, rect.top - 8);
-    setHoverTip({ text, x, y });
+    const placeBelow = rect.top < 160;
+    const y = placeBelow ? rect.bottom + 8 : rect.top - 8;
+    setHoverTip({ text, x, y, placeBelow });
   };
   const hideTip = () => setHoverTip(null);
 
@@ -260,7 +288,7 @@ export function NodesTrafficPage() {
             position: "fixed",
             left: hoverTip.x,
             top: hoverTip.y,
-            transform: "translate(-50%, -100%)",
+            transform: hoverTip.placeBelow ? "translate(-50%, 0)" : "translate(-50%, -100%)",
             maxWidth: 270,
             padding: "7px 10px",
             borderRadius: 8,
@@ -269,6 +297,7 @@ export function NodesTrafficPage() {
             color: "var(--text-1)",
             fontSize: 11.5,
             lineHeight: 1.5,
+            whiteSpace: "pre-line",
             boxShadow: "0 10px 28px rgba(0, 0, 0, 0.28)",
             pointerEvents: "none",
             zIndex: 9999,
@@ -430,20 +459,33 @@ export function NodesTrafficPage() {
                   {usableNodeCount}
                   <span style={statUnitStyle}>个</span>
                 </div>
-                {unusableInListCount > 0 && (
-                  <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 3 }}>
-                    共评估 {nodeReport.nodes.length} 个（{unusableInListCount} 个不可用）
-                  </div>
-                )}
+                <div
+                  data-testid="nodes-usable-breakdown"
+                  style={{ fontSize: 11, color: "var(--text-3)", marginTop: 3 }}
+                >
+                  订阅共 {subscriptionTotalNodes} · 评估 {nodeReport.nodes.length}
+                  {nodeReport.nodes.length === 0
+                    ? "（暂无评估节点）"
+                    : unusableInListCount > 0
+                    ? `（${unusableInListCount} 个不可用）`
+                    : "（全部可用）"}
+                </div>
               </div>
               <div className="guard-card" style={statPadStyle}>
-                <div style={statLblStyle}>已自动屏蔽禁区节点</div>
+                <div style={statLblStyle}>已屏蔽禁区与不可用</div>
                 <div
                   data-testid="nodes-blocked-count"
                   style={{ ...statNumStyle, color: "var(--text-2)" }}
                 >
-                  {nodeReport.filteredBlockedCount}
+                  {totalUnavailableAndBlocked}
                   <span style={statUnitStyle}>个</span>
+                </div>
+                <div
+                  data-testid="nodes-blocked-breakdown"
+                  style={{ fontSize: 11, color: "var(--text-3)", marginTop: 3 }}
+                >
+                  名称禁区 {nameBlockedCount} · 落地禁区 {landingBlockedNodes.length}
+                  {otherUnusableNodes.length > 0 ? ` · 其他不可用 ${otherUnusableNodes.length}` : ""}
                 </div>
               </div>
               <div className="guard-card" style={statPadStyle}>
@@ -475,7 +517,9 @@ export function NodesTrafficPage() {
                   marginBottom: 10,
                 }}
               >
-                <div style={{ fontSize: 14, fontWeight: 600 }}>受支持地区真实节点评估</div>
+                <div style={{ fontSize: 14, fontWeight: 600 }}>
+                  可用节点评估（{usableNodes.length} 个）
+                </div>
                 <span style={{ fontSize: 12, color: "var(--text-3)" }}>
                   {deepAudit.running
                     ? deepAudit.message
@@ -483,10 +527,12 @@ export function NodesTrafficPage() {
                 </span>
               </div>
               <div className="guard-card" style={{ overflowX: "auto" }}>
-                {nodeReport.nodes.length === 0 ? (
+                {usableNodes.length === 0 ? (
                   <div style={{ padding: 18, fontSize: 12.5, color: "var(--text-2)" }}>
                     {nodeReport.connected
-                      ? "当前策略组中暂无非禁区代理节点，请检查 Clash 订阅或完成 Script.js 覆写配置。"
+                      ? nodeReport.nodes.length > 0
+                        ? "当前组内评估节点均已移入下方不可用隔离区，请更换订阅或重新深度核验。"
+                        : "当前策略组中暂无非禁区代理节点，请检查 Clash 订阅或完成 Script.js 覆写配置。"
                       : "尚未检测到在线的 Clash Verge Mihomo 命名管道，请先启动 Clash Verge Rev。"}
                   </div>
                 ) : (
@@ -519,13 +565,13 @@ export function NodesTrafficPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {nodeReport.nodes.map((n) => {
+                      {usableNodes.map((n: NodeItem) => {
                         const isSwitchingThis = switchingNodeName === n.name;
                         const isAuditingThis =
                           deepAudit.running && deepAudit.currentNode === n.name;
                         const claudeStatus = n.claudeStatus ?? (n.cfBlocked ? "cf_403" : "ok");
                         const claudeLabel = n.claudeLabel ?? (n.cfBlocked ? "Claude 拉黑" : "Claude ✓");
-                        const claudeTip = getClaudeBadgeTip(claudeStatus, claudeLabel);
+                        const claudeTip = getClaudeBadgeTip(claudeStatus, claudeLabel, n.claudeProbeDetail);
                         const claudeCls =
                           n.cfBlocked ||
                           claudeStatus === "cf_403" ||
@@ -818,6 +864,209 @@ export function NodesTrafficPage() {
                 )}
               </div>
             </div>
+
+            {unusableNodes.length > 0 && (
+              <div data-testid="nodes-quarantine-section">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setShowQuarantine((v) => !v)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setShowQuarantine((v) => !v);
+                    }
+                  }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    marginBottom: 8,
+                    cursor: "pointer",
+                    userSelect: "none",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13.5, fontWeight: 600, color: "var(--danger-bright)" }}>
+                    {showQuarantine ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                    <ShieldAlert size={14.5} strokeWidth={1.9} />
+                    <span>隔离区：不可用与落地禁区节点（{unusableNodes.length} 个）</span>
+                    <span className="guard-chip guard-chip-fail" style={{ fontWeight: 500 }}>
+                      落地禁区 {landingBlockedNodes.length}
+                      {otherUnusableNodes.length > 0 ? ` · 超时/拉黑 ${otherUnusableNodes.length}` : ""}
+                    </span>
+                  </div>
+                  <span style={{ fontSize: 11.5, color: "var(--text-3)" }}>
+                    已与可用节点隔离，禁止切换锁定 · 点击{showQuarantine ? "收起" : "展开"}
+                  </span>
+                </div>
+
+                {showQuarantine && (
+                  <div
+                    className="guard-card"
+                    style={{
+                      overflowX: "auto",
+                      borderColor: "rgba(239, 68, 68, 0.28)",
+                      background: "var(--bg-subtle)",
+                    }}
+                  >
+                    <table
+                      data-testid="nodes-quarantine-table"
+                      style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}
+                    >
+                      <colgroup>
+                        <col style={{ width: "20%" }} />
+                        <col style={{ width: "20%" }} />
+                        <col style={{ width: "14%" }} />
+                        <col style={{ width: "22%" }} />
+                        <col style={{ width: "12%" }} />
+                        <col style={{ width: "12%" }} />
+                      </colgroup>
+                      <thead>
+                        <tr
+                          style={{
+                            borderBottom: "1px solid var(--border)",
+                            color: "var(--text-3)",
+                            fontSize: 11.5,
+                          }}
+                        >
+                          <th style={thStyle}>隔离节点 / 实测落地</th>
+                          <th style={thCompactStyle}>阻断原因</th>
+                          <th style={thCompactStyle}>节点类型</th>
+                          <th style={thCompactStyle}>延迟 / 断连 / 稳定性</th>
+                          <th style={thCompactStyle}>质量评分</th>
+                          <th style={{ ...thStyle, textAlign: "right" }}>状态</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {unusableNodes.map((n: NodeItem) => {
+                          const isAuditingThis =
+                            deepAudit.running && deepAudit.currentNode === n.name;
+                          const claudeStatus = n.claudeStatus ?? (n.cfBlocked ? "cf_403" : "blocked");
+                          const claudeLabel = n.claudeLabel ?? (n.cfBlocked ? "Claude 拉黑" : "落地禁区");
+                          const claudeTip = getClaudeBadgeTip(claudeStatus, claudeLabel, n.claudeProbeDetail);
+                          const geminiStatus = n.geminiStatus ?? "unknown";
+                          const geminiLabel =
+                            n.geminiLabel === "Gemini 送中" ||
+                            n.geminiLabel === "Gemini ✗" ||
+                            n.geminiLabel === "Gemini 限区"
+                              ? "AGY 限区"
+                              : n.geminiLabel === "Gemini ✓"
+                              ? "AGY ✓"
+                              : n.geminiLabel ?? "AGY 待测";
+                          const geminiTip = getGeminiBadgeTip(geminiStatus, geminiLabel);
+                          const geminiCls =
+                            geminiStatus === "cn_redirect" || geminiStatus === "restricted"
+                              ? "guard-chip-warn"
+                              : "guard-chip-neutral";
+                          const riskLevel = n.riskLevel ?? (claudeStatus === "blocked" ? "blocked" : "unknown");
+                          const asnShort = n.asnShort ?? (claudeStatus === "blocked" ? "落地禁区" : "不可用");
+                          const nodeTypeTip = getNodeTypeTip(riskLevel, asnShort);
+                          const subRegion = n.regionLabel ?? `${n.regionCode} · ${n.nodeType}`;
+                          return (
+                            <tr
+                              key={n.name}
+                              style={{ borderBottom: "1px solid var(--border)", opacity: 0.92 }}
+                            >
+                              <td style={tdStyle}>
+                                <div
+                                  style={{
+                                    fontWeight: 500,
+                                    color: "var(--text-2)",
+                                    whiteSpace: "nowrap",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                  }}
+                                  title={n.name}
+                                >
+                                  {n.name}
+                                </div>
+                                <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 2 }}>
+                                  {subRegion}
+                                </div>
+                              </td>
+                              <td style={tdCompactStyle}>
+                                <div className="plat-badges" style={{ flexWrap: "nowrap" }}>
+                                  <span
+                                    className="guard-chip guard-chip-fail"
+                                    style={{ cursor: "help" }}
+                                    title={claudeTip}
+                                    onMouseEnter={(e) => showTip(e, claudeTip)}
+                                    onMouseLeave={hideTip}
+                                  >
+                                    {claudeLabel}
+                                  </span>
+                                  <span
+                                    className={`guard-chip ${geminiCls}`}
+                                    style={{ cursor: "help" }}
+                                    title={geminiTip}
+                                    onMouseEnter={(e) => showTip(e, geminiTip)}
+                                    onMouseLeave={hideTip}
+                                  >
+                                    {geminiLabel}
+                                  </span>
+                                </div>
+                              </td>
+                              <td style={tdCompactStyle}>
+                                <div
+                                  style={{ display: "inline-block", cursor: "help" }}
+                                  title={nodeTypeTip}
+                                  onMouseEnter={(e) => showTip(e, nodeTypeTip)}
+                                  onMouseLeave={hideTip}
+                                >
+                                  <span className="guard-chip guard-chip-fail">{asnShort}</span>
+                                  <div style={{ fontSize: 11, color: "var(--danger-bright)", marginTop: 2 }}>
+                                    {n.riskDetail ?? "已隔离"}
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="tabular" style={tdCompactStyle}>
+                                <div style={{ color: "var(--text-2)" }}>
+                                  <span>{n.delayMs !== null ? `${n.delayMs} ms` : "超时"}</span>
+                                  <span style={{ color: "var(--text-3)", margin: "0 4px" }}>/</span>
+                                  <span>{n.dropRatePct.toFixed(1)}% 断连</span>
+                                </div>
+                                <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 2 }}>
+                                  抖动 ±{n.jitterMs} ms · {n.driftCount24h ?? 0} 漂移
+                                </div>
+                              </td>
+                              <td className="tabular" style={tdCompactStyle}>
+                                <div style={{ fontSize: 18, fontWeight: 700, color: "var(--danger-bright)", lineHeight: 1.1 }}>
+                                  {n.score}
+                                  <span style={{ fontSize: 11, fontWeight: 400, color: "var(--text-3)", marginLeft: 2 }}>分</span>
+                                </div>
+                                <div style={{ fontSize: 11, color: "var(--danger-bright)", marginTop: 2 }}>
+                                  {n.recommendation || "不可用"}
+                                </div>
+                              </td>
+                              <td style={{ ...tdStyle, textAlign: "right" }}>
+                                <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                  <button
+                                    type="button"
+                                    data-testid={`btn-reprobe-node-${n.name}`}
+                                    disabled={deepAudit.running || fixing}
+                                    className="guard-btn guard-btn-flat guard-btn-xs"
+                                    title="仅单独重新实测该节点的真实出口与 Claude 可达性（无需全量重测）"
+                                    onClick={() => void startDeepNodeAudit(false, n.name)}
+                                  >
+                                    {isAuditingThis ? (
+                                      <Loader2 size={11} strokeWidth={2} className="guard-spin" />
+                                    ) : (
+                                      <RefreshCw size={11} strokeWidth={1.85} />
+                                    )}
+                                    <span>{isAuditingThis ? "重测中" : "重测"}</span>
+                                  </button>
+                                  <span className="guard-chip guard-chip-fail">已隔离</span>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
           </>
         ) : (
           <>
@@ -894,7 +1143,9 @@ export function NodesTrafficPage() {
 
               {shownConns.length === 0 ? (
                 <div style={{ padding: 18, fontSize: 12.5, color: "var(--text-2)" }}>
-                  近 12 小时无异常拦截流量，全部连接均纯净通过锁定节点。
+                  {!nodeReport.connected
+                    ? "尚未连接 Clash Verge Mihomo 命名管道，暂无法采集实时连接流量。"
+                    : "近 12 小时无异常拦截流量，全部连接均纯净通过锁定节点。"}
                 </div>
               ) : (
                 shownConns.map((c) => {

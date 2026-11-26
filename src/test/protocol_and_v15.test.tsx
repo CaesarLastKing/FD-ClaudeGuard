@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import App from "@/App";
 import { HudCard } from "@/components/HudCard";
@@ -154,16 +154,20 @@ describe("docs/protocol-constants.md 100% 协议常量与 v1.5 增量回归断�
     });
   });
 
-  it("v0.3.0 三大纯粹操作边界（12 必须 + 6 建议）、运行态 CTA 切换与账户审计日志取证闭环", async () => {
+  it("v0.3.2 三大纯粹操作边界（12 必须 + 7 建议含出口合规建议项）、运行态 CTA 切换与账户审计日志取证闭环", async () => {
     const allOkItems = FALLBACK_PREFLIGHT.items.map((it) => ({
       ...it,
       status: "ok" as const,
       fixLabel: null,
     }));
     const mustCount = allOkItems.filter((x) => x.part === "must").length;
-    const optCount = allOkItems.filter((x) => x.part === "opt").length;
+    const optItems = allOkItems.filter((x) => x.part === "opt");
     expect(mustCount).toBe(12);
-    expect(optCount).toBe(6);
+    expect(optItems.length).toBe(7);
+    const tzIdx = optItems.findIndex((x) => x.id === "opt_tz");
+    const exitGeoIdx = optItems.findIndex((x) => x.id === "opt_exit_geo");
+    expect(tzIdx).toBeGreaterThanOrEqual(0);
+    expect(exitGeoIdx).toBe(tzIdx + 1);
 
     render(<App />);
     await waitFor(() => {
@@ -171,14 +175,16 @@ describe("docs/protocol-constants.md 100% 协议常量与 v1.5 增量回归断�
     });
 
     // 全部通过且有 14 个后台进程时：右上角显示「安全退出 Claude」而非「安全启动 Claude」
-    useGuardStore.setState({
-      preflight: { ...FALLBACK_PREFLIGHT, items: allOkItems },
-      snapshot: {
-        ...FALLBACK_SNAPSHOT,
-        mustPassed: 12,
-        mustTotal: 12,
-        bgClaudeProcs: 14,
-      },
+    act(() => {
+      useGuardStore.setState({
+        preflight: { ...FALLBACK_PREFLIGHT, items: allOkItems },
+        snapshot: {
+          ...FALLBACK_SNAPSHOT,
+          mustPassed: 12,
+          mustTotal: 12,
+          bgClaudeProcs: 14,
+        },
+      });
     });
     expect(await screen.findByTestId("btn-safe-exit-claude")).toHaveTextContent(
       "安全退出 Claude（14 进程运行中）"

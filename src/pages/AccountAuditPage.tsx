@@ -94,6 +94,7 @@ export function AccountAuditPage() {
   const setNodesSubTab = useGuardStore((s) => s.setNodesSubTab);
   const setSnapshot = useGuardStore((s) => s.setSnapshot);
   const openCleanModal = useGuardStore((s) => s.openCleanModal);
+  const openRiskModal = useGuardStore((s) => s.openRiskModal);
   const pushToast = useGuardStore((s) => s.pushToast);
   const snapshot = useGuardStore((s) => s.snapshot);
   const config = useGuardStore((s) => s.config);
@@ -139,11 +140,11 @@ export function AccountAuditPage() {
     window.setTimeout(() => skInputRef.current?.focus(), 40);
   };
 
-  const handleVerifyCloud = async () => {
+  const handleVerifyCloud = async (allowSwitchPrimary = false) => {
     if (!extractedSk || busyKey) return;
     setBusyKey("verify_sk");
     try {
-      const updated = await ipc.verifyAccountCloudWithSk(skInput);
+      const updated = await ipc.verifyAccountCloudWithSk(skInput, undefined, allowSwitchPrimary);
       setSkInput("");
       setForceSkInputMode(false);
       setAccountAudit(updated);
@@ -155,7 +156,35 @@ export function AccountAuditPage() {
       );
       void refreshPreflight(true);
     } catch (err) {
-      pushToast("云端核验未通过", String(err), "danger");
+      const msg = String(err);
+      if (!allowSwitchPrimary && msg.includes("[ORG_MISMATCH_CONFIRM]")) {
+        const cleanMsg = msg.replace(/^.*\[ORG_MISMATCH_CONFIRM\]\s*/, "");
+        openRiskModal({
+          tone: "warn",
+          badge: "跨端账号确认",
+          title: "浏览器账号与本机 CLI 账号不同，确认以此号为主力核验？",
+          subtitle:
+            "大多数用户以桌面端/网页端为主力号；确认后将以当前浏览器账号写入主审计档案，不影响本机 CLI 文件",
+          rows: [
+            {
+              label: "账号对比",
+              value: cleanMsg,
+              tone: "danger",
+            },
+            {
+              label: "继续核验",
+              value: "以当前浏览器/桌面端账号为主力档案完成云端核验，并在「多号混登」中如实保留 CLI 残留提示",
+              tone: "ok",
+            },
+          ],
+          primaryLabel: "以此浏览器/桌面端账号核验",
+          onPrimary: async () => {
+            await handleVerifyCloud(true);
+          },
+        });
+      } else {
+        pushToast("云端核验未通过", msg, "danger");
+      }
     } finally {
       setBusyKey(null);
     }
@@ -325,12 +354,15 @@ export function AccountAuditPage() {
         "属社区经验参考（非官方明文规则）：新号(<7天)、支付/升级(<=24h)及过 KYC 前 72h 容错率偏低，期间建议锁死单一稳定节点低频使用；升级 Max 或换卡时发卡国、账单区、出口 IP 与证件地尽量一致，有助于降低复审概率。",
     };
 
-    const schedBad = local.hygiene.scheduledTasksCount > 0;
+    const activeSchedCount =
+      local.hygiene.activeScheduledTasksCount ?? local.hygiene.scheduledTasksCount;
+    const histSchedCount = local.hygiene.historicalScheduledTasksCount ?? 0;
+    const schedWarn = activeSchedCount >= 6;
     const rhythmBad = local.behavior.overnightBotRhythmSuspected;
     const rate429High = local.desktop.rateLimit429Hits >= 3 || local.desktop.highSideSessionHits > 0;
     const rate429Mild = !rate429High && local.desktop.rateLimit429Hits > 0;
-    const autoDanger = schedBad || rhythmBad || rate429High;
-    const autoWarn = !autoDanger && rate429Mild;
+    const autoDanger = rhythmBad || rate429High;
+    const autoWarn = !autoDanger && (rate429Mild || schedWarn);
 
     const gAuto: AuditGroupView = {
       part: "user",
@@ -340,27 +372,54 @@ export function AccountAuditPage() {
       prefixCls: "redline",
       title: "自动化机刷与人机节律监测",
       status: autoDanger ? "danger" : autoWarn ? "warn" : "ok",
-      statusText: autoDanger ? "存在机刷" : autoWarn ? "偶发限流" : "节律正常",
+      statusText: autoDanger
+        ? "存在机刷"
+        : schedWarn && !rate429Mild
+        ? "定时任务偏多"
+        : autoWarn
+        ? "偶发限流"
+        : "节律正常",
       summary: autoDanger
-        ? `检测到定时任务 ${local.hygiene.scheduledTasksCount} 个、跨夜活跃 ${local.behavior.activeHours24h} 小时、429 限流 ${local.desktop.rateLimit429Hits} 次，建议恢复常规人工节奏。`
-        : `近 5h/24h 无异常跨夜机刷循环，子代理 ${local.behavior.subagentRatio24hPct}%，${local.hygiene.scheduledTasksCount} 个无人值守定时脚本，${local.desktop.rateLimit429Hits} 次 429 限流。`,
+        ? `检测到跨夜活跃 ${local.behavior.activeHours24h} 小时、429 限流 ${local.desktop.rateLimit429Hits} 次、活跃定时任务 ${activeSchedCount} 个，建议恢复常规人工节奏。`
+        : schedWarn
+        ? `检测到 ${activeSchedCount} 个近期活跃定时任务（≥6 轻度提醒阈值），另有 ${histSchedCount} 个历史留存脚本（不计风险），建议控制执行频率。`
+        : `近 5h/24h 无异常跨夜机刷循环，子代理 ${local.behavior.subagentRatio24hPct}%，活跃定时任务 ${activeSchedCount} 个${
+            histSchedCount > 0 ? `（历史留存 ${histSchedCount} 个不计风险）` : ""
+          }，${local.desktop.rateLimit429Hits} 次 429 限流。`,
       cols: 2,
       metrics: [
         {
-          k: "离线 .jsonl 跨夜节律 & 子代理占比",
+          k: "离线 .jsonl 跨夜节律（CLI + 桌面端 Code 模式）",
           v: rhythmBad
             ? `24h 活跃 ${local.behavior.activeHours24h}h (${local.behavior.last24h.assistantTurns} 轮) · 疑似机刷`
-            : `人工停顿正常 · 子代理 ${local.behavior.subagentRatio24hPct}%`,
+            : `人工停顿正常 · 子代理 ${local.behavior.subagentRatio24hPct}%${
+                (local.behavior.desktopSessionsFiles7d ?? 0) > 0
+                  ? `（含桌面端 ${local.behavior.desktopSessionsFiles7d} 份会话）`
+                  : ""
+              }`,
           cls: rhythmBad ? "danger" : "ok",
           boxState: rhythmBad ? "is-danger" : "",
         },
         {
-          k: "无人值守脚本 (scheduled-tasks)",
-          v: schedBad
-            ? `检出 ${local.hygiene.scheduledTasksCount} 个定时脚本`
-            : "0 个定时脚本",
-          cls: schedBad ? "danger" : "ok",
-          boxState: schedBad ? "is-danger" : "",
+          k: "定时任务 (活跃 ≥6 轻度提示 · 历史不计分)",
+          v:
+            histSchedCount > 0
+              ? `活跃 ${activeSchedCount} 个 · 历史留存 ${histSchedCount} 个（>72h 不计风险）`
+              : `活跃 ${activeSchedCount} 个（0~5 个正常）`,
+          cls: schedWarn ? "warn" : "ok",
+          boxState: schedWarn ? "is-warn" : "",
+          btn:
+            local.hygiene.scheduledTasksDir && (activeSchedCount > 0 || histSchedCount > 0)
+              ? {
+                  label: "打开目录查看",
+                  primary: false,
+                  onClick: () => {
+                    if (local.hygiene.scheduledTasksDir) {
+                      void ipc.openFileFolder(local.hygiene.scheduledTasksDir);
+                    }
+                  },
+                }
+              : undefined,
         },
         {
           k: "多开并发峰值 (sideSessions) & 429",
@@ -378,7 +437,7 @@ export function AccountAuditPage() {
         },
       ],
       advice:
-        "消费级订阅强烈建议保持常规人工交互节律，尽量避免 24×7 无人值守循环或持续压线触发 429 限流。",
+        "官方支持正常的定时任务能力：仅近期活跃定时任务 ≥6 个时做轻微提醒，超过 72h 未变动的历史脚本不扣分且绝不自动删除；仅真实跨夜 24×7 循环、高频 429 或高并发才会触发红灯预警。离线 .jsonl 节律已同时覆盖 CLI 与桌面端 Code/Agent 本地会话；桌面端普通云端聊天的正文与轮次仅存在官方云端、不落盘本地，此处显示 0 轮属正常边界。",
     };
 
     // 第 3 项：注册归属地与出口一致性核对
@@ -460,12 +519,39 @@ export function AccountAuditPage() {
           allowReverify: true,
         };
 
-    // 第 4 项：多号混登、设备指纹与旧号残留防连坐
+    // 第 4 项：多号混登、设备指纹与旧号残留防连坐（100% 由单一真源 report.topology 6 态驱动，彻底告别假绿与按钮误置灰）
     const cliOrg = local.claudeJson.orgUuidPrefix8;
     const desktopOrgs = local.desktop.orgIdPrefixes;
-    const hasBanOr404 =
-      local.desktop.accountBannedHits > 0 || local.desktop.crossOrg404Hits > 0;
-    const mixBad = local.crossClientOrgMismatch || desktopOrgs.length > 1 || hasBanOr404;
+    const detectedList = report.detectedAccounts ?? [];
+    const lookupOrgLabel = (org: string) =>
+      detectedList.find((d) => d.orgPrefix8.toLowerCase() === org.toLowerCase())?.displayLabel ??
+      `org ${org}`;
+    const topo = report.topology;
+    const hygieneState =
+      topo?.hygieneState ??
+      (local.desktop.accountBannedHits > 0 || local.desktop.crossOrg404Hits > 0
+        ? "high_risk_ban_contamination"
+        : local.crossClientOrgMismatch || desktopOrgs.length > 1
+        ? "cross_surface_mix"
+        : desktopOrgs.length === 0 && !cliOrg
+        ? "clean_empty"
+        : desktopOrgs.length > 0 && cliOrg
+        ? "clean_synced_single"
+        : "single_surface_clean");
+
+    const cliLabel = topo?.cliAccount ?? (cliOrg ? lookupOrgLabel(cliOrg) : "未登录");
+    const desktopLabel =
+      topo && topo.desktopAccounts.length > 0
+        ? topo.desktopAccounts.join(" / ")
+        : desktopOrgs.length > 0
+        ? desktopOrgs.map(lookupOrgLabel).join(" / ")
+        : "桌面端已清空（无登录态）";
+
+    const isHighRiskMix = hygieneState === "high_risk_ban_contamination";
+    const isCrossMix = hygieneState === "cross_surface_mix";
+    const isCliStaleOrPolluted = hygieneState === "single_surface_stale_or_polluted";
+    const mixWarnOrBad = isHighRiskMix || isCrossMix || isCliStaleOrPolluted;
+
     const backupSummary =
       local.hygiene.backupAccounts.length > 0
         ? local.hygiene.backupAccounts
@@ -478,7 +564,27 @@ export function AccountAuditPage() {
             .join(" · ")
         : "0 份历史旧备份";
     const cliHasCleanupTarget =
-      local.hygiene.backupFileCount > 0 || local.credentials.exists || Boolean(cliOrg);
+      topo?.hasCliCleanupTarget ??
+      (local.hygiene.backupFileCount > 0 ||
+        local.credentials.exists ||
+        Boolean(cliOrg) ||
+        Boolean(local.claudeJson.cachedUsage));
+    const cliReasonsText =
+      topo && topo.cliStaleReasons.length > 0 ? `（${topo.cliStaleReasons.join("；")}）` : "";
+    const orphanCount = topo?.sessionDirOrphans.length ?? local.desktop.sessionDirOrgPrefixes?.length ?? 0;
+
+    const gMixStatusText =
+      hygieneState === "high_risk_ban_contamination"
+        ? "高危污染"
+        : hygieneState === "cross_surface_mix"
+        ? "跨端混登"
+        : hygieneState === "single_surface_stale_or_polluted"
+        ? "CLI 残留预警"
+        : hygieneState === "clean_empty"
+        ? "双端已空"
+        : hygieneState === "clean_synced_single"
+        ? "双端一致"
+        : "单端纯净";
 
     const gMix: AuditGroupView = {
       part: "tool",
@@ -487,13 +593,13 @@ export function AccountAuditPage() {
       prefix: "官方红线",
       prefixCls: "redline",
       title: "多号混登、设备指纹与旧号残留防连坐",
-      status: hasBanOr404 ? "danger" : mixBad ? "warn" : "ok",
-      statusText: hasBanOr404 ? "封禁残留" : mixBad ? "跨端混登" : "纯净无混",
-      summary: mixBad
-        ? `本机 CLI (${cliOrg ?? "未登录"} · ${report.emailMasked}) 与桌面端日志组织 (${
-            desktopOrgs.join(", ") || "无"
-          }) 存在差异或残留。`
-        : `CLI 与桌面端组织一致（${cliOrg ?? desktopOrgs[0] ?? "纯净"}），设备指纹无污染，0 跨组织 404。`,
+      status: isHighRiskMix ? "danger" : isCrossMix || isCliStaleOrPolluted ? "warn" : "ok",
+      statusText: gMixStatusText,
+      summary:
+        topo?.headline ??
+        (mixWarnOrBad
+          ? `桌面端 [${desktopLabel}] 与 CLI [${cliLabel}] 存在账号差异或残留。`
+          : `本机单端纯净（桌面端：${desktopLabel} · CLI：${cliLabel}）。`),
       readonlyMetrics: [
         {
           k: "本机设备指纹（换号前后对照）",
@@ -502,55 +608,70 @@ export function AccountAuditPage() {
           }`,
         },
         {
-          k: "跨组织 404 与封禁残留",
-          v: `${local.desktop.crossOrg404Hits} 次 404 · ${local.desktop.accountBannedHits} 封禁残留`,
-          cls: hasBanOr404 ? "warn" : "",
-          boxState: hasBanOr404 ? "is-warn" : "",
+          k: "跨组织 404 / 封禁残留 / 会话目录",
+          v: `${local.desktop.crossOrg404Hits} 次 404 · ${local.desktop.accountBannedHits} 封禁残留${
+            orphanCount > 0 ? ` · ${orphanCount} 个旧会话目录` : ""
+          }`,
+          cls: isHighRiskMix || orphanCount > 0 ? "warn" : "",
+          boxState: isHighRiskMix ? "is-warn" : "",
         },
       ],
       cols: 2,
       metrics: [
         {
-          k: "桌面端残留组织（日志不含邮箱）",
+          k: "桌面端登录态（Cookies / 日志）",
           v:
             desktopOrgs.length === 0
-              ? "桌面端日志无组织残留"
-              : mixBad
-              ? `Desktop=${desktopOrgs.join(", ")} ≠ CLI=${cliOrg ?? "无"}`
-              : `Desktop=${desktopOrgs[0]}（与 CLI 一致）`,
-          cls: mixBad ? "warn" : "ok",
-          boxState: mixBad ? "is-warn" : "",
-          btn: mixBad
-            ? {
-                label: "前往清理桌面端 →",
-                primary: true,
-                onClick: () =>
-                  openCleanModal({
-                    sourceLabel: "来自账户审计 · 多号混登与桌面端残留清理",
-                    onCompleted: () => void refreshAccountAudit(true),
-                  }),
-              }
-            : { label: "桌面端已纯净", primary: false, disabled: true },
+              ? orphanCount > 0
+                ? `已清空登录态（Claude-Data 尚留 ${orphanCount} 个旧会话目录）`
+                : "已清空（无登录态与组织残留）"
+              : isCrossMix || isHighRiskMix
+              ? desktopLabel
+              : `${desktopLabel}（单端纯净）`,
+          cls: isHighRiskMix ? "danger" : isCrossMix ? "warn" : "ok",
+          boxState: isHighRiskMix ? "is-danger" : isCrossMix ? "is-warn" : "",
+          btn: {
+            label:
+              isHighRiskMix || isCrossMix
+                ? "分项清理（桌面+CLI可选）→"
+                : "打开分项清理清单 →",
+            primary: isHighRiskMix || isCrossMix,
+            onClick: () =>
+              openCleanModal({
+                sourceLabel: "来自账户审计 · 多号与残留分项清理",
+                onCompleted: () => void refreshAccountAudit(true),
+              }),
+          },
         },
         {
-          k: "CLI 备份识别到的账号",
-          v: backupSummary,
-          cls: local.hygiene.backupAccounts.length > 1 ? "warn" : "ok",
-          boxState: local.hygiene.backupAccounts.length > 1 ? "is-warn" : "",
-          btn:
-            mixBad || local.hygiene.backupAccounts.length > 1 || cliHasCleanupTarget
-              ? {
-                  label: busyKey === "clean_cli" ? "备份清理中..." : "清理 CLI 凭据与备份",
-                  primary: local.hygiene.backupAccounts.length > 1,
-                  disabled: !mixBad && local.hygiene.backupAccounts.length <= 1,
-                  busy: busyKey === "clean_cli",
-                  onClick: () => void handleCleanCliWithBackup(),
-                }
-              : { label: "CLI 已纯净", primary: false, disabled: true },
+          k: "CLI 账号态、失效凭据与历史备份",
+          v: cliHasCleanupTarget
+            ? `${cliLabel}${cliReasonsText} · ${backupSummary}`
+            : "CLI 已彻底清空（0 登录态 · 0 历史备份）",
+          cls: isCliStaleOrPolluted || isCrossMix || local.hygiene.backupAccounts.length > 1 ? "warn" : "ok",
+          boxState:
+            isCliStaleOrPolluted || isCrossMix || local.hygiene.backupAccounts.length > 1
+              ? "is-warn"
+              : "",
+          btn: cliHasCleanupTarget
+            ? {
+                label:
+                  busyKey === "clean_cli"
+                    ? "备份清理中..."
+                    : isCliStaleOrPolluted
+                    ? "立即清理 CLI 残留与备份"
+                    : "清理 CLI 凭据与备份",
+                primary: isCliStaleOrPolluted || local.hygiene.backupAccounts.length > 1,
+                disabled: false,
+                busy: busyKey === "clean_cli",
+                onClick: () => void handleCleanCliWithBackup(),
+              }
+            : { label: "CLI 已纯净", primary: false, disabled: true },
         },
       ],
       advice:
-        "换号前建议清理旧端残留并核对上方设备指纹已刷新，同时尽量避免在新号复用曾封禁账号的银行卡或虚拟 U 卡（详见右上「防封宝典」）。",
+        topo?.detail ??
+        "打开「分项清理」默认同时勾选桌面端与 CLI 登录态并展示各自脱敏账号，取消勾选即可保留指定端；只要存在 CLI 旧号/备份，随时可点击右侧按钮一键先备份再彻底清除。",
     };
 
     // 第 5 项：官方 API 端点防反代检测
@@ -610,13 +731,19 @@ export function AccountAuditPage() {
         "消费级订阅强烈建议直连官方原生端点，避免叠加第三方共享反代中转池引发连坐。",
     };
 
-    // 第 6 项：Clash 断连回传 Cookie 403 防护（3 列固定位）
+    // 第 6 项：Clash 断连回传 Cookie 403 防护（5 重严格防漏链判定：运行中全就绪绝不误判漏链，任一缺口精准标出）
     const disProxyBad = !report.runtimeProxyOk;
     const holdActiveNow = Boolean(snapshot.killHoldActive || report.runtimeKillHoldActive);
     const bgProcsNow = snapshot.bgClaudeProcs ?? report.runtimeBgProcs;
-    const disHoldBad = bgProcsNow > 0 && !holdActiveNow;
+    const disGaps = report.runtimeDisconnectGaps ?? [];
+    const disGuardOk =
+      report.runtimeDisconnectGuardOk !== undefined
+        ? report.runtimeDisconnectGuardOk
+        : !disProxyBad;
+    const disRuntimeGap = !disGuardOk || disGaps.length > 0;
     const dis403Bad = local.desktop.cookie403Hits > 0;
-    const disHasIssue = disProxyBad || disHoldBad || dis403Bad;
+    const disHasIssue = disProxyBad || disRuntimeGap || dis403Bad;
+    const isRunningGuarded = bgProcsNow > 0 && !holdActiveNow && !disHasIssue;
 
     const gDisconnect: AuditGroupView = {
       part: "tool",
@@ -625,53 +752,76 @@ export function AccountAuditPage() {
       prefix: "经验防护",
       prefixCls: "warn-exp",
       title: "Clash 断连回传 Cookie 403 防护",
-      status: disProxyBad || dis403Bad ? "danger" : disHoldBad ? "warn" : "ok",
-      statusText: disHasIssue ? "存在漏连" : "防护就绪",
+      status: disProxyBad || dis403Bad ? "danger" : disRuntimeGap ? "warn" : "ok",
+      statusText: disHasIssue
+        ? "存在漏链"
+        : isRunningGuarded
+        ? "运行护航中"
+        : "防护就绪",
       summary: disHasIssue
-        ? `${disProxyBad ? "TUN 代理离线或异常" : "代理在线"}，${
-            disHoldBad ? `后台有 ${bgProcsNow} 个进程未盯防` : "防复活盯防就绪"
-          }，日志捕获 ${local.desktop.cookie403Hits} 次退出回传 Cookie 403。`
-        : "代理 TUN 接管在线、防复活盯防就绪、日志 0 次断连回传 Cookie 403。",
+        ? `${
+            disGaps.length > 0
+              ? `5 重防漏链存在缺口：${disGaps.join("、")}`
+              : disProxyBad
+              ? "TUN 代理离线或异常"
+              : "运行护航存在缺口"
+          }；日志捕获 ${local.desktop.cookie403Hits} 次退出回传 Cookie 403。`
+        : isRunningGuarded
+        ? `Claude 正在运行（${bgProcsNow} 进程），Clash/TUN、规则锁死、Fake-IP DNS、0 异常直连与自动 4 层热熔断 5 重防护已全就绪，0 次 Cookie 403。`
+        : "代理 TUN 接管在线、5 重防漏链与防复活盯防就绪、日志 0 次断连回传 Cookie 403。",
       cols: 3,
       metrics: [
         {
-          k: "控制台代理状态",
-          v: disProxyBad ? "TUN 离线 / 代理异常" : "TUN 接管与规则锁死在线",
-          cls: disProxyBad ? "danger" : "ok",
-          boxState: disProxyBad ? "is-danger" : "",
-          btn: disProxyBad
-            ? {
-                label: "前往控制台修复 →",
-                primary: true,
-                onClick: () => setActiveTab("console"),
-              }
-            : {
-                label: "查看控制台",
-                primary: false,
-                onClick: () => setActiveTab("console"),
-              },
+          k: "5 重防漏链底座（TUN / 规则 / DNS / 热熔断）",
+          v: disProxyBad
+            ? "TUN 离线 / 代理异常"
+            : disGaps.length > 0
+            ? `缺口：${disGaps[0]}`
+            : "5 重防漏链全部在线就绪",
+          cls: disProxyBad ? "danger" : disRuntimeGap ? "warn" : "ok",
+          boxState: disProxyBad ? "is-danger" : disRuntimeGap ? "is-warn" : "",
+          btn:
+            disProxyBad || disRuntimeGap
+              ? {
+                  label: "前往控制台补齐 →",
+                  primary: true,
+                  onClick: () => setActiveTab("console"),
+                }
+              : {
+                  label: "查看控制台",
+                  primary: false,
+                  onClick: () => setActiveTab("console"),
+                },
         },
         {
-          k: "环境守护（防复活盯防）",
-          v: disHoldBad
-            ? `存在 ${bgProcsNow} 个后台进程 · 未开盯防`
-            : holdActiveNow
+          k: "运行护航 & 切代理防复活盯防",
+          v: holdActiveNow
             ? `${snapshot.killHoldRemainingSecs ?? 45}s 盯防保护中`
+            : bgProcsNow > 0
+            ? disRuntimeGap
+              ? `${bgProcsNow} 进程运行中 · 建议补齐防漏链或先清退`
+              : `${bgProcsNow} 进程正常运行 · 自动热熔断护航中`
             : "0 后台残留 · 盯防就绪",
-          cls: disHoldBad ? "warn" : "ok",
-          boxState: disHoldBad ? "is-warn" : "",
-          btn: disHoldBad
-            ? {
-                label: busyKey === "enable_hold" ? "强杀盯防中..." : "立即强杀并盯防 45s",
-                primary: true,
-                busy: busyKey === "enable_hold",
-                onClick: () => void handleEnableHold(),
-              }
-            : {
-                label: holdActiveNow ? "已开启盯防" : "盯防就绪",
-                primary: false,
-                disabled: true,
-              },
+          cls: bgProcsNow > 0 && disRuntimeGap ? "warn" : "ok",
+          boxState: bgProcsNow > 0 && disRuntimeGap ? "is-warn" : "",
+          btn:
+            bgProcsNow > 0 && !holdActiveNow
+              ? {
+                  label:
+                    busyKey === "enable_hold"
+                      ? "强杀盯防中..."
+                      : disRuntimeGap
+                      ? "立即清退并盯防 45s"
+                      : "切代理前清退并盯防 45s",
+                  primary: disRuntimeGap,
+                  busy: busyKey === "enable_hold",
+                  onClick: () => void handleEnableHold(),
+                }
+              : {
+                  label: holdActiveNow ? "已开启盯防" : "盯防就绪",
+                  primary: false,
+                  disabled: true,
+                },
         },
         {
           k: "断连回传 Cookie 403",
@@ -688,12 +838,14 @@ export function AccountAuditPage() {
         },
       ],
       advice:
-        "切换节点或重启代理前建议先开启防复活盯防，有助于阻断断连瞬间的裸连回传。",
+        "Claude 正常使用时需满足 5 重硬防线（Clash 在线、TUN 接管、策略组规则锁死、Fake-IP DNS 无泄漏且 0 异常直连、开启运行中自动 4 层热熔断）；平时正常使用无需手动强杀，仅在准备手动切换节点、重启或关闭 Clash 代理前再点「清退并盯防 45s」即可阻断断连瞬间的裸连回传。",
     };
 
-    // 第 7 项：本机遥测开关与缓存清理（2 列固定位）
-    const telEnvBad = local.hygiene.privacyMissingKeys.length > 0;
+    // 第 7 项：本机遥测开关与缓存清理（2 列固定位，未装 CLI 且 0 B 缓存自动豁免）
+    const cliInstalled = local.hygiene.cliInstalled !== false;
     const telDirBad = local.hygiene.telemetryTotalBytes > 0;
+    const cliTelExempt = !cliInstalled && !telDirBad;
+    const telEnvBad = !cliTelExempt && local.hygiene.privacyMissingKeys.length > 0;
     const telAnyBad = telEnvBad || telDirBad;
 
     const gTelemetry: AuditGroupView = {
@@ -702,32 +854,38 @@ export function AccountAuditPage() {
       icon: <EyeOff size={15} strokeWidth={1.8} />,
       prefix: "隐私降噪",
       prefixCls: "privacy-low",
-      title: "本机遥测开关与缓存清理",
+      title: "本机遥测开关与缓存清理（仅作用于 CLI）",
       status: telAnyBad ? "warn" : "ok",
-      statusText: telAnyBad ? "缺降噪项" : "降噪已全",
-      summary: telAnyBad
+      statusText: cliTelExempt ? "未装 CLI · 豁免" : telAnyBad ? "缺降噪项" : "降噪已全",
+      summary: cliTelExempt
+        ? "本机未检测到 Claude Code CLI 且 ~/.claude/telemetry 为 0 B，已自动豁免通过（仅作用于命令行 CLI，不影响桌面端）。"
+        : telAnyBad
         ? `${
             telEnvBad
-              ? `settings.json 缺 ${local.hygiene.privacyMissingKeys.length} 项降噪变量`
-              : "4/4 降噪变量已全"
+              ? `settings.json 缺 ${local.hygiene.privacyMissingKeys.length} 项 CLI 降噪变量`
+              : "4/4 CLI 降噪变量已全"
           }，${
             telDirBad
               ? `telemetry 目录存在 ${formatBytesReadable(local.hygiene.telemetryTotalBytes)} 待传缓存`
               : "telemetry 目录 0 B"
           }。`
-        : "4/4 隐私降噪环境变量均已写入 settings.json，待传 telemetry 目录为 0 B。",
+        : "4/4 官方 CLI 隐私降噪环境变量均已开启（已关闭非必要遥测与错误上报），待传 telemetry 目录为 0 B。",
       cols: 2,
       metrics: [
         {
-          k: "settings.json 4 项降噪开关",
-          v: telEnvBad
+          k: "settings.json 4 项降噪开关（仅 CLI）",
+          v: cliTelExempt
+            ? "未安装 Claude Code CLI（自动豁免）"
+            : telEnvBad
             ? `仅 ${local.hygiene.privacyEnabledCount} / 4（缺 ${local.hygiene.privacyMissingKeys
                 .map((k) => k.replace(/^DISABLE_/, ""))
                 .join(" & ")}）`
-            : "4 / 4 已全部开启",
+            : "4 / 4 已全部开启（非必要上报已关闭）",
           cls: telEnvBad ? "warn" : "ok",
           boxState: telEnvBad ? "is-warn" : "",
-          btn: telEnvBad
+          btn: cliTelExempt
+            ? { label: "未装 CLI · 已豁免", primary: false, disabled: true }
+            : telEnvBad
             ? {
                 label: busyKey === "fix_tel_env" ? "写入中..." : "一键补齐 4/4 开关",
                 primary: true,
@@ -737,7 +895,7 @@ export function AccountAuditPage() {
             : { label: "配置已完整", primary: false, disabled: true },
         },
         {
-          k: "~/.claude/telemetry 待传目录",
+          k: "~/.claude/telemetry 待传遥测队列",
           v: telDirBad
             ? `待传 ${local.hygiene.telemetryFileCount} 个文件 (${formatBytesReadable(
                 local.hygiene.telemetryTotalBytes
@@ -756,7 +914,7 @@ export function AccountAuditPage() {
         },
       ],
       advice:
-        "属于预防性隐私降噪（直接风控权重较低）：补齐开关前会自动保存首次基线，随时可一键撤回。",
+        "【遥测与降噪是什么】「遥测（Telemetry）」是 Claude Code CLI 后台自动向官方发送的使用统计、崩溃堆栈与版本检查请求，断网失败后会囤积在 ~/.claude/telemetry/ 等联网重试；开启「4 项官方降噪开关」代表通知 CLI 关闭这些非必要后台上报（减少无关设备指纹与断网回传噪音，完全不影响正常对话与登录）。补齐开关前会自动保存首次基线，随时可一键撤回；安全退出或熔断时也会自动清空待传目录。",
     };
 
     return [gWindow, gAuto, gCloud, gMix, gEndpoint, gDisconnect, gTelemetry];
@@ -853,14 +1011,14 @@ export function AccountAuditPage() {
                       spellCheck={false}
                       value={skInput}
                       onChange={(e) => setSkInput(e.target.value)}
-                      placeholder="粘贴一次性 sessionKey（sk-ant-sid...）或浏览器右键 Copy as cURL 整段"
+                      placeholder="粘贴 sessionKey 的 Value（sk-ant-sid...）或 Copy as cURL 整段"
                     />
                     <button
                       type="button"
                       data-testid="btn-verify-cloud-sk"
                       className="guard-btn guard-btn-primary guard-btn-sm"
                       disabled={!extractedSk || busyKey === "verify_sk"}
-                      onClick={() => void handleVerifyCloud()}
+                      onClick={() => void handleVerifyCloud(false)}
                     >
                       {busyKey === "verify_sk" && (
                         <Loader2 size={13} strokeWidth={2} className="guard-spin" />
@@ -869,18 +1027,30 @@ export function AccountAuditPage() {
                     </button>
                   </div>
                   <div className="audit-sk-sub">
-                    <span style={{ color: extractedSk ? "var(--success)" : "var(--text-3)" }}>
+                    <span
+                      data-testid="audit-sk-feedback"
+                      style={{
+                        color: extractedSk
+                          ? "var(--success)"
+                          : skInput.trim().length > 0
+                          ? "var(--danger-bright)"
+                          : "var(--text-3)",
+                      }}
+                    >
                       {extractedSk
                         ? `已提取有效 sessionKey（${extractedSk.slice(
                             0,
                             14
                           )}••••${extractedSk.slice(-4)}），其余内容已忽略且绝不落盘`
+                        : skInput.trim().length > 0
+                        ? "未识别到有效 sessionKey（需以 sk-ant-sid 开头）：请勿粘贴网页/JS 链接，点击右侧「怎么 10 秒复制？」从 Cookies 复制 sessionKey 的 Value"
                         : `经本机代理 (${
                             report?.runtimeClashPort ?? 7890
                           }) 只读查询一次并绑定档案，同步回填顶部对话可用、警告与实名状态，明文用完即焚`}
                     </span>
                     <button
                       type="button"
+                      data-testid="btn-toggle-sk-how"
                       className="audit-text-btn"
                       onClick={() => setShowHowSk((v) => !v)}
                     >
@@ -888,10 +1058,93 @@ export function AccountAuditPage() {
                     </button>
                   </div>
                   {showHowSk && (
-                    <div className="audit-sk-how">
-                      在已登录 <span className="font-mono-code">claude.ai</span> 的浏览器按{" "}
-                      <strong>F12 → Network（网络）</strong>，刷新后右键任意请求点{" "}
-                      <strong>Copy as cURL</strong>，整段粘贴到上方输入框即可自动提取并丢弃其余内容。
+                    <div className="audit-sk-how" data-testid="audit-sk-how-panel">
+                      <div style={{ marginBottom: 8, color: "var(--text-1)", fontWeight: 500 }}>
+                        推荐方式（Chrome / Edge 10 秒定位，准确率 100%）：
+                      </div>
+                      <ol
+                        style={{
+                          margin: "0 0 10px 18px",
+                          padding: 0,
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 4,
+                          lineHeight: 1.55,
+                        }}
+                      >
+                        <li>
+                          先确认浏览器当前登录的 <span className="font-mono-code">claude.ai</span>{" "}
+                          是你想核验的目标账号
+                          {report?.emailMasked && report.emailMasked !== "未检测到本机账号"
+                            ? `（本机当前展示：${report.emailMasked}）`
+                            : ""}
+                          。
+                        </li>
+                        <li>
+                          按 <strong>F12</strong> 打开开发者工具 → 顶部切到{" "}
+                          <strong>Application（应用）</strong> → 左侧展开{" "}
+                          <strong>Storage（存储）→ Cookies</strong> → 点击{" "}
+                          <span className="font-mono-code">https://claude.ai</span>。
+                        </li>
+                        <li>
+                          在右侧列表中找到 <strong>sessionKey</strong> 一行，复制其{" "}
+                          <strong>Value</strong>（以{" "}
+                          <span className="font-mono-code">sk-ant-sid...</span>{" "}
+                          开头），粘贴到上方输入框点击「开始核验」。
+                        </li>
+                      </ol>
+
+                      {/* 轻量深浅主题自适应 SVG 定位引导图（零隐私泄露） */}
+                      <svg
+                        viewBox="0 0 620 158"
+                        role="img"
+                        aria-label="Chrome DevTools Application Storage Cookies sessionKey 复制步骤示意图"
+                        style={{
+                          width: "100%",
+                          maxWidth: 620,
+                          height: "auto",
+                          display: "block",
+                          borderRadius: 8,
+                          border: "1px solid var(--border)",
+                          background: "var(--bg-card)",
+                          marginBottom: 8,
+                        }}
+                      >
+                        {/* 顶栏 Tabs */}
+                        <rect x="0" y="0" width="620" height="28" fill="var(--bg-subtle)" />
+                        <line x1="0" y1="28" x2="620" y2="28" stroke="var(--border)" />
+                        <text x="16" y="18" fontSize="10.5" fill="var(--text-3)">Elements</text>
+                        <text x="76" y="18" fontSize="10.5" fill="var(--text-3)">Console</text>
+                        <text x="132" y="18" fontSize="10.5" fill="var(--text-3)">Network</text>
+                        <rect x="188" y="4" width="112" height="20" rx="5" fill="var(--primary)" fillOpacity="0.16" stroke="var(--primary)" />
+                        <text x="197" y="18" fontSize="10.5" fontWeight="600" fill="var(--primary)">① Application / 应用</text>
+
+                        {/* 左侧 Storage 树 */}
+                        <rect x="0" y="28" width="186" height="130" fill="var(--bg-subtle)" fillOpacity="0.45" />
+                        <line x1="186" y1="28" x2="186" y2="158" stroke="var(--border)" />
+                        <text x="14" y="48" fontSize="10" fontWeight="600" fill="var(--text-2)">Storage（存储）</text>
+                        <text x="22" y="68" fontSize="10" fill="var(--text-3)">▸ Local Storage</text>
+                        <text x="22" y="86" fontSize="10" fill="var(--text-3)">▸ Session Storage</text>
+                        <text x="22" y="104" fontSize="10" fontWeight="600" fill="var(--text-1)">▾ ② Cookies</text>
+                        <rect x="26" y="112" width="148" height="22" rx="5" fill="var(--primary)" fillOpacity="0.18" stroke="var(--primary)" />
+                        <text x="34" y="127" fontSize="10.5" fontWeight="600" fill="var(--primary)">https://claude.ai</text>
+
+                        {/* 右侧 Cookie 表 */}
+                        <text x="202" y="47" fontSize="10" fontWeight="600" fill="var(--text-3)">Name</text>
+                        <text x="336" y="47" fontSize="10" fontWeight="600" fill="var(--text-3)">Value（双击此格复制）</text>
+                        <line x1="186" y1="54" x2="620" y2="54" stroke="var(--border)" />
+                        <text x="202" y="72" fontSize="10" fill="var(--text-3)">lastActiveOrg</text>
+                        <text x="336" y="72" fontSize="10" fill="var(--text-3)">a4722ea6-xxxx-xxxx...</text>
+
+                        {/* 高亮 sessionKey 行 */}
+                        <rect x="194" y="82" width="416" height="28" rx="6" fill="var(--success)" fillOpacity="0.14" stroke="var(--success)" />
+                        <text x="202" y="100" fontSize="11" fontWeight="700" fill="var(--text-1)">③ sessionKey</text>
+                        <text x="336" y="100" fontSize="11" fontWeight="600" fill="var(--success)" fontFamily="monospace">sk-ant-sid01-••••••••••••</text>
+
+                        <text x="202" y="130" fontSize="10" fill="var(--text-3)">cf_clearance</text>
+                        <text x="336" y="130" fontSize="10" fill="var(--text-3)">无需复制</text>
+                        <text x="202" y="148" fontSize="9.5" fill="var(--text-3)">提示：也可在 Network 右键 API 请求点 Copy as cURL 整段粘贴，工具会自动提取</text>
+                      </svg>
                     </div>
                   )}
                 </div>
@@ -1032,12 +1285,14 @@ export function AccountAuditPage() {
                 ?
               </button>
             </div>
-            <div className="audit-pstat-v muted">
-              {r.local.desktop.portalVerifyHits > 0
-                ? `本地命中 ${r.local.desktop.portalVerifyHits} 次`
-                : "本地 0 拦截"}
+            <div className="audit-pstat-v muted" data-testid="portal-unverified-value">
+              待 sk 实证
             </div>
-            <div className="audit-pstat-sub">风控强制挂起 · 触发即风险极高</div>
+            <div className="audit-pstat-sub">
+              {r.local.desktop.portalVerifyHits > 0
+                ? `本地命中 ${r.local.desktop.portalVerifyHits} 次 · 待 sk 云端复核`
+                : "本地 0 拦截 · 需 sk 查云端挂起"}
+            </div>
           </div>
         </div>
       );
@@ -1376,10 +1631,18 @@ export function AccountAuditPage() {
                     style={{ width: `${report.quota.fiveHourPct ?? 0}%` }}
                   />
                 </div>
-                <div className="audit-q-row" style={{ marginTop: 2 }}>
+                <div
+                  className="audit-q-row"
+                  style={{ marginTop: 2 }}
+                  title={report.quota.sevenDayOfflineNote ?? report.quota.stampTooltip}
+                >
                   <span>7d 额度</span>
                   <span>
-                    {report.quota.sevenDayPct != null ? `${report.quota.sevenDayPct}%` : "—"}
+                    {report.quota.sevenDayPct != null
+                      ? `${report.quota.sevenDayPct}%`
+                      : report.quota.sevenDayOfflineNote
+                      ? "已过窗·待核"
+                      : "—"}
                   </span>
                 </div>
                 <div className="audit-q-track">
@@ -1467,9 +1730,34 @@ export function AccountAuditPage() {
                 <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
                   <div className="audit-profile-id-line">
                     <span className="audit-profile-email">{report.emailMasked}</span>
-                    <span className="guard-chip guard-chip-neutral" style={{ padding: "1px 6px" }}>
-                      {report.plan}
+                    <span
+                      className="guard-chip guard-chip-neutral"
+                      style={{ padding: "1px 6px" }}
+                      title={
+                        report.cloudVerified
+                          ? "云端实时核验套餐"
+                          : "来自本机配置文件缓存（若已到期降级为 Free，请点击右侧「云端核验」实时刷新）"
+                      }
+                    >
+                      {report.cloudVerified ? report.plan : `${report.plan} · 缓存`}
                     </span>
+                    {report.primarySource && report.primarySource !== "none" && (
+                      <span
+                        className={`guard-chip ${
+                          report.primarySource === "cli_stale" ? "guard-chip-warn" : "guard-chip-mode"
+                        }`}
+                        style={{ padding: "1px 6px" }}
+                        title="当前顶部主档案的识别来源"
+                      >
+                        {report.primarySource === "desktop_web"
+                          ? "桌面/网页主号"
+                          : report.primarySource === "cli_and_desktop"
+                          ? "桌面+CLI 同号"
+                          : report.primarySource === "cli_stale"
+                          ? "CLI 残留 · 凭据失效/跨号"
+                          : "仅 CLI 账号"}
+                      </span>
+                    )}
                     <button
                       type="button"
                       data-testid="btn-sub-toggle"
@@ -1797,6 +2085,9 @@ export function AccountAuditPage() {
         <div
           className="audit-drawer-backdrop"
           data-testid="anti-ban-guide-drawer"
+          role="dialog"
+          aria-modal="true"
+          aria-label="防封宝典"
           onClick={(e) => {
             if (e.target === e.currentTarget) setGuideOpen(false);
           }}

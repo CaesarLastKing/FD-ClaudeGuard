@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import App from "@/App";
 import { HudCard } from "@/components/HudCard";
@@ -53,10 +53,17 @@ describe("免费开源无锁门禁与核心交互回归（T-057 + 增量 17/18/1
 
     fireEvent.click(screen.getByRole("button", { name: /守卫配置/ }));
     expect(screen.queryByTestId("locked-gate-config")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(useGuardStore.getState().initialized).toBe(true);
+      expect(useGuardStore.getState().updateChecking).toBe(false);
+    });
   });
 
   it("主窗口顶栏耳机支持按钮弹出开源交流支持弹窗（不含商业激活跳转按钮）", async () => {
     render(<App />);
+    await waitFor(() => {
+      expect(useGuardStore.getState().initialized).toBe(true);
+    });
 
     const supportBtn = screen.getByTestId("topbar-btn-support");
     fireEvent.click(supportBtn);
@@ -66,7 +73,7 @@ describe("免费开源无锁门禁与核心交互回归（T-057 + 增量 17/18/1
     expect(screen.queryByTestId("btn-support-to-activate")).not.toBeInTheDocument();
   });
 
-  it("增量 17：侧边栏与悬浮窗同步展示 Kill-Hold 盯防蓝态与解除按钮", () => {
+  it("增量 17：侧边栏与悬浮窗同步展示 Kill-Hold 盯防蓝态与解除按钮", async () => {
     useGuardStore.setState({
       snapshot: {
         ...FALLBACK_SNAPSHOT,
@@ -80,6 +87,9 @@ describe("免费开源无锁门禁与核心交互回归（T-057 + 增量 17/18/1
     const { unmount } = render(<App />);
     expect(screen.getByTestId("sidebar-proc-status")).toHaveTextContent("盯防 45s");
     expect(screen.getByTestId("btn-release-kill-hold")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(useGuardStore.getState().initialized).toBe(true);
+    });
     unmount();
 
     render(
@@ -206,8 +216,11 @@ describe("免费开源无锁门禁与核心交互回归（T-057 + 增量 17/18/1
     expect(table.textContent).toContain("Claude ✓");
     expect(table.textContent).toContain("AGY ✓");
     expect(table.textContent).toContain("AGY 限区");
-    expect(table.textContent).toContain("Claude 拉黑");
     expect(table.textContent).toContain("当前锁定");
+
+    // 不可用/拉黑节点已独立展示在隔离区表格，与可用区视觉隔离
+    const quarantineTable = screen.getByTestId("nodes-quarantine-table");
+    expect(quarantineTable.textContent).toContain("Claude 拉黑");
 
     fireEvent.mouseEnter(screen.getByText("Claude 拉黑"));
     expect(screen.getByTestId("node-hover-tooltip")).toHaveTextContent("Cloudflare 403");
@@ -241,39 +254,47 @@ describe("免费开源无锁门禁与核心交互回归（T-057 + 增量 17/18/1
     expect(procCard.style.border).toContain("var(--border)");
     expect(screen.queryByTestId("nav-badge-nodes")).not.toBeInTheDocument();
 
-    useGuardStore.setState({
-      snapshot: { ...useGuardStore.getState().snapshot, killHoldActive: true, killHoldRemainingSecs: 45 },
+    act(() => {
+      useGuardStore.setState({
+        snapshot: { ...useGuardStore.getState().snapshot, killHoldActive: true, killHoldRemainingSecs: 45 },
+      });
     });
     rerender(<Sidebar />);
     expect(procCard.style.border).toContain("rgba(0, 111, 238, 0.45)");
 
-    useGuardStore.setState({
-      snapshot: { ...useGuardStore.getState().snapshot, killHoldActive: false, killHoldRemainingSecs: 0 },
+    act(() => {
+      useGuardStore.setState({
+        snapshot: { ...useGuardStore.getState().snapshot, killHoldActive: false, killHoldRemainingSecs: 0 },
+      });
     });
     rerender(<Sidebar />);
     expect(procCard.style.border).toContain("var(--border)");
 
-    useGuardStore.setState({
-      preflight: {
-        ...useGuardStore.getState().preflight,
-        items: useGuardStore.getState().preflight.items.map((item) =>
-          item.id === "node_geo" ? { ...item, status: "warn" } : item
-        ),
-      },
+    act(() => {
+      useGuardStore.setState({
+        preflight: {
+          ...useGuardStore.getState().preflight,
+          items: useGuardStore.getState().preflight.items.map((item) =>
+            item.id === "node_geo" ? { ...item, status: "warn" } : item
+          ),
+        },
+      });
     });
     rerender(<Sidebar />);
     const warnBadge = screen.getByTestId("nav-badge-nodes");
     expect(warnBadge.textContent).toBe("1");
     expect(warnBadge.style.color).toContain("var(--warning)");
 
-    useGuardStore.setState({
-      snapshot: { ...useGuardStore.getState().snapshot, nodeDown: true, activeFlowAnomalies: 1 },
-      preflight: {
-        ...useGuardStore.getState().preflight,
-        items: useGuardStore.getState().preflight.items.map((item) =>
-          item.id === "node_geo" ? { ...item, status: "fail" } : item
-        ),
-      },
+    act(() => {
+      useGuardStore.setState({
+        snapshot: { ...useGuardStore.getState().snapshot, nodeDown: true, activeFlowAnomalies: 1 },
+        preflight: {
+          ...useGuardStore.getState().preflight,
+          items: useGuardStore.getState().preflight.items.map((item) =>
+            item.id === "node_geo" ? { ...item, status: "fail" } : item
+          ),
+        },
+      });
     });
     rerender(<Sidebar />);
     const failBadge = screen.getByTestId("nav-badge-nodes");
@@ -281,18 +302,19 @@ describe("免费开源无锁门禁与核心交互回归（T-057 + 增量 17/18/1
     expect(failBadge.style.color).toContain("var(--danger-bright)");
   });
 
-  it("出口节点漂移风险(Warn)将重置漂移基准作为默认蓝色主按钮，真不可用(Fail)仅引导换节点", () => {
+  it("出口节点漂移风险(Warn 且命中 DRIFT DETECTED)才显示重置漂移基准按钮，非漂移跨洲错配与真不可用(Fail)仅引导换节点", () => {
     const baseState = useGuardStore.getState();
     useGuardStore.setState({
-      selectedCheckId: "node_geo",
+      selectedCheckId: "opt_exit_geo",
       preflight: {
         ...baseState.preflight,
         items: baseState.preflight.items.map((item) =>
-          item.id === "node_geo"
+          item.id === "opt_exit_geo"
             ? {
                 ...item,
                 status: "warn",
                 summary: "AU · 常规机房 · 24h 落地 IP 漂移 1 次预警",
+                evidence: "24h Landing IP Drift: DRIFT DETECTED (count=1)",
                 fixLabel: "前往「节点流量」更换稳定节点 →",
               }
             : { ...item, status: "ok" }
@@ -308,20 +330,46 @@ describe("免费开源无锁门禁与核心交互回归（T-057 + 增量 17/18/1
       "前往「节点流量」更换稳定节点 →"
     );
 
-    useGuardStore.setState({
-      preflight: {
-        ...useGuardStore.getState().preflight,
-        items: useGuardStore.getState().preflight.items.map((item) =>
-          item.id === "node_geo"
-            ? {
-                ...item,
-                status: "fail",
-                summary: "当前出口被 Cloudflare 403 拉黑",
-                fixLabel: "节点不可用，前往「节点流量」手动更换节点 →",
-              }
-            : item
-        ),
-      },
+    // 跨洲错配但 0 漂移（Stable）：绝不误显示「确认当前 IP 已稳定（重置漂移基准）」
+    act(() => {
+      useGuardStore.setState({
+        preflight: {
+          ...useGuardStore.getState().preflight,
+          items: useGuardStore.getState().preflight.items.map((item) =>
+            item.id === "opt_exit_geo"
+              ? {
+                  ...item,
+                  status: "warn",
+                  summary: "账号绑定属地 US 与当前出口 AU 跨洲错配",
+                  evidence: "24h Landing IP Drift: Stable (count=0)\nBound Account Geo vs Exit: US vs AU",
+                  fixLabel: "前往「节点流量」核对并切换稳定节点",
+                }
+              : item
+          ),
+        },
+      });
+    });
+    rerender(<ConsolePage />);
+    expect(screen.queryByTestId("btn-reset-drift-baseline")).not.toBeInTheDocument();
+    expect(screen.getByText("前往「节点流量」核对并切换稳定节点")).toBeInTheDocument();
+
+    act(() => {
+      useGuardStore.setState({
+        selectedCheckId: "node_geo",
+        preflight: {
+          ...useGuardStore.getState().preflight,
+          items: useGuardStore.getState().preflight.items.map((item) =>
+            item.id === "node_geo"
+              ? {
+                  ...item,
+                  status: "fail",
+                  summary: "当前出口被 Cloudflare 403 拉黑",
+                  fixLabel: "节点不可用，前往「节点流量」手动更换节点 →",
+                }
+              : item
+          ),
+        },
+      });
     });
     rerender(<ConsolePage />);
     expect(screen.queryByTestId("btn-reset-drift-baseline")).not.toBeInTheDocument();
