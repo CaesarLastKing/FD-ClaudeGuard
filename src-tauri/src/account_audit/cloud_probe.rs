@@ -69,7 +69,13 @@ pub struct CloudProbeSnapshot {
     pub edge_country: Option<String>,
     pub edge_colo: Option<String>,
     pub account_age_days: Option<u64>,
+    /// 官方账户创建 ISO 时间戳（用于本地跨天实时推算 account_age_days，避免缓存冻结）
+    #[serde(default)]
+    pub account_created_at: Option<String>,
     pub subscription_age_days: Option<u64>,
+    /// 官方付费订阅创建 ISO 时间戳（Free 账号恒为 None，避免把组织创建时间误标为订阅天数）
+    #[serde(default)]
+    pub subscription_created_at: Option<String>,
     pub subscription_ends_at: Option<String>,
     pub chat_available: bool,
     pub is_banned: bool,
@@ -222,11 +228,15 @@ pub fn sha256_hex(data: &[u8]) -> String {
     hex
 }
 
+static COOLDOWN_MAP: OnceLock<Mutex<HashMap<String, Instant>>> = OnceLock::new();
+
+fn cooldown_map() -> &'static Mutex<HashMap<String, Instant>> {
+    COOLDOWN_MAP.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 /// 内存 60s 防刷冷却锁（键为 SHA-256 指纹，不存任何明文）
 fn check_and_record_cooldown(fingerprint: &str) -> Result<(), CloudProbeError> {
-    static COOLDOWN_MAP: OnceLock<Mutex<HashMap<String, Instant>>> = OnceLock::new();
-    let lock = COOLDOWN_MAP.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+    let mut guard = cooldown_map().lock().unwrap_or_else(|e| e.into_inner());
     let now = Instant::now();
     // 清理过期条目
     guard.retain(|_, ts| now.duration_since(*ts) < Duration::from_secs(COOLDOWN_SECONDS * 2));
@@ -246,6 +256,12 @@ fn check_and_record_cooldown(fingerprint: &str) -> Result<(), CloudProbeError> {
     }
     guard.insert(fingerprint.to_string(), now);
     Ok(())
+}
+
+/// 代理超时/CF 拦截等非有效命中失败时撤销冷却，允许用户切干净节点后立即重试
+fn release_cooldown(fingerprint: &str) {
+    let mut guard = cooldown_map().lock().unwrap_or_else(|e| e.into_inner());
+    guard.remove(fingerprint);
 }
 
 /// 从 `cf-ray` 响应头推导边缘机场码与国家码
@@ -508,29 +524,31 @@ fn curl_readonly_get(
         None => (stdout.as_ref(), 0),
     };
 
-    // 拆分多段代理 CONNECT 响应头与正文
-    let parts: Vec<&str> = if raw_resp.contains("\r\n\r\n") {
-        raw_resp.split("\r\n\r\n").collect()
+    // BUG-P1-17：稳健拆分多段代理 CONNECT / 重定向响应头与正文（正确处理空正文与正文含空行）
+    let (sep, parts): (&str, Vec<&str>) = if raw_resp.contains("\r\n\r\n") {
+        ("\r\n\r\n", raw_resp.split("\r\n\r\n").collect())
     } else {
-        raw_resp.split("\n\n").collect()
+        ("\n\n", raw_resp.split("\n\n").collect())
     };
-    let mut body_start = 1usize;
-    for (i, part) in parts.iter().enumerate() {
-        if i + 1 < parts.len() && part.trim_start().to_ascii_uppercase().starts_with("HTTP/") {
-            body_start = i + 1;
+    let mut header_blocks = 0usize;
+    for part in &parts {
+        if part.trim_start().to_ascii_uppercase().starts_with("HTTP/") {
+            header_blocks += 1;
         } else {
             break;
         }
     }
-    let header_part = if body_start <= parts.len() {
-        parts[..body_start].join("\r\n\r\n")
+    let header_part = if header_blocks > 0 {
+        parts[..header_blocks].join(sep)
     } else {
         String::new()
     };
-    let body_text = if body_start < parts.len() {
-        parts[body_start..].join("\r\n\r\n")
-    } else {
+    let body_text = if header_blocks == 0 {
         raw_resp.to_string()
+    } else if header_blocks < parts.len() {
+        parts[header_blocks..].join(sep)
+    } else {
+        String::new()
     };
     let body_trimmed = body_text.trim();
 
@@ -629,7 +647,9 @@ pub fn assemble_cloud_snapshot(
                 edge_country,
                 edge_colo,
                 account_age_days: None,
+                account_created_at: None,
                 subscription_age_days: None,
+                subscription_created_at: None,
                 subscription_ends_at: None,
                 chat_available: false,
                 is_banned: true,
@@ -780,23 +800,39 @@ pub fn assemble_cloud_snapshot(
             0
         })
     };
-    let account_age_days = parse_days(
-        acct_data
-            .and_then(|a| a.get("created_at"))
-            .and_then(|v| v.as_str()),
-    )
-    .or_else(|| {
-        parse_days(
+    let account_created_at = acct_data
+        .and_then(|a| a.get("created_at"))
+        .and_then(|v| v.as_str())
+        .or_else(|| {
             primary_org
                 .and_then(|o| o.get("created_at"))
-                .and_then(|v| v.as_str()),
-        )
-    });
-    let subscription_age_days = parse_days(
-        primary_org
-            .and_then(|o| o.get("created_at"))
-            .and_then(|v| v.as_str()),
-    );
+                .and_then(|v| v.as_str())
+        })
+        .map(ToString::to_string);
+    let account_age_days = parse_days(account_created_at.as_deref());
+    let is_free_plan = plan.eq_ignore_ascii_case("Free");
+    let subscription_created_at = if is_free_plan {
+        None
+    } else {
+        sub_data
+            .and_then(|s| {
+                s.get("created_at")
+                    .or_else(|| s.get("start_date"))
+                    .or_else(|| s.get("current_period_start"))
+                    .and_then(|v| v.as_str())
+            })
+            .or_else(|| {
+                primary_org
+                    .and_then(|o| o.get("created_at"))
+                    .and_then(|v| v.as_str())
+            })
+            .map(ToString::to_string)
+    };
+    let subscription_age_days = if is_free_plan {
+        None
+    } else {
+        parse_days(subscription_created_at.as_deref())
+    };
     let subscription_ends_at = sub_data
         .and_then(|s| {
             s.get("current_period_end")
@@ -1002,10 +1038,8 @@ pub fn assemble_cloud_snapshot(
         }
     };
 
-    // 对话域可读性
-    let chat_available = chat_resp
-        .map(|r| r.ok || (!r.cf_blocked && r.status_code != 403 && r.status_code != 400))
-        .unwrap_or(true);
+    // 对话域可读性（BUG-P1-17：仅 2xx 非 CF 非 HTML 的真实 ok 响应判 true，超时/5xx/HTML 绝不报假绿）
+    let chat_available = chat_resp.map(|r| r.ok).unwrap_or(true);
 
     // 实时用量窗口
     let usage_data = usage_resp.and_then(|r| if r.ok { r.data.as_ref() } else { None });
@@ -1044,7 +1078,9 @@ pub fn assemble_cloud_snapshot(
         edge_country,
         edge_colo,
         account_age_days,
+        account_created_at,
         subscription_age_days,
+        subscription_created_at,
         subscription_ends_at,
         chat_available,
         is_banned: false,
@@ -1239,6 +1275,16 @@ pub async fn probe_session_key_readonly(
         message: "云端核验异步任务中断".into(),
         retry_after_secs: None,
     })?;
+
+    // BUG-P1-17：若因代理故障或 CF 拦截失败，撤销 60s 冷却以便用户切节点后立即重试
+    if let Err(ref e) = result {
+        if matches!(
+            e.code,
+            CloudProbeErrorCode::ProxyOrUpstreamFailed | CloudProbeErrorCode::CfChallengeOrAuthExpired
+        ) {
+            release_cooldown(&fingerprint);
+        }
+    }
 
     result
 }

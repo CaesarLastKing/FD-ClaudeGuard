@@ -109,6 +109,7 @@ pub fn sanitize_sensitive_text(input: &str) -> String {
     static RE_IPV4: OnceLock<Regex> = OnceLock::new();
     static RE_URL_TOKEN: OnceLock<Regex> = OnceLock::new();
     static RE_SUB_PATH: OnceLock<Regex> = OnceLock::new();
+    static RE_URL_USERINFO: OnceLock<Regex> = OnceLock::new();
 
     let re_email = RE_EMAIL.get_or_init(|| {
         Regex::new(r"[A-Za-z0-9._%+*-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}").unwrap()
@@ -124,9 +125,13 @@ pub fn sanitize_sensitive_text(input: &str) -> String {
         RE_SK_GENERIC.get_or_init(|| Regex::new(r"\bsk-[A-Za-z0-9_-]{16,}\b").unwrap());
     let re_kv = RE_KV_SECRET.get_or_init(|| {
         Regex::new(
-            r#"(?i)\b(sessionKey|oauth_token|access_token|refresh_token|cookie|cf_clearance|x-api-key|anthropic-api-key)(?:\\)?["']?\s*([:=])\s*(?:\\)?["']?([^\s"',;}{\\]+)(?:\\)?["']?"#,
+            r#"(?i)\b(sessionKey|oauth_token|oauthToken|access_token|accessToken|refresh_token|refreshToken|id_token|idToken|cookie|cf_clearance|x-api-key|anthropic-api-key|ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN)(?:\\)?["']?\s*([:=])\s*(?:\\)?["']?([^\s"',;}{\\]+)(?:\\)?["']?"#,
         )
         .unwrap()
+    });
+    // 脱敏代理/HTTP URL 内嵌账密（如 http://user:pass@127.0.0.1:7897 或 socks5://u:p@host）
+    let re_url_userinfo = RE_URL_USERINFO.get_or_init(|| {
+        Regex::new(r"(?i)((?:https?|socks5h?)://)([^/\s@:]+:[^/\s@]+)(@)").unwrap()
     });
     // 同时覆盖普通路径 C:\Users\name、正斜杠 C:/Users/name 及 JSON 转义双反斜杠 C:\\Users\\name
     let re_user_path = RE_USER_PATH
@@ -146,7 +151,7 @@ pub fn sanitize_sensitive_text(input: &str) -> String {
         Regex::new(r"(?i)(/(?:api/v1/client/)?(?:subscribe|sub|link)/)([A-Za-z0-9._~-]{8,})").unwrap()
     });
 
-    // 已脱敏邮箱（含 *** 如 yiya***88@qq.com）保留可读后缀，仅对未脱敏明文邮箱打码
+    // 已脱敏邮箱（含 *** 如 demo***88@example.com）保留可读后缀，仅对未脱敏明文邮箱打码
     let mut out = re_email
         .replace_all(input, |caps: &Captures| {
             let matched = &caps[0];
@@ -205,6 +210,11 @@ pub fn sanitize_sensitive_text(input: &str) -> String {
         })
         .to_string();
 
+    out = re_url_userinfo
+        .replace_all(&out, |caps: &Captures| {
+            format!("{}{REDACT_PLACEHOLDER}{}", &caps[1], &caps[3])
+        })
+        .to_string();
     out = re_url_token
         .replace_all(&out, |caps: &Captures| {
             format!("{}{REDACT_PLACEHOLDER}", &caps[1])
@@ -1269,12 +1279,48 @@ pub fn create_snapshot_zip_with_roots(
 }
 
 /// 按可选分类集合原子创建 ZIP 快照（仅打包 `will_backup == true` 且非受保护文件，流式写入零 OOM）
+/// RAII 临时文件守卫：未 commit 前提前返回/错误时自动删除残留 `.tmp`
+struct TempFileGuard(Option<PathBuf>);
+impl TempFileGuard {
+    fn new(path: PathBuf) -> Self {
+        Self(Some(path))
+    }
+    fn disarm(&mut self) {
+        self.0 = None;
+    }
+}
+impl Drop for TempFileGuard {
+    fn drop(&mut self) {
+        if let Some(p) = self.0.take() {
+            let _ = fs::remove_file(p);
+        }
+    }
+}
+
+/// RAII 临时目录守卫：无论解压或写回成功与否，退出作用域必清理 `.restore-staging-*`
+struct TempDirGuard(PathBuf);
+impl Drop for TempDirGuard {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
 fn create_snapshot_zip_for_categories(
     bdir: &Path,
     kind: &str,
     roots: &ClaudeDataRoots,
     selected_categories: Option<&std::collections::HashSet<String>>,
 ) -> Result<BackupInfo, String> {
+    create_snapshot_zip_for_categories_inner(bdir, kind, roots, selected_categories)
+        .map(|(info, _)| info)
+}
+
+fn create_snapshot_zip_for_categories_inner(
+    bdir: &Path,
+    kind: &str,
+    roots: &ClaudeDataRoots,
+    selected_categories: Option<&std::collections::HashSet<String>>,
+) -> Result<(BackupInfo, std::collections::HashSet<PathBuf>), String> {
     let started = std::time::Instant::now();
     fs::create_dir_all(bdir)
         .map_err(|e| format!("[{FD_ERR_BACKUP_TX}] 创建备份目录失败: {e}"))?;
@@ -1286,6 +1332,7 @@ fn create_snapshot_zip_for_categories(
     let file_name = format!("claude-backup-{kind}-{ts}.zip");
     let final_path = bdir.join(&file_name);
     let tmp_path = bdir.join(format!("{file_name}.tmp"));
+    let mut tmp_guard = TempFileGuard::new(tmp_path.clone());
 
     let file = File::create(&tmp_path)
         .map_err(|e| format!("[{FD_ERR_BACKUP_TX}] 创建临时备份 ZIP 失败: {e}"))?;
@@ -1294,6 +1341,7 @@ fn create_snapshot_zip_for_categories(
     let mut total_files = 0usize;
     let mut skipped_cache_files = 0usize;
     let mut skipped_protected_files = 0usize;
+    let mut archived_paths: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
     let mut msix_pkgs: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
 
     for e in &entries {
@@ -1313,6 +1361,7 @@ fn create_snapshot_zip_for_categories(
                 }
                 if write_file_stream_to_zip(&mut zip, &e.abs_path, &e.zip_name, e.size_bytes)? {
                     total_files += 1;
+                    archived_paths.insert(e.abs_path.clone());
                     if let Some(rest) = e.zip_name.strip_prefix("msix/") {
                         if let Some(pkg) = rest.split('/').next() {
                             msix_pkgs.insert(pkg.to_string());
@@ -1348,6 +1397,7 @@ fn create_snapshot_zip_for_categories(
 
     fs::rename(&tmp_path, &final_path)
         .map_err(|e| format!("[{FD_ERR_BACKUP_TX}] 原子提交备份快照失败: {e}"))?;
+    tmp_guard.disarm();
 
     prune_old_backups(bdir, MAX_BACKUP_RETENTION);
 
@@ -1366,15 +1416,18 @@ fn create_snapshot_zip_for_categories(
         ),
         None,
     );
-    Ok(BackupInfo {
-        kind: kind.to_string(),
-        file_name,
-        full_path: final_path.to_string_lossy().to_string(),
-        created_at: now_dt.format("%Y-%m-%d %H:%M:%S").to_string(),
-        created_ts: now_dt.timestamp_millis(),
-        size_bytes,
-        size_label: format_size(size_bytes),
-    })
+    Ok((
+        BackupInfo {
+            kind: kind.to_string(),
+            file_name,
+            full_path: final_path.to_string_lossy().to_string(),
+            created_at: now_dt.format("%Y-%m-%d %H:%M:%S").to_string(),
+            created_ts: now_dt.timestamp_millis(),
+            size_bytes,
+            size_label: format_size(size_bytes),
+        },
+        archived_paths,
+    ))
 }
 
 /// 原子创建带唯一时间戳与来源类型（clean / pre-restore / manual）的 ZIP 快照（向后兼容旧签名）
@@ -1408,6 +1461,13 @@ pub fn backup_and_clean_claude_dirs_selected(
         if attempt < 9 {
             std::thread::sleep(std::time::Duration::from_millis(300));
         }
+    }
+    let remaining_procs = crate::process::list_claude_processes();
+    if !remaining_procs.is_empty() {
+        return Err(format!(
+            "[{FD_ERR_BACKUP_TX}] 仍有 {} 个 Claude 进程无法终止（可能以更高权限运行），为防止备份残缺与句柄锁冲突已中止清理，请先手动关闭 Claude 后重试。",
+            remaining_procs.len()
+        ));
     }
     // 额外等待 200ms 确保 Windows 文件系统句柄彻底释放
     std::thread::sleep(std::time::Duration::from_millis(200));
@@ -1454,14 +1514,19 @@ pub fn backup_and_clean_with_roots_selected(
             .collect(),
     };
 
-    let info = create_snapshot_zip_for_categories(bdir, "clean", roots, Some(&selected_set))?;
+    let (info, archived_paths) =
+        create_snapshot_zip_for_categories_inner(bdir, "clean", roots, Some(&selected_set))?;
 
     let (entries, _) = scan_all_claude_roots(roots);
     let mut removed_files = 0usize;
     let mut freed_bytes = 0u64;
     for e in entries {
-        if let FileDisposition::Category(cid, _) = e.disposition {
+        if let FileDisposition::Category(cid, will_backup) = e.disposition {
             if selected_set.contains(cid) {
+                // BUG-P1-18：对于要求备份的文件（will_backup=true），仅当确实已安全归档进 ZIP 才允许删除，绝不盲删漏备文件
+                if will_backup && !archived_paths.contains(&e.abs_path) {
+                    continue;
+                }
                 if cid == CLEAN_CAT_CLI_AUTH && e.zip_name == "cli/.claude.json" {
                     // 无损清除 ~/.claude.json 中的 oauthAccount 登录态，保留其余个人偏好设置
                     if strip_oauth_account_from_claude_json(&e.abs_path).is_ok() {
@@ -1723,6 +1788,7 @@ pub fn atomic_extract_and_swap_with_roots(
         .join(format!(".restore-staging-{ts}"));
     fs::create_dir_all(&staging_root)
         .map_err(|e| format!("[{FD_ERR_BACKUP_TX}] 创建临时还原目录失败: {e}"))?;
+    let _staging_guard = TempDirGuard(staging_root.clone());
 
     let file = File::open(zip_path)
         .map_err(|e| format!("[{FD_ERR_BACKUP_TX}] 打开备份 ZIP 失败: {e}"))?;
@@ -1802,28 +1868,29 @@ pub fn atomic_extract_and_swap_with_roots(
         }
     }
 
-    // 按文件粒度合并覆盖还原，保留目录内受保护的 vm_bundles、程序本体与用户保留项
-    let merge_into_dest = |src: PathBuf, dest: &Path| -> Result<(), String> {
+    // BUG-P0-14：还原写回目标目录前先清理受控目录内的过期 WAL/LDB/旧日志脏文件（绝不碰受保护目录与软链），再安全写回并拦目标软链穿越
+    let merge_into_dest = |src: PathBuf, dest: &Path, is_classic_local: bool| -> Result<(), String> {
         if !src.exists() {
             return Ok(());
         }
+        purge_restorable_stale_files(&src, dest, is_classic_local)?;
         copy_dir_recursive(&src, dest)
     };
 
     let mut res = Ok(());
     if has_roaming {
         if let Some(dest) = roots.classic_roaming.as_deref() {
-            res = res.and_then(|_| merge_into_dest(staging_root.join("roaming"), dest));
+            res = res.and_then(|_| merge_into_dest(staging_root.join("roaming"), dest, false));
         }
     }
     if has_local {
         if let Some(dest) = roots.classic_local.as_deref() {
-            res = res.and_then(|_| merge_into_dest(staging_root.join("local"), dest));
+            res = res.and_then(|_| merge_into_dest(staging_root.join("local"), dest, true));
         }
     }
     if has_telemetry {
         if let Some(dest) = roots.telemetry.as_deref() {
-            res = res.and_then(|_| merge_into_dest(staging_root.join("telemetry"), dest));
+            res = res.and_then(|_| merge_into_dest(staging_root.join("telemetry"), dest, false));
         }
     }
     if has_cli {
@@ -1832,6 +1899,7 @@ pub fn atomic_extract_and_swap_with_roots(
             let src = cli_stage.join(".claude.json");
             if src.exists() {
                 res = res.and_then(|_| {
+                    ensure_not_symlink_target(dest)?;
                     fs::copy(&src, dest)
                         .map(|_| ())
                         .map_err(|e| format!("[{FD_ERR_BACKUP_TX}] 还原 .claude.json 失败: {e}"))
@@ -1846,6 +1914,7 @@ pub fn atomic_extract_and_swap_with_roots(
                         fs::create_dir_all(parent)
                             .map_err(|e| format!("[{FD_ERR_BACKUP_TX}] 创建 .claude 目录失败: {e}"))?;
                     }
+                    ensure_not_symlink_target(dest)?;
                     fs::copy(&src, dest)
                         .map(|_| ())
                         .map_err(|e| format!("[{FD_ERR_BACKUP_TX}] 还原 .credentials.json 失败: {e}"))
@@ -1855,7 +1924,7 @@ pub fn atomic_extract_and_swap_with_roots(
         if let Some(dest) = roots.cli_backups_dir.as_deref() {
             let src = cli_stage.join(".claude").join("backups");
             if src.exists() {
-                res = res.and_then(|_| merge_into_dest(src, dest));
+                res = res.and_then(|_| merge_into_dest(src, dest, false));
             }
         }
     }
@@ -1876,7 +1945,7 @@ pub fn atomic_extract_and_swap_with_roots(
             });
         if let Some(dest) = target_dest {
             let src = staging_root.join("msix").join(&pkg).join(&kind);
-            res = res.and_then(|_| merge_into_dest(src, &dest));
+            res = res.and_then(|_| merge_into_dest(src, &dest, false));
         }
     }
     for pkg in claude_data_buckets {
@@ -1888,16 +1957,101 @@ pub fn atomic_extract_and_swap_with_roots(
             .or_else(|| data_local_dir_for_msix.map(|base| base.join("Claude-Data").join(&pkg)));
         if let Some(dest) = target_dest {
             let src = staging_root.join("claude-data").join(&pkg);
-            res = res.and_then(|_| merge_into_dest(src, &dest));
+            res = res.and_then(|_| merge_into_dest(src, &dest, false));
         }
     }
 
-    let _ = fs::remove_dir_all(&staging_root);
     res?;
     Ok(extracted)
 }
 
+/// 校验目标路径不是符号链接 / Junction，杜绝还原写回时软链穿越覆盖外部系统文件
+fn ensure_not_symlink_target(path: &Path) -> Result<(), String> {
+    if let Ok(meta) = fs::symlink_metadata(path) {
+        if meta.file_type().is_symlink() {
+            return Err(format!(
+                "[{FD_ERR_BACKUP_TX}] 检测到还原目标为符号链接/Junction，已安全拦截: {}",
+                path.display()
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// 清理将被本次还原覆盖的同级目录内的新增脏文件（如 SQLite `-wal`/`-shm`、LevelDB `.ldb` 与旧日志），
+/// 严格跳过所有受保护目录（`vm_bundles`、程序本体、用户 MCP/会话目录）及任何软链，避免混合残留损坏数据库。
+fn purge_restorable_stale_files(src: &Path, dst: &Path, is_classic_local: bool) -> Result<(), String> {
+    ensure_not_symlink_target(dst)?;
+    if !dst.is_dir() {
+        return Ok(());
+    }
+    let Ok(src_entries) = fs::read_dir(src) else {
+        return Ok(());
+    };
+    for ent in src_entries.flatten() {
+        let name = ent.file_name();
+        let name_str = name.to_string_lossy();
+        let lower = name_str.to_ascii_lowercase();
+        if is_protected_dir_name(&lower, is_classic_local).is_some()
+            || is_mcp_or_session_dir(&lower)
+        {
+            continue;
+        }
+        let sp = ent.path();
+        let dp = dst.join(&name);
+        if sp.is_dir() {
+            if dp.exists() {
+                ensure_not_symlink_target(&dp)?;
+                if dp.is_dir() {
+                    // 若目标子目录为易损数据库/日志目录（Network/Local Storage/Session Storage/IndexedDB/logs/leveldb），清空其中的过期残片
+                    let is_db_or_log_dir = matches!(
+                        lower.as_str(),
+                        "network"
+                            | "local storage"
+                            | "session storage"
+                            | "indexeddb"
+                            | "leveldb"
+                            | "logs"
+                            | "databases"
+                    );
+                    if is_db_or_log_dir {
+                        if let Ok(rd) = fs::read_dir(&dp) {
+                            for child in rd.flatten() {
+                                let cp = child.path();
+                                if let Ok(cm) = fs::symlink_metadata(&cp) {
+                                    if cm.file_type().is_symlink() {
+                                        continue;
+                                    }
+                                    if cm.is_dir() {
+                                        let _ = fs::remove_dir_all(&cp);
+                                    } else {
+                                        let _ = fs::remove_file(&cp);
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        purge_restorable_stale_files(&sp, &dp, is_classic_local)?;
+                    }
+                }
+            }
+        } else {
+            // 若是 SQLite 主文件（如 Cookies / Preferences），同步清除同级可能残留的 -wal / -shm / -journal 伴生文件
+            for suffix in ["-wal", "-shm", "-journal"] {
+                let sidecar = dst.join(format!("{name_str}{suffix}"));
+                if let Ok(sm) = fs::symlink_metadata(&sidecar) {
+                    if !sm.file_type().is_symlink() && sm.is_file() {
+                        let _ = fs::remove_file(&sidecar);
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
+    ensure_not_symlink_target(dst)?;
     fs::create_dir_all(dst).map_err(|e| format!("[{FD_ERR_BACKUP_TX}] 创建还原目标目录失败: {e}"))?;
     for entry in fs::read_dir(src)
         .map_err(|e| format!("[{FD_ERR_BACKUP_TX}] 读取临时目录失败: {e}"))?
@@ -1905,6 +2059,7 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
     {
         let sp = entry.path();
         let dp = dst.join(entry.file_name());
+        ensure_not_symlink_target(&dp)?;
         if sp.is_dir() {
             copy_dir_recursive(&sp, &dp)?;
         } else {
@@ -2110,10 +2265,13 @@ pub fn export_ai_diagnostic_bundle(
     let out_dir = dirs::desktop_dir()
         .or_else(dirs::home_dir)
         .unwrap_or_else(|| PathBuf::from("."));
-    let ts = chrono::Local::now().format("%Y%m%d-%H%M");
+    // BUG-P2-05：精确到秒且先写临时文件再原子重命名，防同分钟覆盖与中途损坏
+    let ts = chrono::Local::now().format("%Y%m%d-%H%M%S");
     let zip_path = out_dir.join(format!("FDClaudeGuard-诊断包-{ts}.zip"));
+    let tmp_path = out_dir.join(format!("FDClaudeGuard-诊断包-{ts}.zip.tmp"));
+    let mut tmp_guard = TempFileGuard::new(tmp_path.clone());
 
-    let file = File::create(&zip_path).map_err(|e| format!("创建诊断包 ZIP 失败: {e}"))?;
+    let file = File::create(&tmp_path).map_err(|e| format!("创建诊断包 ZIP 失败: {e}"))?;
     let mut zip = ZipWriter::new(file);
     let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
 
@@ -2158,6 +2316,9 @@ pub fn export_ai_diagnostic_bundle(
 
     zip.finish()
         .map_err(|e| format!("封存诊断包 ZIP 失败: {e}"))?;
+    fs::rename(&tmp_path, &zip_path)
+        .map_err(|e| format!("原子提交诊断包 ZIP 失败: {e}"))?;
+    tmp_guard.disarm();
 
     crate::logger::log_event(
         "INFO",
@@ -2619,10 +2780,10 @@ mod tests {
 
     #[test]
     fn sanitize_sensitive_text_preserves_masked_email_and_redacts_plain_email() {
-        let sample = "account=yiya***88@qq.com raw=alice.smith@example.com";
+        let sample = "account=demo***88@example.com raw=alice.smith@example.com";
         let sanitized = sanitize_sensitive_text(sample);
         assert!(
-            sanitized.contains("yiya***88@qq.com"),
+            sanitized.contains("demo***88@example.com"),
             "已含 *** 的脱敏邮箱应原样保留便于排障，实得: {sanitized}"
         );
         assert!(
@@ -2630,5 +2791,58 @@ mod tests {
             "明文邮箱必须被打码，实得: {sanitized}"
         );
         assert!(sanitized.contains(REDACT_PLACEHOLDER));
+    }
+
+    #[test]
+    fn sanitize_redacts_camel_tokens_api_keys_and_proxy_userinfo() {
+        let sample = r#"{"accessToken":"eyAbc123456789","refreshToken":"rt_secret_999","idToken":"id_tok_xyz"} ANTHROPIC_API_KEY=secret_key_val123 proxy=http://alice:superpass@127.0.0.1:7897 socks5://bob:pw123@10.0.0.2:1080"#;
+        let out = sanitize_sensitive_text(sample);
+        for leaked in [
+            "eyAbc123456789",
+            "rt_secret_999",
+            "id_tok_xyz",
+            "secret_key_val123",
+            "alice:superpass",
+            "bob:pw123",
+        ] {
+            assert!(!out.contains(leaked), "敏感字段 {leaked} 必须脱敏，实得: {out}");
+        }
+        assert!(out.contains("127.0.0.1:7897"), "脱敏账密后应保留本机代理端口便于排障: {out}");
+    }
+
+    #[test]
+    fn atomic_restore_purges_stale_wal_and_preserves_protected_vm() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bdir = tmp.path().join("backups");
+        let roaming = tmp.path().join("roaming");
+        fs::create_dir_all(roaming.join("Network")).unwrap();
+        fs::create_dir_all(roaming.join("vm_bundles")).unwrap();
+        fs::write(roaming.join("Network").join("Cookies"), b"v1-cookies").unwrap();
+        fs::write(roaming.join("vm_bundles").join("vm.vhdx"), b"keep-vm").unwrap();
+
+        let roots = ClaudeDataRoots {
+            classic_roaming: Some(roaming.clone()),
+            ..Default::default()
+        };
+        let snap = create_snapshot_zip_with_roots(&bdir, "manual", &roots).unwrap();
+
+        // 备份后模拟产生脏 WAL 文件与新污染日志
+        fs::write(roaming.join("Network").join("Cookies-wal"), b"dirty-wal").unwrap();
+        fs::write(roaming.join("Network").join("Cookies"), b"v2-dirty").unwrap();
+
+        atomic_extract_and_swap_with_roots(Path::new(&snap.full_path), &roots, None).unwrap();
+        assert_eq!(
+            fs::read(roaming.join("Network").join("Cookies")).unwrap(),
+            b"v1-cookies"
+        );
+        assert!(
+            !roaming.join("Network").join("Cookies-wal").exists(),
+            "还原后必须清除过期 SQLite -wal 脏文件"
+        );
+        assert_eq!(
+            fs::read(roaming.join("vm_bundles").join("vm.vhdx")).unwrap(),
+            b"keep-vm",
+            "受保护的 vm_bundles 必须 100% 完好无损"
+        );
     }
 }

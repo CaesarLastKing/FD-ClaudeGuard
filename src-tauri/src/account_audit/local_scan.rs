@@ -193,17 +193,23 @@ pub fn read_text_shared(path: &Path) -> std::io::Result<String> {
     Ok(buf)
 }
 
-/// 共享只读读取大日志文件尾部（上限 `max_bytes`）
+/// 共享只读读取大日志文件尾部（上限 `max_bytes`，使用 `take().read_to_end` 防并发截断 UnexpectedEof）
 pub fn read_tail_shared(path: &Path, max_bytes: u64) -> std::io::Result<String> {
     let mut f = open_shared_readonly(path)?;
     let len = f.metadata()?.len();
-    let read_len = len.min(max_bytes) as usize;
-    if len > max_bytes {
+    let truncated = len > max_bytes;
+    if truncated {
         f.seek(SeekFrom::Start(len - max_bytes))?;
     }
-    let mut bytes = vec![0u8; read_len];
-    f.read_exact(&mut bytes)?;
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
+    let mut bytes = Vec::with_capacity(len.min(max_bytes) as usize);
+    f.take(max_bytes).read_to_end(&mut bytes)?;
+    let text = String::from_utf8_lossy(&bytes);
+    if truncated {
+        if let Some((_, rest)) = text.split_once('\n') {
+            return Ok(rest.to_string());
+        }
+    }
+    Ok(text.into_owned())
 }
 
 // ==================== 白名单凭据结构（编译期绝不定义 accessToken / refreshToken） ====================
@@ -363,6 +369,9 @@ pub struct DesktopLogsSummary {
     pub discovered_dirs: Vec<String>,
     pub scanned_log_files: usize,
     pub org_id_prefixes: Vec<String>,
+    /// 按最新活跃时间/桌面端 lastActiveOrg 识别出的当前最近登录组织 8 位前缀（避免 BTreeSet 字母序把新号排在老号后面）
+    #[serde(default)]
+    pub latest_active_org_prefix: Option<String>,
     /// `Claude-Data` 下 `local-agent-mode-sessions` / `claude-code-sessions` 中残留的旧账号/组织目录前缀（不触碰内容，仅提示防连坐）
     #[serde(default)]
     pub session_dir_org_prefixes: Vec<String>,
@@ -1453,6 +1462,8 @@ pub fn scan_desktop_logs(roots: &[DesktopDataRoot]) -> DesktopLogsSummary {
 
     let mut summary = DesktopLogsSummary::default();
     let mut org_set: BTreeSet<String> = BTreeSet::new();
+    let mut config_active_org: Option<String> = None;
+    let mut latest_log_org: Option<(String, String)> = None; // (ts_str, org_prefix8)
     let mut session_dir_set: BTreeSet<String> = BTreeSet::new();
     let mut sample_map: BTreeMap<String, LocalLogSample> = BTreeMap::new();
 
@@ -1507,7 +1518,10 @@ pub fn scan_desktop_logs(roots: &[DesktopDataRoot]) -> DesktopLogsSummary {
                             }
                             if k == "orgUuid" || k == "lastActiveOrg" {
                                 if let Some(p8) = prefix8(v.as_str()) {
-                                    org_set.insert(p8);
+                                    org_set.insert(p8.clone());
+                                    if k == "lastActiveOrg" || config_active_org.is_none() {
+                                        config_active_org = Some(p8);
+                                    }
                                 }
                             }
                         }
@@ -1569,6 +1583,30 @@ pub fn scan_desktop_logs(roots: &[DesktopDataRoot]) -> DesktopLogsSummary {
                 let lower = trimmed.to_ascii_lowercase();
                 let line_no = idx + 1;
 
+                // 跟踪日志中最晚出现且非 Portal 历史跳转的活跃 orgId，确保新号切登后能立即压过字母序靠前的老号
+                if !lower.contains("portal.anthropic.com/verify") {
+                    for caps in re_org.captures_iter(trimmed) {
+                        if let Some(m) = caps.get(1) {
+                            let p8: String = m.as_str().chars().take(8).collect();
+                            let p8_low = p8.to_ascii_lowercase();
+                            if p8_low.len() == 8 {
+                                let ts_key = if last_ts.is_empty() {
+                                    "0000-00-00 00:00:00".to_string()
+                                } else {
+                                    last_ts.clone()
+                                };
+                                let should_update = latest_log_org
+                                    .as_ref()
+                                    .map(|(prev_ts, _)| ts_key >= *prev_ts)
+                                    .unwrap_or(true);
+                                if should_update {
+                                    latest_log_org = Some((ts_key, p8_low));
+                                }
+                            }
+                        }
+                    }
+                }
+
                 let mut push_sample = |cat: &str, sample_line: &str| {
                     let key = format!("{cat}:{fname}");
                     let sanitized = crate::maintenance::sanitize_sensitive_text(sample_line);
@@ -1591,7 +1629,11 @@ pub fn scan_desktop_logs(roots: &[DesktopDataRoot]) -> DesktopLogsSummary {
                     entry.file_ref = format!("{fname}:{line_no}");
                 };
 
+                // BUG-P1-16：与 watchdog/preflight 三方对齐全部封号与跨号残留特征
                 if lower.contains("account_banned")
+                    || lower.contains("account_suspended")
+                    || lower.contains("organization_disabled")
+                    || lower.contains("ban_evasion")
                     || (lower.contains("permission_error")
                         && (lower.contains("len=130") || lower.contains("len=123")))
                 {
@@ -1614,7 +1656,9 @@ pub fn scan_desktop_logs(roots: &[DesktopDataRoot]) -> DesktopLogsSummary {
                     }
                     push_sample("portal_verify", trimmed);
                 }
-                if lower.contains("orgid") && lower.contains("404") {
+                if (lower.contains("orgid") && lower.contains("404"))
+                    || lower.contains("sessionkey names a different account")
+                {
                     summary.cross_org_404_hits += 1;
                     push_sample("cross_org_404", trimmed);
                 }
@@ -1691,6 +1735,10 @@ pub fn scan_desktop_logs(roots: &[DesktopDataRoot]) -> DesktopLogsSummary {
     }
 
     summary.org_id_prefixes = org_set.into_iter().collect();
+    summary.latest_active_org_prefix = latest_log_org
+        .map(|(_, o)| o)
+        .or(config_active_org)
+        .or_else(|| summary.org_id_prefixes.first().cloned());
     summary.session_dir_org_prefixes = session_dir_set.into_iter().collect();
     summary.cached_usage = scan_desktop_plan_usage(roots);
     summary.recent_samples = sample_map.into_values().collect();

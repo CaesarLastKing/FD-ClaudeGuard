@@ -34,8 +34,9 @@ use crate::mihomo::{
     fetch_configs, fetch_proxies_raw, fetch_proxy_group_now, get_deep_audit_progress,
     get_fresh_verified_record, invalidate_verified_node_record, is_blocked_node_name,
     is_deep_audit_cancelled, is_deep_audit_running, probe_single_node_deep_via_proxy,
-    request_cancel_deep_audit, reset_deep_audit_cancel, select_proxy_in_group,
-    set_deep_audit_progress, DeepAuditProgress, NodeReport,
+    release_deep_audit_lock, request_cancel_deep_audit, reset_deep_audit_cancel,
+    select_proxy_in_group, set_deep_audit_progress, try_acquire_deep_audit_lock,
+    DeepAuditProgress, NodeReport,
 };
 use crate::preflight::{
     execute_fix_item, execute_one_click_fix_all, run_all_preflight_checks, BatchFixResult,
@@ -53,7 +54,9 @@ use crate::rollback::{
     run_network_emergency_rescue, NetworkRescueReport, RollbackActionReport, RollbackBatchReport,
     RollbackOverview,
 };
-use crate::startup_audit::audit_windows_startup_items;
+use crate::startup_audit::{
+    audit_windows_startup_items, is_windows_autostart_task_enabled, sync_windows_autostart_task,
+};
 use crate::state::{
     AppState, CheckPart, CheckStatus, GuardSnapshot, HudEventLine, NavigatePayload,
     PreflightReport, StartupAuditReport,
@@ -76,7 +79,7 @@ use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Size, State, WebviewUrl,
     WebviewWindowBuilder, WindowEvent,
 };
-use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
+use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_notification::NotificationExt;
 
 const HUD_WIDTH: f64 = 360.0; // 348px 卡片 + 两侧 6px 阴影留边
@@ -276,7 +279,7 @@ async fn apply_post_preflight_runtime_risk(
                 None,
             );
             let ks = trigger_four_layer_killswitch(&reason, anti_flush_on).await;
-            acquire_kill_hold_tx(app, state, "预检命中 A 级致命泄露故障热熔断防复活盯防");
+            acquire_killswitch_tx_once(app, state, "预检命中 A 级致命泄露故障热熔断防复活盯防");
             if let Ok(mut guard) = state.killswitch.write() {
                 *guard = ks.clone();
             }
@@ -567,29 +570,25 @@ fn update_config(
     let hud_docked_changed = patch.hud_edge_docked;
     let patch_summary = format!("{patch:?}");
 
+    // 若涉及开机自启变更，先通过 Windows 高权限计划任务真实注册/卸载，失败立即报错绝不静默假成功
+    if let Some(enable) = boot_changed {
+        if let Err(err) = sync_windows_autostart_task(enable) {
+            logger::log_warn("autostart", format!("同步 Windows 高权限开机自启计划任务失败: {err}"));
+            return Err(err);
+        }
+    }
+
     let updated = {
         let mut guard = state
             .config
             .write()
             .map_err(|_| "写入配置锁失败".to_string())?;
         guard.apply_patch(patch);
-        save_config(&state.config_path, &guard)?;
         guard.clone()
     };
+    save_config(&state.config_path, &updated)?;
 
     logger::log_info("config", format!("配置已更新并持久化: {patch_summary}"));
-
-    if let Some(enable) = boot_changed {
-        let autostart = app.autolaunch();
-        let res = if enable {
-            autostart.enable()
-        } else {
-            autostart.disable()
-        };
-        if let Err(err) = res {
-            logger::log_warn("autostart", format!("同步 Windows 开机自启状态失败: {err}"));
-        }
-    }
 
     if let Some(show) = show_hud_changed {
         if let Some(hud) = app.get_webview_window("hud") {
@@ -632,18 +631,6 @@ fn update_config(
 
     let _ = app.emit("guard://config-changed", updated.clone());
     Ok(updated)
-}
-
-#[tauri::command]
-fn save_hud_position(state: State<'_, AppState>, x: i32, y: i32) -> Result<(), String> {
-    let mut guard = state
-        .config
-        .write()
-        .map_err(|_| "写入配置锁失败".to_string())?;
-    guard.hud_position = Some(WindowPos { x, y });
-    save_config(&state.config_path, &guard)?;
-    logger::log_info("hud", format!("悬浮窗坐标已保存: ({x}, {y})"));
-    Ok(())
 }
 
 /// 读取 Windows「辅助功能 → 文本大小」缩放倍率（HKCU\Software\Microsoft\Accessibility\TextScaleFactor）
@@ -864,17 +851,36 @@ fn toggle_hud_window(
     Ok(target)
 }
 
-/// 立即隐藏所有窗口与托盘图标并干净退出进程（避免 WebView2 / 防火墙同步清理造成 5~10 秒假死拖尾）
+/// 立即隐藏所有窗口与托盘图标并干净退出进程（若防火墙清理失败则记录告警，绝不静默丢弃错误）
 fn fast_hide_and_exit(app: &AppHandle, should_cleanup_fw: bool, log_msg: &str) {
+    if should_cleanup_fw {
+        if let Err(err) = cleanup_all_guard_firewall_rules() {
+            logger::log_event(
+                "ERROR",
+                "lifecycle",
+                "exit_firewall_cleanup_failed",
+                None,
+                format!("退出前清理防火墙阻断规则失败，已中止静默退出以防 Claude 永久断网: {err}"),
+                None,
+            );
+            let _ = app
+                .notification()
+                .builder()
+                .title("FD Claude Guard 退出被拦截：防火墙规则未清除")
+                .body(format!(
+                    "未能清除出站阻断规则（{err}）。请先以管理员身份解除熔断或使用「网络急救」后再退出，避免 Claude 永久断网。"
+                ))
+                .show();
+            let _ = show_main_window(app.clone(), Some("console".into()), None, None, None);
+            return;
+        }
+    }
     for label in ["main", "hud"] {
         if let Some(win) = app.get_webview_window(label) {
             let _ = win.hide();
         }
     }
     let _ = app.remove_tray_by_id("fd-claude-guard-tray");
-    if should_cleanup_fw {
-        let _ = cleanup_all_guard_firewall_rules();
-    }
     logger::log_info("lifecycle", log_msg);
     app.exit(0);
     // 兜底硬退出：确保后台 tokio 协程与 WebView2 句柄不拖尾残留进程
@@ -891,13 +897,6 @@ fn quit_app(app: AppHandle, state: State<'_, AppState>, kill_claude_first: Optio
         .read()
         .map(|k| k.active)
         .unwrap_or(false);
-    // 先立即隐藏窗口与托盘，视觉 0ms 响应
-    for label in ["main", "hud"] {
-        if let Some(win) = app.get_webview_window(label) {
-            let _ = win.hide();
-        }
-    }
-    let _ = app.remove_tray_by_id("fd-claude-guard-tray");
 
     let app_clone = app.clone();
     std::thread::spawn(move || {
@@ -906,8 +905,33 @@ fn quit_app(app: AppHandle, state: State<'_, AppState>, kill_claude_first: Optio
         }
         let need_fw_clean = ks_active || has_active_guard_firewall_rules();
         if need_fw_clean {
-            let _ = cleanup_all_guard_firewall_rules();
+            if let Err(err) = cleanup_all_guard_firewall_rules() {
+                logger::log_event(
+                    "ERROR",
+                    "lifecycle",
+                    "quit_firewall_cleanup_failed",
+                    None,
+                    format!("安全退出时清理防火墙规则失败，中止退出: {err}"),
+                    None,
+                );
+                let _ = app_clone
+                    .notification()
+                    .builder()
+                    .title("退出失败：无法清除防火墙熔断规则")
+                    .body(format!(
+                        "{err}。请先手动解除熔断或以管理员身份运行后再退出。"
+                    ))
+                    .show();
+                let _ = show_main_window(app_clone.clone(), Some("console".into()), None, None, None);
+                return;
+            }
         }
+        for label in ["main", "hud"] {
+            if let Some(win) = app_clone.get_webview_window(label) {
+                let _ = win.hide();
+            }
+        }
+        let _ = app_clone.remove_tray_by_id("fd-claude-guard-tray");
         logger::log_info(
             "lifecycle",
             format!(
@@ -986,6 +1010,7 @@ async fn run_preflight_checks(
     if let Ok(mut ts) = state.last_preflight_at.write() {
         *ts = Some(Instant::now());
     }
+    state.initial_preflight_done.store(true, Ordering::Release);
     if let Ok(mut snap) = state.snapshot.write() {
         *snap = bundle.snapshot.clone();
     }
@@ -1018,6 +1043,7 @@ async fn fix_preflight_item(
     if let Ok(mut ts) = state.last_preflight_at.write() {
         *ts = Some(Instant::now());
     }
+    state.initial_preflight_done.store(true, Ordering::Release);
     if let Ok(mut snap) = state.snapshot.write() {
         *snap = result.snapshot.clone();
     }
@@ -1073,6 +1099,7 @@ async fn one_click_fix_all(
     if let Ok(mut ts) = state.last_preflight_at.write() {
         *ts = Some(Instant::now());
     }
+    state.initial_preflight_done.store(true, Ordering::Release);
     if let Ok(mut snap) = state.snapshot.write() {
         *snap = result.snapshot.clone();
     }
@@ -1130,22 +1157,31 @@ async fn safe_launch_claude(
         return Err(msg);
     }
     let _gate = state.preflight_gate.lock().await;
-    logger::log_info("launch", "收到安全启动 Claude 请求，先解除盯防锁并执行启动前二次复核");
-    // T-031：点击「安全启动 Claude」时第一时间取消 Kill-Hold 防复活盯防锁（非熔断态下绝不拦用户健康启动）
+
+    // 强门禁：若熔断仍处于激活态或 Defender 仍有本工具阻断规则，直接拦截，绝不拉起被断网的 Claude 也不拆盯防锁
     let ks_active_now = state
         .killswitch
         .read()
         .map(|k| k.active)
         .unwrap_or(false);
-    if !ks_active_now {
-        release_kill_hold_internal(&app, &state, "用户点击安全启动 Claude，立即解除防复活盯防锁");
+    let fw_blocked_now = tokio::task::spawn_blocking(has_active_guard_firewall_rules)
+        .await
+        .unwrap_or(false);
+    if ks_active_now || fw_blocked_now {
+        let msg = "启动门禁拦截：当前仍处于防火墙熔断阻断态，请先点击「解除熔断并放行出站」确认网络恢复后再安全启动 Claude。".to_string();
+        logger::log_warn("launch", &msg);
+        return Err(msg);
     }
+
+    logger::log_info("launch", "收到安全启动 Claude 请求，正在执行启动前全量二次复核");
     let cfg = state
         .config
         .read()
         .map_err(|_| "读取配置锁失败".to_string())?
         .clone();
-    let bg_procs = list_claude_processes().len() as u32;
+    let bg_procs = tokio::task::spawn_blocking(|| list_claude_processes().len() as u32)
+        .await
+        .unwrap_or(0);
 
     let mut bundle = run_all_preflight_checks(&cfg, bg_procs).await;
     persist_baseline_if_needed(
@@ -1164,10 +1200,20 @@ async fn safe_launch_claude(
     if let Ok(mut ts) = state.last_preflight_at.write() {
         *ts = Some(Instant::now());
     }
+    state.initial_preflight_done.store(true, Ordering::Release);
     if let Ok(mut snap) = state.snapshot.write() {
         *snap = bundle.snapshot.clone();
     }
     let _ = app.emit("guard://snapshot", bundle.snapshot.clone());
+
+    // 二次复核后再次确认未在复核期间转入熔断
+    if bundle.snapshot.kill_switch_active
+        || state.killswitch.read().map(|k| k.active).unwrap_or(false)
+    {
+        let msg = "启动门禁拦截：二次复核期间已触发热熔断，请先排查代理并解除熔断后再启动。".to_string();
+        logger::log_warn("launch", &msg);
+        return Err(msg);
+    }
 
     let failed: Vec<String> = bundle
         .report
@@ -1188,21 +1234,24 @@ async fn safe_launch_claude(
 
     #[cfg(windows)]
     {
-        if let Some(exe) = crate::process::resolve_claude_exe_path() {
-            // 增量 17：点击「安全启动 Claude」时在拉起前自动优雅释放 Kill-Hold 防复活锁
-            release_kill_hold_internal(&app, &state, "安全启动 Claude 前自动优雅释放防复活盯防锁");
+        let exe_opt = tokio::task::spawn_blocking(crate::process::resolve_claude_exe_path)
+            .await
+            .unwrap_or(None);
+        if let Some(exe) = exe_opt {
+            // 仅在全部必须项复核通过且无熔断后，真正拉起前优雅释放 Kill-Hold 防复活锁
+            release_kill_hold_internal(&app, &state, "安全启动 Claude 复核通过，优雅释放防复活盯防锁");
             std::process::Command::new(&exe)
                 .spawn()
                 .map_err(|e| format!("拉起 Claude Desktop 失败: {e}"))?;
             logger::log_info("launch", format!("安全拉起 Claude Desktop 成功: {}", exe.display()));
             return Ok("全部必须项复核通过，已优雅释放防复活盯防锁并安全拉起 Claude Desktop。".into());
         }
-        return Err("全部必须项已通过，但本机未找到已安装的 Claude Desktop 可执行程序（可安全运行 Claude Code CLI）。".into());
+        Err("全部必须项已通过，但本机未找到已安装的 Claude Desktop 可执行程序（可安全运行 Claude Code CLI）。".into())
     }
 
     #[cfg(not(windows))]
     {
-        release_kill_hold_internal(&app, &state, "安全启动 Claude 前自动优雅释放防复活盯防锁");
+        release_kill_hold_internal(&app, &state, "安全启动 Claude 复核通过，优雅释放防复活盯防锁");
         Ok("全部必须项复核通过。".into())
     }
 }
@@ -1320,6 +1369,7 @@ async fn switch_locked_node(
     if let Ok(mut ts) = state.last_preflight_at.write() {
         *ts = Some(Instant::now());
     }
+    state.initial_preflight_done.store(true, Ordering::Release);
     if let Ok(mut snap) = state.snapshot.write() {
         *snap = bundle.snapshot.clone();
     }
@@ -1334,21 +1384,31 @@ async fn switch_locked_node(
     })
 }
 
+/// RAII 深度核验原子锁守卫：无论提前 return 还是异常退出，保证释放单飞锁不永锁
+struct DeepAuditLockGuard;
+impl Drop for DeepAuditLockGuard {
+    fn drop(&mut self) {
+        release_deep_audit_lock();
+    }
+}
+
 /// 统一后台深度核验调度器：
-/// - 仅在 Claude 进程 == 0 且存在 Claude-Fixed 时执行；
+/// - 仅在 Claude 进程 == 0 且存在 Claude-Fixed 且未脱组（非 direct/GLOBAL 脱组）时执行；
 /// - 永远将当前选中节点排第 1 位优先核验，随后按 1.2s 慢速逐个实测其余节点并落盘；
-/// - 全程仅临时切换 Claude-Fixed（绝不触碰DemoAirport等其他策略组），结束/取消/异常 100% 恢复原锁定节点并刷新控制台。
+/// - 全程仅临时切换 Claude-Fixed（绝不触碰其他策略组），结束/取消/异常 100% 恢复原锁定节点（除非期间用户手动切节点）并刷新控制台。
 fn spawn_deep_node_audit_task(
     app: AppHandle,
     force_all: bool,
     target_node: Option<String>,
     auto_silent: bool,
 ) -> Result<DeepAuditProgress, String> {
-    if is_deep_audit_running() {
+    // BUG-P1-10：原子抢占单飞锁，杜绝前端并发双击触发双核验协程互抢节点
+    if !try_acquire_deep_audit_lock() {
         return Ok(get_deep_audit_progress());
     }
     let bg_procs = list_claude_processes().len() as u32;
     if bg_procs > 0 {
+        release_deep_audit_lock();
         let msg = format!(
             "检测到 {bg_procs} 个 Claude 进程运行中，为防止串 IP 封号已跳过深度核验；请先退出 Claude 后再核验。"
         );
@@ -1381,6 +1441,7 @@ fn spawn_deep_node_audit_task(
     let app_bg = app.clone();
     let audit_gen = MANUAL_NODE_SWITCH_GEN.load(std::sync::atomic::Ordering::SeqCst);
     tauri::async_runtime::spawn(async move {
+        let _lock_guard = DeepAuditLockGuard;
         let Some(ep) = discover_endpoint().await else {
             let done = DeepAuditProgress {
                 running: false,
@@ -1405,6 +1466,40 @@ fn spawn_deep_node_audit_task(
             return;
         };
 
+        // BUG-P1-10：前置校验代理模式非 direct 且 GLOBAL 未脱组，防止脱组期间实测全量串线污染 24h 磁盘缓存
+        let m_cfg_opt = fetch_configs(&ep).await.ok();
+        if let Some(ref m_cfg) = m_cfg_opt {
+            if m_cfg.mode.eq_ignore_ascii_case("direct") {
+                let done = DeepAuditProgress {
+                    running: false,
+                    phase: "blocked".into(),
+                    message: "当前 Clash 处于全局直连 (DIRECT) 模式，为防止直连污染节点缓存已拒绝核验，请先切回「规则」模式。".into(),
+                    ..Default::default()
+                };
+                set_deep_audit_progress(done.clone());
+                let _ = app_bg.emit("guard://node-audit-progress", done);
+                return;
+            }
+            if m_cfg.mode.eq_ignore_ascii_case("global") {
+                let global_now = extract_proxy_group(&proxies, "GLOBAL")
+                    .map(|g| g.now)
+                    .unwrap_or_default();
+                if !global_now.eq_ignore_ascii_case("Claude-Fixed") {
+                    let done = DeepAuditProgress {
+                        running: false,
+                        phase: "blocked".into(),
+                        message: format!(
+                            "当前 Clash 处于 GLOBAL 模式但指向「{global_now}」（未锁至 Claude-Fixed），为防串线污染缓存已跳过核验。"
+                        ),
+                        ..Default::default()
+                    };
+                    set_deep_audit_progress(done.clone());
+                    let _ = app_bg.emit("guard://node-audit-progress", done);
+                    return;
+                }
+            }
+        }
+
         // 仅针对本工具生成的 Claude-Fixed 策略组执行逐个核验（首次安装尚未建组时安静跳过）
         let Some(group) = extract_proxy_group(&proxies, "Claude-Fixed") else {
             let done = DeepAuditProgress {
@@ -1419,9 +1514,9 @@ fn spawn_deep_node_audit_task(
         };
 
         let original_node = group.now.clone();
-        let mixed_port = match fetch_configs(&ep).await {
-            Ok(c) => c.mixed_port,
-            Err(_) => crate::preflight::resolve_active_mixed_port().await,
+        let mixed_port = match m_cfg_opt {
+            Some(c) => c.mixed_port,
+            None => crate::preflight::resolve_active_mixed_port().await,
         };
 
         let mut candidates: Vec<String> = group
@@ -1498,7 +1593,9 @@ fn spawn_deep_node_audit_task(
         );
 
         for (idx, node_name) in queue.iter().enumerate() {
-            if is_deep_audit_cancelled() {
+            if is_deep_audit_cancelled()
+                || MANUAL_NODE_SWITCH_GEN.load(std::sync::atomic::Ordering::SeqCst) != audit_gen
+            {
                 cancelled = true;
                 break;
             }
@@ -1520,11 +1617,31 @@ fn spawn_deep_node_audit_task(
             set_deep_audit_progress(step_prog.clone());
             let _ = app_bg.emit("guard://node-audit-progress", step_prog);
 
-            // 仅切换 Claude-Fixed 策略组，绝不触碰DemoAirport等其他主组
+            // 切节点前再次复核代际号与取消标志，严防覆盖用户手动切节点
+            if is_deep_audit_cancelled()
+                || MANUAL_NODE_SWITCH_GEN.load(std::sync::atomic::Ordering::SeqCst) != audit_gen
+            {
+                cancelled = true;
+                break;
+            }
+
+            // 仅切换 Claude-Fixed 策略组，绝不触碰其他主组
             if select_proxy_in_group(&ep, "Claude-Fixed", node_name).await.is_ok() {
                 // 留足 400ms 让 Mihomo 完成新节点（尤其 VLESS/AnyTLS）切流稳定，降低冷握手瞬时超时误杀
                 tokio::time::sleep(Duration::from_millis(400)).await;
+                if is_deep_audit_cancelled()
+                    || MANUAL_NODE_SWITCH_GEN.load(std::sync::atomic::Ordering::SeqCst) != audit_gen
+                {
+                    cancelled = true;
+                    break;
+                }
                 let rec = probe_single_node_deep_via_proxy(node_name, mixed_port).await;
+                // 若探测途中被用户手动切走节点或取消，立即撤销本次落盘结果避免串线污染
+                if MANUAL_NODE_SWITCH_GEN.load(std::sync::atomic::Ordering::SeqCst) != audit_gen {
+                    invalidate_verified_node_record(node_name);
+                    cancelled = true;
+                    break;
+                }
                 if node_name == &original_node {
                     current_node_verified = true;
                 }
@@ -1597,6 +1714,8 @@ fn spawn_deep_node_audit_task(
             current_node_verified: get_fresh_verified_record(&original_node).is_some(),
             message: if claude_interrupted {
                 format!("检测到 Claude 进程启动，已中止核验并恢复锁定节点「{original_node}」")
+            } else if manual_switched {
+                "用户已手动切换节点，核验已中止并保留新选锁定节点".into()
             } else if cancelled {
                 format!("已停止核验并恢复锁定节点「{original_node}」")
             } else {
@@ -1695,6 +1814,7 @@ async fn reset_node_drift_baseline(
     if let Ok(mut ts) = state.last_preflight_at.write() {
         *ts = Some(Instant::now());
     }
+    state.initial_preflight_done.store(true, Ordering::Release);
     if let Ok(mut snap) = state.snapshot.write() {
         *snap = bundle.snapshot.clone();
     }
@@ -1709,7 +1829,15 @@ async fn get_live_connections(
     state: State<'_, AppState>,
 ) -> Result<Vec<ClaudeConn>, String> {
     let conns = get_live_claude_connections().await;
-    let live_anom = conns.iter().filter(|c| c.anomaly).count();
+    let acked = state
+        .acked_flow_ids
+        .read()
+        .map(|s| s.clone())
+        .unwrap_or_default();
+    let live_anom = conns
+        .iter()
+        .filter(|c| c.anomaly && !acked.contains(&c.id))
+        .count();
     if let Ok(mut snap) = state.snapshot.write() {
         let node_issue = usize::from(snap.node_down || snap.node_drift_warn);
         let new_total = live_anom + node_issue;
@@ -1722,6 +1850,45 @@ async fn get_live_connections(
     Ok(conns)
 }
 
+/// BUG-P1-20：将用户确认已处理的实时异常连接 ID 登记到后端状态，立即重算并广播 GuardSnapshot，同步消退侧边栏与 HUD 报警灯
+#[tauri::command]
+async fn ack_flow_anomalies(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    ids: Vec<String>,
+) -> Result<GuardSnapshot, String> {
+    if let Ok(mut acked) = state.acked_flow_ids.write() {
+        for id in ids {
+            if !id.is_empty() {
+                acked.insert(id);
+            }
+        }
+        if acked.len() > 2000 {
+            acked.clear();
+        }
+    }
+    let conns = get_live_claude_connections().await;
+    let acked = state
+        .acked_flow_ids
+        .read()
+        .map(|s| s.clone())
+        .unwrap_or_default();
+    let live_anom = conns
+        .iter()
+        .filter(|c| c.anomaly && !acked.contains(&c.id))
+        .count();
+    let snap_out = if let Ok(mut snap) = state.snapshot.write() {
+        let node_issue = usize::from(snap.node_down || snap.node_drift_warn);
+        snap.live_flow_anomalies = live_anom;
+        snap.active_flow_anomalies = live_anom + node_issue;
+        snap.clone()
+    } else {
+        return Err("更新流量快照锁失败".into());
+    };
+    let _ = app.emit("guard://snapshot", snap_out.clone());
+    Ok(snap_out)
+}
+
 #[tauri::command]
 async fn close_connection(
     app: AppHandle,
@@ -1730,10 +1897,15 @@ async fn close_connection(
 ) -> Result<(), String> {
     logger::log_warn("traffic", format!("手动掐断连接: id={id}"));
     close_mihomo_connection(&id).await?;
+    let acked = state
+        .acked_flow_ids
+        .read()
+        .map(|s| s.clone())
+        .unwrap_or_default();
     let live_anom = get_live_claude_connections()
         .await
         .into_iter()
-        .filter(|c| c.anomaly)
+        .filter(|c| c.anomaly && !acked.contains(&c.id))
         .count();
     if let Ok(mut snap) = state.snapshot.write() {
         let node_issue = usize::from(snap.node_down || snap.node_drift_warn);
@@ -1836,20 +2008,27 @@ async fn trigger_killswitch(
     );
 
     let ks = trigger_four_layer_killswitch(reason_str, anti_flush).await;
-    // 增量 17：熔断激活期间保持事务级防复活锁定，严防 Claude 后台重启偷跑
-    acquire_kill_hold_tx(&app, &state, &format!("熔断事务锁定: {reason_str}"));
+    // 增量 17 + BUG-P0-05：熔断激活期间保持幂等事务级防复活锁定，防止并发/重复熔断泄漏引用计数
+    acquire_killswitch_tx_once(&app, &state, &format!("熔断事务锁定: {reason_str}"));
 
     if let Ok(mut guard) = state.killswitch.write() {
         *guard = ks.clone();
     }
+    let bg_after = tokio::task::spawn_blocking(|| list_claude_processes().len() as u32)
+        .await
+        .unwrap_or(0);
+    let hs_now = state
+        .kill_hold
+        .write()
+        .ok()
+        .map(|mut kh| kh.snapshot_and_sweep(Instant::now()));
     if let Ok(mut snap) = state.snapshot.write() {
         snap.kill_switch_active = ks.active;
         snap.health_level = "danger".into();
         snap.status_label = "已自动熔断".into();
-        snap.bg_claude_procs = list_claude_processes().len() as u32;
-        if let Ok(mut kh) = state.kill_hold.write() {
-            let hs = kh.snapshot_and_sweep(Instant::now());
-            apply_kill_hold_to_snapshot(&mut snap, &hs);
+        snap.bg_claude_procs = bg_after;
+        if let Some(ref hs) = hs_now {
+            apply_kill_hold_to_snapshot(&mut snap, hs);
         }
         snap.hud_events.insert(
             0,
@@ -1908,22 +2087,13 @@ async fn force_release_killswitch(
     } else {
         None
     };
-    release_kill_hold_tx(&app, &state, post_hold);
+    release_killswitch_tx_once(&app, &state, post_hold);
     if let Ok(mut snap) = state.snapshot.write() {
         snap.kill_switch_active = false;
         recompute_snapshot_health_after_ks_clear(&mut snap);
         let _ = app.emit("guard://snapshot", snap.clone());
     }
     Ok(ks)
-}
-
-#[tauri::command]
-fn get_killswitch_state(state: State<'_, AppState>) -> Result<KillSwitchState, String> {
-    let guard = state
-        .killswitch
-        .read()
-        .map_err(|_| "读取熔断状态失败".to_string())?;
-    Ok(guard.clone())
 }
 
 #[tauri::command]
@@ -2290,7 +2460,7 @@ async fn cleanup_all_guard_firewall_rules_cmd(
         ks.firewall_applied = false;
         ks.reason = msg.clone();
     }
-    release_kill_hold_tx(&app, &state, None);
+    release_killswitch_tx_once(&app, &state, None);
     if let Ok(mut snap) = state.snapshot.write() {
         snap.kill_switch_active = false;
         recompute_snapshot_health_after_ks_clear(&mut snap);
@@ -2305,6 +2475,7 @@ async fn confirm_primary_org_binding(
     state: State<'_, AppState>,
     org_id: String,
 ) -> Result<PreflightReport, String> {
+    let _gate = state.preflight_gate.lock().await;
     let updated_cfg = {
         let mut guard = state
             .config
@@ -2315,9 +2486,13 @@ async fn confirm_primary_org_binding(
         } else {
             Some(org_id.trim().to_string())
         };
-        save_config(&state.config_path, &guard)?;
         guard.clone()
     };
+    let cfg_path = state.config_path.clone();
+    let cfg_to_save = updated_cfg.clone();
+    tokio::task::spawn_blocking(move || save_config(&cfg_path, &cfg_to_save))
+        .await
+        .map_err(|e| format!("保存主号绑定调度失败: {e}"))??;
     logger::log_event(
         "INFO",
         "preflight",
@@ -2326,12 +2501,18 @@ async fn confirm_primary_org_binding(
         format!("用户二次确认更新单号卫生锁绑定主号: {}", org_id.trim()),
         None,
     );
-    let bg_procs = list_claude_processes().len() as u32;
+    let bg_procs = tokio::task::spawn_blocking(|| list_claude_processes().len() as u32)
+        .await
+        .unwrap_or(0);
     let mut bundle = run_all_preflight_checks(&updated_cfg, bg_procs).await;
     merge_killswitch_and_log_triggers(&state, &mut bundle.snapshot);
     if let Ok(mut rep) = state.last_report.write() {
         *rep = bundle.report.clone();
     }
+    if let Ok(mut ts) = state.last_preflight_at.write() {
+        *ts = Some(Instant::now());
+    }
+    state.initial_preflight_done.store(true, Ordering::Release);
     if let Ok(mut snap) = state.snapshot.write() {
         *snap = bundle.snapshot.clone();
     }
@@ -2406,14 +2587,18 @@ async fn backup_and_clean_claude(
     // T-031：清理事务完成后立即释放事务锁，不再强挂 45 秒长盯防拦用户重新打开 Claude 登录
     release_kill_hold_tx(&app, &state, None);
     let info = res?;
-    // T-046：勾选清理登录态或日志后，自动解除旧主号绑定，重登新号自动重新绑定（免手工换绑）
+    // T-046：勾选清理登录态或日志后，自动解除旧主号绑定与旧云端主档案缓存，重登新号自动重新绑定（免手工换绑）
     if should_reset_primary_org {
+        crate::account_audit::invalidate_profile_cloud_cache(
+            &crate::account_audit::default_audit_cache_path(),
+            "default",
+        );
         if let Ok(mut cfg) = state.config.write() {
             if cfg.bound_primary_org_id.is_some() {
                 cfg.bound_primary_org_id = None;
                 let _ = save_config(&state.config_path, &cfg);
                 let _ = app.emit("guard://config-changed", cfg.clone());
-                logger::log_info("maintenance", "清理登录态/日志后已自动重置旧 bound_primary_org_id 绑定基线");
+                logger::log_info("maintenance", "清理登录态/日志后已自动重置旧 bound_primary_org_id 与主档案缓存");
             }
         }
     }
@@ -2545,15 +2730,14 @@ async fn open_external_url(url: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn audit_startup_items(state: State<'_, AppState>) -> Result<StartupAuditReport, String> {
-    let guard_enabled = state
-        .config
-        .read()
-        .map(|c| c.boot_start)
-        .unwrap_or(true);
-    tokio::task::spawn_blocking(move || audit_windows_startup_items(guard_enabled))
-        .await
-        .map_err(|e| format!("启动项审计调度失败: {e}"))
+async fn audit_startup_items(_state: State<'_, AppState>) -> Result<StartupAuditReport, String> {
+    tokio::task::spawn_blocking(move || {
+        // 以 Windows 真实高权限计划任务注册状态为准，绝不拿内存默认值假绿
+        let real_guard_enabled = is_windows_autostart_task_enabled();
+        audit_windows_startup_items(real_guard_enabled)
+    })
+    .await
+    .map_err(|e| format!("启动项审计调度失败: {e}"))
 }
 
 #[tauri::command]
@@ -2688,6 +2872,26 @@ fn release_kill_hold_tx(app: &AppHandle, state: &AppState, post_hold_secs: Optio
     }
 }
 
+fn acquire_killswitch_tx_once(app: &AppHandle, state: &AppState, reason: &str) {
+    if state
+        .killswitch_tx_held
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok()
+    {
+        acquire_kill_hold_tx(app, state, reason);
+    }
+}
+
+fn release_killswitch_tx_once(app: &AppHandle, state: &AppState, post_hold_secs: Option<u32>) {
+    if state
+        .killswitch_tx_held
+        .compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok()
+    {
+        release_kill_hold_tx(app, state, post_hold_secs);
+    }
+}
+
 fn release_kill_hold_internal(
     app: &AppHandle,
     state: &AppState,
@@ -2744,7 +2948,7 @@ fn recompute_snapshot_health_after_ks_clear(snap: &mut GuardSnapshot) {
 }
 
 /// 当网络急救或系统撤回已清空本工具防火墙规则时，同步复位内存中的熔断态与事务盯防锁，杜绝“规则已删但界面仍假红熔断”
-fn sync_killswitch_cleared_if_firewall_gone(app: &AppHandle, state: &AppState, reason: &str) {
+async fn sync_killswitch_cleared_if_firewall_gone(app: &AppHandle, state: &AppState, reason: &str) {
     let was_active = state
         .killswitch
         .read()
@@ -2753,7 +2957,10 @@ fn sync_killswitch_cleared_if_firewall_gone(app: &AppHandle, state: &AppState, r
     if !was_active {
         return;
     }
-    if has_active_guard_firewall_rules() {
+    let still_has_fw = tokio::task::spawn_blocking(has_active_guard_firewall_rules)
+        .await
+        .unwrap_or(true);
+    if still_has_fw {
         return;
     }
     if let Ok(mut ks) = state.killswitch.write() {
@@ -2761,7 +2968,7 @@ fn sync_killswitch_cleared_if_firewall_gone(app: &AppHandle, state: &AppState, r
         ks.firewall_applied = false;
         ks.reason = reason.to_string();
     }
-    release_kill_hold_tx(app, state, None);
+    release_killswitch_tx_once(app, state, None);
     if let Ok(mut snap) = state.snapshot.write() {
         snap.kill_switch_active = false;
         recompute_snapshot_health_after_ks_clear(&mut snap);
@@ -2823,6 +3030,36 @@ fn apply_hud_fold_size(app: &AppHandle, folded: bool) {
     }
 }
 
+/// 校验已持久化的悬浮窗坐标在当前多显示器集合中是否可见（支持左副屏负坐标，拔掉外接屏后自动拒绝回退主屏右上角）
+pub(crate) fn validate_hud_position(
+    pos: WindowPos,
+    hud_w: i32,
+    hud_h: i32,
+    monitor_rects: &[(i32, i32, u32, u32)],
+) -> Option<WindowPos> {
+    if monitor_rects.is_empty() {
+        return Some(pos);
+    }
+    let hx1 = pos.x as i64;
+    let hy1 = pos.y as i64;
+    let hx2 = hx1 + hud_w.max(120) as i64;
+    let hy2 = hy1 + hud_h.max(80) as i64;
+    let visible = monitor_rects.iter().any(|&(mx, my, mw, mh)| {
+        let mx1 = mx as i64;
+        let my1 = my as i64;
+        let mx2 = mx1 + mw as i64;
+        let my2 = my1 + mh as i64;
+        let overlap_w = hx2.min(mx2) - hx1.max(mx1);
+        let overlap_h = hy2.min(my2) - hy1.max(my1);
+        overlap_w >= 80 && overlap_h >= 40
+    });
+    if visible {
+        Some(pos)
+    } else {
+        None
+    }
+}
+
 fn position_hud_on_startup(app: &AppHandle, cfg: &AppConfig) {
     let Some(hud) = app.get_webview_window("hud") else {
         return;
@@ -2840,21 +3077,45 @@ fn position_hud_on_startup(app: &AppHandle, cfg: &AppConfig) {
 
     apply_hud_fold_size(app, cfg.hud_folded);
 
+    let scale = effective_hud_scale(&hud, None);
+    let hud_w = (HUD_WIDTH * scale).ceil() as i32;
+    let hud_h = ((if cfg.hud_folded {
+        HUD_FOLDED_HEIGHT
+    } else {
+        HUD_EXPANDED_HEIGHT
+    }) * scale)
+        .ceil() as i32;
+    let monitor_rects: Vec<(i32, i32, u32, u32)> = hud
+        .available_monitors()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|m| (m.position().x, m.position().y, m.size().width, m.size().height))
+        .collect();
+
     if let Some(pos) = cfg.hud_position {
-        let clamped_x = pos.x.max(-100);
-        let clamped_y = pos.y.max(0);
-        let _ = hud.set_position(PhysicalPosition::new(clamped_x, clamped_y));
-        logger::log_info("hud", format!("恢复上次悬浮窗坐标: ({clamped_x}, {clamped_y})"));
-        return;
+        if let Some(valid_pos) = validate_hud_position(pos, hud_w, hud_h, &monitor_rects) {
+            let _ = hud.set_position(PhysicalPosition::new(valid_pos.x, valid_pos.y));
+            logger::log_info(
+                "hud",
+                format!("恢复上次悬浮窗坐标: ({}, {})", valid_pos.x, valid_pos.y),
+            );
+            return;
+        }
+        logger::log_warn(
+            "hud",
+            format!(
+                "历史悬浮窗坐标 ({}, {}) 已超出当前显示器集合，已自动归位主屏右上角",
+                pos.x, pos.y
+            ),
+        );
     }
 
     if let Ok(Some(monitor)) = hud.primary_monitor() {
         let size = monitor.size();
-        let scale = effective_hud_scale(&hud, None);
-        let hud_w = (HUD_WIDTH * scale).ceil() as i32;
+        let origin = monitor.position();
         let margin = (HUD_RIGHT_MARGIN * scale).ceil() as i32;
-        let top = (64.0 * scale).ceil() as i32;
-        let x = (size.width as i32 - hud_w - margin).max(16);
+        let top = origin.y + (64.0 * scale).ceil() as i32;
+        let x = origin.x + (size.width as i32 - hud_w - margin).max(16);
         let _ = hud.set_position(PhysicalPosition::new(x, top));
         logger::log_info("hud", format!("首次定位悬浮窗至主屏右上角: ({x}, {top}) effective_scale={scale:.2}"));
     }
@@ -2992,9 +3253,9 @@ fn spawn_background_engines(app: AppHandle) {
         let mut last_emitted = KillHoldSnapshot::default();
         let mut extend_times: u32 = 0;
         let mut unkillable_logged = false;
-        let mut last_ks_active = false;
         loop {
-            let sleep_ms = if last_emitted.active && (!last_emitted.tx_locked || last_ks_active) {
+            // BUG-P0-05：只要盯防锁激活（无论是倒计时、熔断事务还是清理/恢复事务锁），一律 250ms 高频盯防，杜绝非熔断事务期漏防真空
+            let sleep_ms = if last_emitted.active {
                 KILL_HOLD_POLL_INTERVAL_MS
             } else {
                 1000
@@ -3004,13 +3265,6 @@ fn spawn_background_engines(app: AppHandle) {
             let Some(state) = app_kh.try_state::<AppState>() else {
                 continue;
             };
-
-            let ks_active_now = state
-                .killswitch
-                .read()
-                .map(|k| k.active)
-                .unwrap_or(false);
-            last_ks_active = ks_active_now;
 
             let now = Instant::now();
             let mut cur_snap = if let Ok(mut kh) = state.kill_hold.write() {
@@ -3022,7 +3276,7 @@ fn spawn_background_engines(app: AppHandle) {
             if !cur_snap.active {
                 extend_times = 0;
                 unkillable_logged = false;
-            } else if !cur_snap.tx_locked || ks_active_now {
+            } else {
                 let procs = tokio::task::spawn_blocking(list_claude_processes)
                     .await
                     .unwrap_or_default();
@@ -3178,41 +3432,56 @@ fn spawn_background_engines(app: AppHandle) {
                             .await
                             .unwrap_or(0);
                         if !recovered && wake_procs > 0 {
-                            let anti_flush = state
+                            let (auto_ks_wake, anti_flush) = state
                                 .config
                                 .read()
-                                .map(|c| c.anti_upload_flush)
-                                .unwrap_or(true);
-                            let ks = trigger_four_layer_killswitch(
-                                "休眠唤醒 15 秒内代理 / TUN 仍未恢复且 Claude 进程存活，已自动转入正式 4 层熔断防裸连",
-                                anti_flush,
-                            )
-                            .await;
-                            let _ = tokio::task::spawn_blocking(|| set_wake_preblock_rule(false)).await;
-                            if let Ok(mut guard) = state.killswitch.write() {
-                                *guard = ks.clone();
-                            }
-                            let snap_emit = if let Ok(mut snap) = state.snapshot.write() {
-                                snap.kill_switch_active = true;
-                                snap.health_level = "danger".into();
-                                snap.status_label = "已自动熔断".into();
-                                snap.bg_claude_procs = 0;
-                                Some(snap.clone())
+                                .map(|c| (c.auto_kill_switch, c.anti_upload_flush))
+                                .unwrap_or((true, true));
+                            if auto_ks_wake {
+                                let ks = trigger_four_layer_killswitch(
+                                    "休眠唤醒 15 秒内代理 / TUN 仍未恢复且 Claude 进程存活，已自动转入正式 4 层熔断防裸连",
+                                    anti_flush,
+                                )
+                                .await;
+                                acquire_killswitch_tx_once(&app_radar, &state, "休眠唤醒超时转 4 层熔断事务锁定");
+                                let _ = tokio::task::spawn_blocking(|| set_wake_preblock_rule(false)).await;
+                                if let Ok(mut guard) = state.killswitch.write() {
+                                    *guard = ks.clone();
+                                }
+                                let snap_emit = if let Ok(mut snap) = state.snapshot.write() {
+                                    snap.kill_switch_active = true;
+                                    snap.health_level = "danger".into();
+                                    snap.status_label = "已自动熔断".into();
+                                    snap.bg_claude_procs = 0;
+                                    snap.kill_hold_active = true;
+                                    snap.kill_hold_tx_locked = true;
+                                    Some(snap.clone())
+                                } else {
+                                    None
+                                };
+                                if let Some(s) = snap_emit {
+                                    let _ = app_radar.emit("guard://snapshot", s);
+                                }
+                                let _ = app_radar.emit("guard://killswitch", ks.clone());
+                                dispatch_native_alert(
+                                    &app_radar,
+                                    &state,
+                                    "wake_timeout_killswitch",
+                                    true,
+                                    "休眠唤醒代理未恢复：已自动转入 4 层熔断",
+                                    "15 秒安全窗内 Clash / TUN 未就绪，已自动强杀 Claude 并锁死出站，恢复代理后再解除熔断。",
+                                );
                             } else {
-                                None
-                            };
-                            if let Some(s) = snap_emit {
-                                let _ = app_radar.emit("guard://snapshot", s);
+                                let _ = tokio::task::spawn_blocking(|| set_wake_preblock_rule(false)).await;
+                                dispatch_native_alert(
+                                    &app_radar,
+                                    &state,
+                                    "wake_timeout_warn_only",
+                                    true,
+                                    "休眠唤醒代理仍未恢复（未自动熔断）",
+                                    "15 秒安全窗结束但 Clash / TUN 仍未就绪，因已关闭「异常自动熔断」未强杀 Claude，请立即手动检查代理或手动熔断。",
+                                );
                             }
-                            let _ = app_radar.emit("guard://killswitch", ks.clone());
-                            dispatch_native_alert(
-                                &app_radar,
-                                &state,
-                                "wake_timeout_killswitch",
-                                true,
-                                "休眠唤醒代理未恢复：已自动转入 4 层熔断",
-                                "15 秒安全窗内 Clash / TUN 未就绪，已自动强杀 Claude 并锁死出站，恢复代理后再解除熔断。",
-                            );
                         } else {
                             let _ = tokio::task::spawn_blocking(|| set_wake_preblock_rule(false)).await;
                         }
@@ -3401,27 +3670,43 @@ fn spawn_background_engines(app: AppHandle) {
             // 1B-2. 超轻量 2 秒 Mihomo 状态哨兵：仅查 /configs + 单个策略组 /proxies/Claude-Fixed（仅 global 模式再查 /proxies/GLOBAL），替代百 KB 全量 /proxies
             if !is_deep_audit_running() {
                 let ep_opt = discover_endpoint().await;
-                let cur_sig = if let Some(ref ep) = ep_opt {
-                    let m_cfg = fetch_configs(ep).await.ok();
-                    let tun_on = m_cfg.as_ref().map(|c| c.tun_enable).unwrap_or(false);
-                    let clash_mode = m_cfg
-                        .as_ref()
-                        .map(|c| c.mode.to_ascii_lowercase())
-                        .unwrap_or_else(|| "rule".into());
-                    let group_now = fetch_proxy_group_now(ep, "Claude-Fixed")
-                        .await
-                        .unwrap_or_default();
-                    let global_now = if clash_mode == "global" {
-                        fetch_proxy_group_now(ep, "GLOBAL")
-                            .await
-                            .unwrap_or_default()
-                    } else {
-                        String::new()
+                let cur_sig_opt = if let Some(ref ep) = ep_opt {
+                    // BUG-P1-01：fetch_configs 单次瞬时超时时 400ms 重试 1 次；仍失败则跳过本轮，绝不把管道抖动伪造为 tun_on=false 误杀 Claude
+                    let m_cfg_res = match fetch_configs(ep).await {
+                        Ok(c) => Ok(c),
+                        Err(_) => {
+                            tokio::time::sleep(Duration::from_millis(400)).await;
+                            fetch_configs(ep).await
+                        }
                     };
-                    (true, tun_on, clash_mode, global_now, group_now)
+                    match m_cfg_res {
+                        Ok(m_cfg) => {
+                            let tun_on = m_cfg.tun_enable;
+                            let clash_mode = m_cfg.mode.to_ascii_lowercase();
+                            let group_now = fetch_proxy_group_now(ep, "Claude-Fixed")
+                                .await
+                                .unwrap_or_default();
+                            let global_now = if clash_mode == "global" {
+                                fetch_proxy_group_now(ep, "GLOBAL")
+                                    .await
+                                    .unwrap_or_default()
+                            } else {
+                                String::new()
+                            };
+                            Some((true, tun_on, clash_mode, global_now, group_now))
+                        }
+                        Err(err) => {
+                            logger::log_warn(
+                                "radar",
+                                format!("2s 状态哨兵 /configs 连续 2 次探测超时，跳过本轮防止误熔断: {err}"),
+                            );
+                            None
+                        }
+                    }
                 } else {
-                    (false, false, String::new(), String::new(), String::new())
+                    Some((false, false, String::new(), String::new(), String::new()))
                 };
+                if let Some(cur_sig) = cur_sig_opt {
                 match &last_mihomo_sig {
                     None => {
                         last_mihomo_sig = Some(cur_sig);
@@ -3488,8 +3773,8 @@ fn spawn_background_engines(app: AppHandle) {
                                 })),
                             );
                             let ks = trigger_four_layer_killswitch(hot_reason, anti_flush_on).await;
-                            // 热熔断统一持有事务级防复活盯防锁，确保未手动解除熔断前绝不提前放行
-                            acquire_kill_hold_tx(
+                            // 热熔断统一持有幂等事务级防复活盯防锁，确保未手动解除熔断前绝不提前放行且不泄漏计数
+                            acquire_killswitch_tx_once(
                                 &app_radar,
                                 &state,
                                 "运行中代理失守热熔断防复活盯防",
@@ -3603,6 +3888,7 @@ fn spawn_background_engines(app: AppHandle) {
                     }
                     _ => {}
                 }
+                }
 
                 // 1B-3. 实时连接异常轻量同步（复用已发现 ep，避免重复 discover_endpoint）
                 if let Some(ref ep) = ep_opt {
@@ -3615,10 +3901,15 @@ fn spawn_background_engines(app: AppHandle) {
                         .await
                         .unwrap_or(0);
                     if procs_now > 0 || prev_live_anom > 0 {
+                        let acked = state
+                            .acked_flow_ids
+                            .read()
+                            .map(|s| s.clone())
+                            .unwrap_or_default();
                         let live_anom = get_live_claude_connections_on(ep)
                             .await
                             .into_iter()
-                            .filter(|c| c.anomaly)
+                            .filter(|c| c.anomaly && !acked.contains(&c.id))
                             .count();
                         if live_anom != prev_live_anom {
                             let snap_emit = if let Ok(mut snap) = state.snapshot.write() {
@@ -3672,12 +3963,8 @@ fn spawn_background_engines(app: AppHandle) {
                 .map(|c| (c.anti_naked_guard, c.auto_kill_switch, c.anti_upload_flush))
                 .unwrap_or((true, true, true));
 
-            let preflight_ready = state
-                .last_preflight_at
-                .read()
-                .ok()
-                .and_then(|g| *g)
-                .is_some();
+            // BUG-P1-02：防裸奔就绪标志与 6s 缓存 TTL 解耦，撤回/急救清空 last_preflight_at 后绝不失明
+            let preflight_ready = state.initial_preflight_done.load(Ordering::Acquire);
             let env_not_ready = state
                 .snapshot
                 .read()
@@ -3706,7 +3993,7 @@ fn spawn_background_engines(app: AppHandle) {
                         anti_flush,
                     )
                     .await;
-                    acquire_kill_hold_tx(&app_proc_radar, &state, "防裸奔熔断事务锁定");
+                    acquire_killswitch_tx_once(&app_proc_radar, &state, "防裸奔熔断事务锁定");
                     if let Ok(mut guard) = state.killswitch.write() {
                         *guard = ks.clone();
                     }
@@ -3715,6 +4002,8 @@ fn spawn_background_engines(app: AppHandle) {
                         snap.health_level = "danger".into();
                         snap.status_label = "已自动熔断".into();
                         snap.bg_claude_procs = 0;
+                        snap.kill_hold_active = true;
+                        snap.kill_hold_tx_locked = true;
                         snap.hud_events.insert(
                             0,
                             HudEventLine {
@@ -3734,8 +4023,16 @@ fn spawn_background_engines(app: AppHandle) {
                     &state,
                     "critical:naked_launch",
                     true,
-                    "FD Claude Guard 防裸奔拦截",
-                    "检测到环境未全绿即启动 Claude，已自动触发 4 层熔断并唤起控制台。",
+                    if auto_ks {
+                        "FD Claude Guard 防裸奔拦截"
+                    } else {
+                        "FD Claude Guard 裸奔风险告警"
+                    },
+                    if auto_ks {
+                        "检测到环境未全绿即启动 Claude，已自动触发 4 层熔断并唤起控制台。"
+                    } else {
+                        "检测到环境未全绿即启动 Claude（因已关闭自动熔断未强杀），已唤起控制台请立即处理。"
+                    },
                 );
                 let _ = show_main_window(
                     app_proc_radar.clone(),
@@ -3802,6 +4099,7 @@ fn spawn_background_engines(app: AppHandle) {
             if let Ok(mut ts) = st.last_preflight_at.write() {
                 *ts = Some(Instant::now());
             }
+            st.initial_preflight_done.store(true, Ordering::Release);
             if let Ok(mut snap) = st.snapshot.write() {
                 *snap = bundle.snapshot.clone();
             }
@@ -3823,7 +4121,10 @@ fn spawn_background_engines(app: AppHandle) {
     });
 }
 
-/// Windows 单实例互斥锁：防止重复双击导致托盘双图标、悬浮窗重叠与退出残留
+/// Windows 单实例互斥锁 + 跨进程唤醒事件（兼容开机仅显 HUD 懒创建主窗口模式，双击图标 100% 唤出主控制台）
+#[cfg(windows)]
+const SINGLE_INSTANCE_WAKE_EVENT: &str = "Local\\FDClaudeGuard_WakeEvent_v1\0";
+
 #[cfg(windows)]
 struct SingleInstanceGuard(windows_sys::Win32::Foundation::HANDLE);
 
@@ -3841,8 +4142,10 @@ impl Drop for SingleInstanceGuard {
 #[cfg(windows)]
 fn acquire_single_instance_guard() -> Option<SingleInstanceGuard> {
     use std::ptr::null;
-    use windows_sys::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
-    use windows_sys::Win32::System::Threading::CreateMutexW;
+    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS};
+    use windows_sys::Win32::System::Threading::{
+        CreateMutexW, OpenEventW, SetEvent, EVENT_MODIFY_STATE,
+    };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         FindWindowW, SetForegroundWindow, ShowWindow, SW_RESTORE, SW_SHOW,
     };
@@ -3856,8 +4159,15 @@ fn acquire_single_instance_guard() -> Option<SingleInstanceGuard> {
     }
     if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
         unsafe {
-            windows_sys::Win32::Foundation::CloseHandle(handle);
-            // 唤醒已运行的主控制台窗口并置前
+            CloseHandle(handle);
+            // 优先通过命名事件通知已运行实例（即使主窗口尚未创建、仅显 HUD 也能即时拉起主控制台）
+            let ev_name: Vec<u16> = SINGLE_INSTANCE_WAKE_EVENT.encode_utf16().collect();
+            let ev = OpenEventW(EVENT_MODIFY_STATE, 0, ev_name.as_ptr());
+            if !ev.is_null() {
+                SetEvent(ev);
+                CloseHandle(ev);
+            }
+            // 同时兜底尝试置前已创建的主窗口
             let title: Vec<u16> = "FD Claude 安全启动器 (FD Claude Guard)\0"
                 .encode_utf16()
                 .collect();
@@ -3872,6 +4182,32 @@ fn acquire_single_instance_guard() -> Option<SingleInstanceGuard> {
     }
     Some(SingleInstanceGuard(handle))
 }
+
+/// 主实例启动后台轻量唤醒监听线程：收到副实例发来的命名事件后立刻创建/显示并置前主控制台窗口
+#[cfg(windows)]
+fn spawn_single_instance_wake_listener(app: AppHandle) {
+    std::thread::spawn(move || {
+        use std::ptr::null;
+        use windows_sys::Win32::Foundation::WAIT_OBJECT_0;
+        use windows_sys::Win32::System::Threading::{CreateEventW, WaitForSingleObject, INFINITE};
+
+        let ev_name: Vec<u16> = SINGLE_INSTANCE_WAKE_EVENT.encode_utf16().collect();
+        let ev = unsafe { CreateEventW(null(), 0, 0, ev_name.as_ptr()) };
+        if ev.is_null() {
+            return;
+        }
+        loop {
+            let rc = unsafe { WaitForSingleObject(ev, INFINITE) };
+            if rc != WAIT_OBJECT_0 {
+                break;
+            }
+            let _ = show_main_window(app.clone(), Some("console".into()), None, None, None);
+        }
+    });
+}
+
+#[cfg(not(windows))]
+fn spawn_single_instance_wake_listener(_app: AppHandle) {}
 
 #[cfg(not(windows))]
 struct SingleInstanceGuard;
@@ -3969,7 +4305,11 @@ async fn audit_account_local(
     let cache_path = crate::account_audit::default_audit_cache_path();
     tokio::task::spawn_blocking(move || {
         let local = crate::account_audit::local_scan::scan_local_profile(&ctx);
-        let cache = crate::account_audit::load_profile_cloud_cache(&cache_path, &ctx.profile_id);
+        let cache = crate::account_audit::load_profile_cloud_cache_for_local(
+            &cache_path,
+            &ctx.profile_id,
+            &local,
+        );
         crate::account_audit::build_account_audit_report(local, cache.as_ref(), &runtime)
     })
     .await
@@ -4112,7 +4452,8 @@ async fn rollback_single_item_cmd(
             &app,
             &state,
             "单项撤回已清空防火墙熔断规则，自动同步解除熔断与事务盯防",
-        );
+        )
+        .await;
     }
     if let Ok(mut ts) = state.last_preflight_at.write() {
         *ts = None;
@@ -4131,7 +4472,8 @@ async fn rollback_all_changes_cmd(
         &app,
         &state,
         "一键全量撤回已清空防火墙熔断规则，自动同步解除熔断与事务盯防",
-    );
+    )
+    .await;
     if let Ok(mut ts) = state.last_preflight_at.write() {
         *ts = None;
     }
@@ -4149,7 +4491,8 @@ async fn run_network_emergency_rescue_cmd(
         &app,
         &state,
         "一键网络急救已清空防火墙熔断规则，自动同步解除熔断与事务盯防",
-    );
+    )
+    .await;
     if let Ok(mut ts) = state.last_preflight_at.write() {
         *ts = None;
     }
@@ -4223,6 +4566,7 @@ pub fn run() {
         .setup(move |app| {
             let handle = app.handle();
             setup_tray(handle)?;
+            spawn_single_instance_wake_listener(handle.clone());
             position_hud_on_startup(handle, &initial_cfg);
 
             if !start_hud_only {
@@ -4323,7 +4667,7 @@ pub fn run() {
                                             let cfg_to_save = st.config.read().ok().map(|g| g.clone());
                                             let path = st.config_path.clone();
                                             if let Some(cfg) = cfg_to_save {
-                                                let pos_opt = cfg.hud_position.clone();
+                                                let pos_opt = cfg.hud_position;
                                                 let saved = tokio::task::spawn_blocking(move || {
                                                     save_config(&path, &cfg).is_ok()
                                                 })
@@ -4338,10 +4682,26 @@ pub fn run() {
                                                     }
                                                 }
                                             }
+                                            // BUG-P2-01：释放标志前再复核一次最新序号，确保停拖瞬间尾包不丢失
+                                            let latest_after_save = st.hud_move_seq.load(Ordering::SeqCst);
+                                            if latest_after_save != observed {
+                                                continue;
+                                            }
                                             break;
                                         }
                                     }
                                     HUD_MOVE_SCHEDULED.store(false, Ordering::SeqCst);
+                                    // 极端竞态兜底：刚 store(false) 前若有新 Move 到来，再做一次安全落盘
+                                    if let Some(st) = ah.try_state::<AppState>() {
+                                        let cfg_to_save = st.config.read().ok().map(|g| g.clone());
+                                        let path = st.config_path.clone();
+                                        if let Some(cfg) = cfg_to_save {
+                                            let _ = tokio::task::spawn_blocking(move || {
+                                                save_config(&path, &cfg)
+                                            })
+                                            .await;
+                                        }
+                                    }
                                 });
                             }
                         }
@@ -4355,7 +4715,6 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_config,
             update_config,
-            save_hud_position,
             resize_hud_height,
             set_hud_edge_docked,
             set_hud_pinned,
@@ -4376,13 +4735,13 @@ pub fn run() {
             reset_node_drift_baseline,
             switch_locked_node,
             get_live_connections,
+            ack_flow_anomalies,
             close_connection,
             kill_claude_processes,
             start_kill_hold_cmd,
             release_kill_hold_cmd,
             trigger_killswitch,
             force_release_killswitch,
-            get_killswitch_state,
             get_log_analysis,
             ack_log_events,
             ack_all_log_events,
@@ -4493,7 +4852,6 @@ mod window_size_tests {
         let allowed_sync_commands: std::collections::HashSet<&str> = [
             "get_config",
             "update_config",
-            "save_hud_position",
             "resize_hud_height",
             "set_hud_edge_docked",
             "set_hud_pinned",
@@ -4506,7 +4864,6 @@ mod window_size_tests {
             "get_deep_audit_status",
             "cancel_deep_node_audit",
             "release_kill_hold_cmd",
-            "get_killswitch_state",
             "simulate_log_anomaly",
             "clear_simulated_logs",
             "open_file_folder",
@@ -4741,6 +5098,29 @@ mod window_size_tests {
                 "Pacific Standard Time (太平洋时间 · 美西)"
             ),
             3
+        );
+    }
+
+    #[test]
+    fn hud_position_validation_supports_left_monitor_and_rejects_unplugged_screen() {
+        let dual = vec![(-1920, 0, 1920, 1080), (0, 0, 1920, 1080)];
+        let left_pos = super::WindowPos { x: -420, y: 80 };
+        assert_eq!(
+            super::validate_hud_position(left_pos, 360, 306, &dual),
+            Some(left_pos),
+            "左侧副屏负坐标应保留"
+        );
+        // 拔掉左侧副屏后只剩主屏，原负坐标应自动拒绝回退主屏右上角
+        let single = vec![(0, 0, 1920, 1080)];
+        assert_eq!(
+            super::validate_hud_position(left_pos, 360, 306, &single),
+            None
+        );
+        // 拔掉右侧副屏后超出右边界坐标应自动拒绝
+        let right_gone = super::WindowPos { x: 2400, y: 120 };
+        assert_eq!(
+            super::validate_hud_position(right_gone, 360, 306, &single),
+            None
         );
     }
 }

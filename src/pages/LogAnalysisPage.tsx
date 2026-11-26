@@ -331,16 +331,18 @@ export function LogAnalysisPage() {
             <button
               type="button"
               className="guard-btn guard-btn-flat guard-btn-sm"
-              onClick={() => {
+              onClick={async () => {
                 const allIds = unreadAnomalies.flatMap((e) =>
                   e.collapsedIds && e.collapsedIds.length > 0 ? [e.id, ...e.collapsedIds] : [e.id]
                 );
-                ackAllLogIds(allIds);
-                pushToast(
-                  "已将当前未读风险/异常全部标为已读",
-                  "已推进持久化已读游标并同步悬浮窗归零，原始日志保留在「全部行为」中供随时取证。",
-                  "ok"
-                );
+                const ok = await ackAllLogIds(allIds);
+                if (ok) {
+                  pushToast(
+                    "已将当前未读风险/异常全部标为已读",
+                    "已推进持久化已读游标并同步悬浮窗归零，原始日志保留在「全部行为」中供随时取证。",
+                    "ok"
+                  );
+                }
               }}
             >
               全部标为已读
@@ -927,18 +929,20 @@ export function LogAnalysisPage() {
                           <button
                             type="button"
                             className="guard-btn guard-btn-flat guard-btn-xs"
-                            onClick={(e) => {
+                            onClick={async (e) => {
                               e.stopPropagation();
                               const idsToAck =
                                 ev.collapsedIds && ev.collapsedIds.length > 0
                                   ? [ev.id, ...ev.collapsedIds]
                                   : [ev.id];
-                              ackLogIds(idsToAck);
-                              pushToast(
-                                "已标为已读（推进游标）",
-                                "已解除此条告警提醒并同步悬浮窗，原始日志文件保持完整未删改。",
-                                "ok"
-                              );
+                              const ok = await ackLogIds(idsToAck);
+                              if (ok) {
+                                pushToast(
+                                  "已标为已读（推进游标）",
+                                  "已解除此条告警提醒并同步悬浮窗，原始日志文件保持完整未删改。",
+                                  "ok"
+                                );
+                              }
                             }}
                           >
                             标为已读（推进游标）

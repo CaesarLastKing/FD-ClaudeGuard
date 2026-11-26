@@ -329,7 +329,7 @@ describe("v0.2.9 真机回归：熔断与盯防联动、无锁文案清理与出
     expect(screen.getByTestId("btn-open-github-official")).toHaveTextContent("GitHub 官网");
     unmountSettings();
 
-    // 无新版本时：配置页卡片右侧明确显示「已是最新版本」
+    // 无新版本时：配置页标题行显示只读「已是最新版本」徽章，右侧为单一「检查更新」操作按钮（消灭双按钮并发转圈）
     useGuardStore.setState({
       updateInfo: {
         currentVersion: "0.3.1",
@@ -342,7 +342,8 @@ describe("v0.2.9 真机回归：熔断与盯防联动、无锁文案清理与出
       },
     });
     render(<SettingsPage />);
-    expect(screen.getByTestId("btn-update-card-status")).toHaveTextContent("已是最新版本");
+    expect(screen.getByTestId("updater-status-badge")).toHaveTextContent("已是最新版本");
+    expect(screen.getByTestId("btn-check-app-update")).toHaveTextContent("检查更新");
     expect(screen.getByTestId("btn-open-github-official")).toHaveTextContent("GitHub 官网");
   });
 

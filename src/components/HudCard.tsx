@@ -163,7 +163,11 @@ export function HudCard({ initialConfig, initialSnapshot, onGoConsole }: HudCard
   // 动态贴合 Tauri 独立窗口物理尺寸（带尺寸去重与 32ms 防抖，杜绝 ResizeObserver 高频 IPC 与冗余重建）
   useLayoutEffect(() => {
     if (!tauriMode) return;
-    if (config.hudEdgeDocked && !dockedOpen) return;
+    if (config.hudEdgeDocked && !dockedOpen) {
+      // BUG-P2-07：贴边收起时清空上次尺寸缓存，防止再次展开时误判同尺寸跳过 resizeHudHeight 导致裁剪
+      lastReportedSizeRef.current = null;
+      return;
+    }
     const el = cardRef.current;
     if (!el) return;
     let debounceTimer: number | null = null;
@@ -268,20 +272,32 @@ export function HudCard({ initialConfig, initialSnapshot, onGoConsole }: HudCard
   }, []);
 
   const handleTogglePin = async () => {
-    const next = !config.hudPinned;
+    const prev = config.hudPinned;
+    const next = !prev;
     setConfig((c) => ({ ...c, hudPinned: next }));
-    await ipc.setHudPinned(next);
+    try {
+      await ipc.setHudPinned(next);
+    } catch {
+      setConfig((c) => ({ ...c, hudPinned: prev }));
+    }
   };
 
   const handleToggleFold = async () => {
-    const next = !config.hudFolded;
+    const prev = config.hudFolded;
+    const next = !prev;
     setConfig((c) => ({ ...c, hudFolded: next }));
-    await ipc.setHudFolded(next);
+    try {
+      await ipc.setHudFolded(next);
+    } catch {
+      setConfig((c) => ({ ...c, hudFolded: prev }));
+    }
   };
 
   const handleToggleEdgeDock = useCallback(async () => {
     clearDockTimer();
-    const next = !config.hudEdgeDocked;
+    const prev = config.hudEdgeDocked;
+    const next = !prev;
+    lastReportedSizeRef.current = null;
     if (next) {
       // 贴边收起：清除拖拽 left，以右距 16px 为单坐标锚点
       setShellPos((p) => ({ left: null, top: p.top }));
@@ -292,7 +308,11 @@ export function HudCard({ initialConfig, initialSnapshot, onGoConsole }: HudCard
       setDockedOpen(false);
     }
     setConfig((c) => ({ ...c, hudEdgeDocked: next }));
-    await ipc.setHudEdgeDocked(next, false);
+    try {
+      await ipc.setHudEdgeDocked(next, false);
+    } catch {
+      setConfig((c) => ({ ...c, hudEdgeDocked: prev }));
+    }
   }, [clearDockTimer, config.hudEdgeDocked]);
 
   const handleEdgeEnter = useCallback(() => {
@@ -862,11 +882,20 @@ export function HudCard({ initialConfig, initialSnapshot, onGoConsole }: HudCard
         {!config.hudFolded && (
           <div className="hud-body" data-testid="hud-body">
             <div className="hud-feed">
-              {snapshot.hudEvents.slice(0, 2).map((ev, i) => (
+              {snapshot.hudEvents.slice(0, 2).map((ev, i) => {
+                const targetTab = ev.targetTab ?? "console";
+                const subTab = targetTab === "logs" ? "logs" : null;
+                return (
                 <div
                   key={`${ev.time}-${i}`}
                   className={`hud-ev ${ev.level === "danger" ? "danger" : ev.level === "warn" ? "warn" : ""}`}
-                  onClick={() => handleNavigate(ev.targetTab ?? "console", null, ev.level !== "ok")}
+                  onClick={() =>
+                    handleNavigate(
+                      targetTab,
+                      subTab,
+                      targetTab === "console" && ev.level !== "ok"
+                    )
+                  }
                 >
                   <span className="hud-ev-l">
                     <span className="hud-ev-bar" />
@@ -879,14 +908,21 @@ export function HudCard({ initialConfig, initialSnapshot, onGoConsole }: HudCard
                     {ev.time}
                   </span>
                 </div>
-              ))}
+                );
+              })}
             </div>
 
             <button
               type="button"
               data-testid="hud-cta"
               className={ctaClass}
-              onClick={() => handleNavigate(ctaTargetTab, null, mustFail > 0 || isDanger)}
+              onClick={() =>
+                handleNavigate(
+                  ctaTargetTab,
+                  logOnlyFocus ? "logs" : null,
+                  ctaTargetTab === "console" && (mustFail > 0 || isDanger)
+                )
+              }
             >
               {ctaText}
             </button>

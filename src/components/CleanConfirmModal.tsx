@@ -144,9 +144,15 @@ export function CleanConfirmModal() {
         }
       );
       if (onCompleted) {
-        await onCompleted(info, selectedIds);
+        try {
+          await onCompleted(info, selectedIds);
+        } catch (cbErr) {
+          pushToast("清理后刷新视图提示", String(cbErr), "info");
+        }
       }
+      // BUG-P1-23：无论从哪一页发起清理，统一静默刷新体检与账户审计，消除侧边栏红标滞留
       void refreshPreflight(true);
+      void useGuardStore.getState().refreshAccountAudit(true);
     } catch (err) {
       pushToast("备份清理失败", String(err), "danger");
     } finally {

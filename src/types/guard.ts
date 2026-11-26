@@ -604,6 +604,7 @@ export interface DesktopLogsSummary {
   discoveredDirs: string[];
   scannedLogFiles: number;
   orgIdPrefixes: string[];
+  latestActiveOrgPrefix?: string | null;
   sessionDirOrgPrefixes?: string[];
   portalOrgPrefixes?: string[];
   accountBannedHits: number;
@@ -647,7 +648,9 @@ export interface CloudProbeSnapshot {
   edgeCountry?: string | null;
   edgeColo?: string | null;
   accountAgeDays?: number | null;
+  accountCreatedAt?: string | null;
   subscriptionAgeDays?: number | null;
+  subscriptionCreatedAt?: string | null;
   subscriptionEndsAt?: string | null;
   chatAvailable: boolean;
   isBanned: boolean;

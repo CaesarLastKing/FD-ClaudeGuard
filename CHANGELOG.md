@@ -7,6 +7,34 @@
 
 ---
 
+## [0.3.4] - 2026-11-26
+
+### 新增与体验升级
+- **账户审计多档案检测与动态天数实时演进**：
+  - 账户审计左栏升级为极简多档案卡片列表，自动识别本机新登录/多端账号并在检测到多份档案时展示紧凑警示胶囊；新账号登录不再被旧账号云端缓存覆盖，主账号自动切换；
+  - 注册天数、订阅天数、本机天数及过 KYC 小时数按当前时间戳实时动态递增，无需等待重验 `sessionKey` 才刷新；
+  - 订阅卡片同步兼容 `Free` 胶囊展示，跨端不同号或 Free 账号绝不借用 CLI 续费日与额度。
+- **守卫配置单入口自动更新卡片与真实进度**：
+  - 合并双份更新入口为「客户端版本与自动更新」卡片内清晰的状态徽章（只读）+ 单一操作按钮（「检查更新 / 立即更新」），消除页面同时出现两个转圈按钮的困惑；
+  - 新增 `guard://update-progress` 实时下载进度推送与 300s 网络超时、原子防重入锁，修复 NSIS 安装器启动时与 `handle.restart()` 冲突导致升级卡死的问题。
+- **移除未配置后端必报错的匿名上报入口**：
+  - 移除「一键匿名上报排障诊断」与无效后台遥测开关，排障统一收口至 100% 本地可控的「导出脱敏 AI 诊断包」。
+
+### 核心修复与安全加固（46 项全仓缺陷闭环）
+- **真高权限开机自启、NSIS 安装权限与守护生命周期**：
+  - 开机自启改用带 `/RL HIGHEST` 的 Windows 计划任务 `FDClaudeGuard_AutoStart`，彻底修复 `requireAdministrator` 应用被系统静默拦掉无法开机自启的问题；
+  - `tauri.conf.json` 切换 `installMode: "perMachine"` 并升级 `nsis/hooks.nsh` 卸载钩子（递归结束进程、移除自启任务）；
+  - 修复 Kill-Hold 250ms 押运漏拦、安全启动熔断/防火墙强门禁、状态哨兵 `/configs` 瞬抖误熔断、休眠唤醒尊重 `auto_kill_switch`、单实例仅 HUD 态唤醒、退出清防火墙失败硬阻断，以及 PowerShell UTF-16LE `-EncodedCommand` 提权防取消假成功与环境变量/WinINET 实时广播生效。
+- **代理引擎、禁区过滤与深度核验防误杀**：
+  - 三处禁区正则（`claude-verge-override.js` / `mihomo` / `preflight`）100% 同步覆盖 `HK01`/`HK_01`/国旗 Emoji/`Macao`/`Syria`/`Cuba`；
+  - `node_dns` 升级为真正注入 Fake-IP DNS 配置并热重载验收；全禁区订阅直接拦截拒写不再降级写入禁区节点；
+  - 深度核验引入原子单飞锁、前置防脱组与二次代际校验；补齐 GeoIP 失败 5m 短 TTL、12 次滑动丢包窗口、`opt_webrtc` HKLM 优先、`serde_yaml` 解析 `external-controller` 及多处 Windows 中文路径/网卡 UTF-8 编码。
+- **账户审计同源、原子备份还原与前端状态机稳定性**：
+  - 账户审计与控制台 6 态拓扑 100% 同源；原子还原新增清理非保护区脏 WAL/LDB 并拦截目标软链穿越、保留 VM/MCP 保护区；云端探针仅 `r.ok` 判可用且网络/CF 失败撤销 60s 冷却；脱敏引擎补齐驼峰凭据与代理 URL 账密；
+  - 修复深度核验迟到响应锁死主按钮、账户审计失败无限白屏、HUD 跳节点/日志被劫持回控制台、实时流量「全部标为已处理」同步后端清角标、熔断态主按钮优先级倒置、多处 `guardStore` 异步竞态与撤回中心失败提示/弹窗文案冲突。
+
+---
+
 ## [0.3.3] - 2026-11-26
 
 ### 修复与优化
@@ -18,7 +46,7 @@
   - `watchdog` 与 `local_scan` 的 `RE_ORG` 正则新增匹配 URL 查询参数 `[?&]org=`，修复 `portal.anthropic.com/verify?org=B` 错归前文 `last_seen_org`（账号 A）的问题；
   - `score.rs` 新增 `chat_restricted`（`!chat_available && !is_banned`）致命熔断判定，同步覆盖桌面端审计与外部 `build_check_sk_response` 契约。
 - **修复脱敏日志二次打码截断已脱敏邮箱**：
-  - `maintenance::sanitize_sensitive_text` 保留已含 `***` 的可读脱敏邮箱（如 `yiya***88@qq.com`）不二次截断域名，同时继续严格打码明文邮箱。
+  - `maintenance::sanitize_sensitive_text` 保留已含 `***` 的可读脱敏邮箱（如 `demo***88@example.com`）不二次截断域名，同时继续严格打码明文邮箱。
 
 ---
 

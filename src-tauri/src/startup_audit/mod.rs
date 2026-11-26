@@ -2,7 +2,97 @@ use crate::mihomo::clash_verge_config_dir;
 use crate::state::{StartupAuditReport, StartupEntry};
 use std::fs;
 
-/// 100% 只读扫描 Windows 开机启动项（Run 注册表、Startup 文件夹、MSIX StartupTask、Clash verge.yaml）
+/// Windows 管理员高权限登录自启计划任务名（突破 requireAdministrator 被 HKCU\Run UAC 静默拦截）
+pub const AUTOSTART_TASK_NAME: &str = "FDClaudeGuard_AutoStart";
+
+/// 同步 Windows 管理员高权限登录自启计划任务（并顺手清理无效的旧 HKCU\Run 项）
+#[cfg(windows)]
+pub fn sync_windows_autostart_task(enable: bool) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    use std::process::Command;
+    use winreg::enums::{HKEY_CURRENT_USER, KEY_WRITE};
+    use winreg::RegKey;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+    // 清理可能由旧版 tauri-plugin-autostart 写入但会被 UAC 拦截的 HKCU\Run 项
+    if let Ok(run_key) = RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey_with_flags(r"Software\Microsoft\Windows\CurrentVersion\Run", KEY_WRITE)
+    {
+        for old_name in ["FD Claude Guard", "fd-claude-guard", "FDClaudeGuard"] {
+            let _ = run_key.delete_value(old_name);
+        }
+    }
+
+    if enable {
+        let exe = std::env::current_exe().map_err(|e| format!("无法获取当前程序路径: {e}"))?;
+        let exe_str = exe.to_string_lossy();
+        let tr = format!("\"{exe_str}\" --autostart");
+        let out = Command::new("schtasks")
+            .creation_flags(CREATE_NO_WINDOW)
+            .args([
+                "/Create",
+                "/F",
+                "/SC",
+                "ONLOGON",
+                "/RL",
+                "HIGHEST",
+                "/TN",
+                AUTOSTART_TASK_NAME,
+                "/TR",
+                &tr,
+            ])
+            .output()
+            .map_err(|e| format!("调用 schtasks 注册开机自启失败: {e}"))?;
+        if !out.status.success() {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            return Err(format!(
+                "注册 Windows 管理员开机自启计划任务失败（请确认以管理员权限运行）: {} {}",
+                stderr.trim(),
+                stdout.trim()
+            ));
+        }
+        Ok(())
+    } else {
+        let out = Command::new("schtasks")
+            .creation_flags(CREATE_NO_WINDOW)
+            .args(["/Delete", "/F", "/TN", AUTOSTART_TASK_NAME])
+            .output()
+            .map_err(|e| format!("调用 schtasks 删除开机自启任务失败: {e}"))?;
+        // 若原本就不存在该任务（exit code 1）视为已关闭成功
+        if !out.status.success() && is_windows_autostart_task_enabled() {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            return Err(format!("删除开机自启计划任务失败: {}", stderr.trim()));
+        }
+        Ok(())
+    }
+}
+
+#[cfg(not(windows))]
+pub fn sync_windows_autostart_task(_enable: bool) -> Result<(), String> {
+    Ok(())
+}
+
+/// 真实查询 Windows 管理员开机自启计划任务是否已注册
+#[cfg(windows)]
+pub fn is_windows_autostart_task_enabled() -> bool {
+    use std::os::windows::process::CommandExt;
+    use std::process::Command;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    Command::new("schtasks")
+        .creation_flags(CREATE_NO_WINDOW)
+        .args(["/Query", "/TN", AUTOSTART_TASK_NAME])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+#[cfg(not(windows))]
+pub fn is_windows_autostart_task_enabled() -> bool {
+    false
+}
+
+/// 100% 只读扫描 Windows 开机启动项（Run 注册表含 StartupApproved 禁用位、用户与公共 Startup 目录、MSIX StartupTask、Clash verge.yaml）
 /// 铁律：绝不修改、禁用或删除用户的任何启动项，仅如实汇报顺序竞争风险
 pub fn audit_windows_startup_items(guard_boot_enabled: bool) -> StartupAuditReport {
     let clash_enabled = detect_clash_autostart();
@@ -18,9 +108,9 @@ pub fn audit_windows_startup_items(guard_boot_enabled: bool) -> StartupAuditRepo
                 "neutral".into()
             },
             detail: if guard_boot_enabled {
-                "已开启开机自启（默认仅显悬浮窗，开机自动护航）".into()
+                "已通过 Windows 高权限计划任务注册开机自启（开机自动护航）".into()
             } else {
-                "当前未开启自启，建议在上方开启以提供开机防裸奔护航".into()
+                "当前未注册开机自启任务，建议在上方开启以提供开机防裸奔护航".into()
             },
         },
         StartupEntry {
@@ -106,42 +196,100 @@ fn is_self_guard_startup_entry(text_lower: &str) -> bool {
     false
 }
 
+/// 判断 StartupApproved 注册表二进制值是否被用户禁用（Windows 规范：首字节为奇数如 0x03/0x07 表示已禁用，偶数为启用）
+#[cfg(windows)]
+fn is_startup_approved_disabled(hive: winreg::HKEY, subkey: &str, value_name: &str) -> bool {
+    use winreg::RegKey;
+    let Ok(key) = RegKey::predef(hive).open_subkey(subkey) else {
+        return false;
+    };
+    let Ok(raw) = key.get_raw_value(value_name) else {
+        return false;
+    };
+    raw.bytes.first().map(|&b| b % 2 == 1).unwrap_or(false)
+}
+
 #[cfg(windows)]
 fn has_startup_match(keywords: &[&str]) -> bool {
     use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
     use winreg::RegKey;
 
-    let run_subkey = r"Software\Microsoft\Windows\CurrentVersion\Run";
-    for hive in [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE] {
+    let run_pairs = [
+        (
+            HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Run",
+            r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run",
+        ),
+        (
+            HKEY_LOCAL_MACHINE,
+            r"Software\Microsoft\Windows\CurrentVersion\Run",
+            r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run",
+        ),
+        (
+            HKEY_LOCAL_MACHINE,
+            r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run",
+            r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run32",
+        ),
+    ];
+    for (hive, run_subkey, approved_subkey) in run_pairs {
         if let Ok(key) = RegKey::predef(hive).open_subkey(run_subkey) {
             for item in key.enum_values().flatten() {
-                let name = item.0.to_lowercase();
+                let raw_name = item.0;
+                let name = raw_name.to_lowercase();
                 let val = format!("{:?}", item.1).to_lowercase();
-                // 排除本工具自身（同时覆盖 fd-claude-guard / FD Claude Guard / 当前可执行名）
                 if is_self_guard_startup_entry(&name) || is_self_guard_startup_entry(&val) {
                     continue;
                 }
                 if keywords.iter().any(|k| name.contains(k) || val.contains(k)) {
+                    // 遵循 Windows StartupApproved：用户在系统设置中关闭自启时首字节为奇数，视为已禁用
+                    if is_startup_approved_disabled(hive, approved_subkey, &raw_name) {
+                        continue;
+                    }
                     return true;
                 }
             }
         }
     }
 
+    let mut startup_dirs: Vec<(winreg::HKEY, std::path::PathBuf)> = Vec::new();
     if let Some(cfg_dir) = dirs::config_dir() {
-        let startup_dir = cfg_dir
-            .join("Microsoft")
-            .join("Windows")
-            .join("Start Menu")
-            .join("Programs")
-            .join("Startup");
+        startup_dirs.push((
+            HKEY_CURRENT_USER,
+            cfg_dir
+                .join("Microsoft")
+                .join("Windows")
+                .join("Start Menu")
+                .join("Programs")
+                .join("Startup"),
+        ));
+    }
+    if let Ok(prog_data) = std::env::var("ProgramData") {
+        startup_dirs.push((
+            HKEY_LOCAL_MACHINE,
+            std::path::PathBuf::from(prog_data)
+                .join("Microsoft")
+                .join("Windows")
+                .join("Start Menu")
+                .join("Programs")
+                .join("Startup"),
+        ));
+    }
+    for (hive, startup_dir) in startup_dirs {
         if let Ok(entries) = fs::read_dir(startup_dir) {
             for entry in entries.flatten() {
-                let fname = entry.file_name().to_string_lossy().to_lowercase();
+                let raw_fname = entry.file_name().to_string_lossy().to_string();
+                let fname = raw_fname.to_lowercase();
                 if is_self_guard_startup_entry(&fname) {
                     continue;
                 }
                 if keywords.iter().any(|k| fname.contains(k)) {
+                    if is_startup_approved_disabled(
+                        hive,
+                        r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder",
+                        &raw_fname,
+                    ) {
+                        continue;
+                    }
                     return true;
                 }
             }

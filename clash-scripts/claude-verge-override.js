@@ -6,8 +6,8 @@
  * 3. REJECT 第三方纯遥测域名（第 3 层防回传），并关闭 Clash 内核 IPv6 防止代理隧道泄漏
  */
 
-const BLOCKED_REGION_RE = /(香港|Hong\s*Kong|\bHK\b|澳门|澳門|Macau|\bMO\b|中国|中國|国内|China|\bCN\b|俄罗斯|俄羅斯|俄国|Russia|\bRU\b|白俄|\bBY\b|朝鲜|朝鮮|\bKP\b|伊朗|\bIR\b)/i;
-const BLOCKED_EXCLUDE_FILTER = "(?i)(香港|Hong\\s*Kong|\\bHK\\b|澳门|澳門|Macau|\\bMO\\b|中国|中國|国内|China|\\bCN\\b|俄罗斯|俄羅斯|俄国|Russia|\\bRU\\b|白俄|\\bBY\\b|朝鲜|朝鮮|\\bKP\\b|伊朗|\\bIR\\b)";
+const BLOCKED_REGION_RE = /(香港|Hong\s*Kong|🇭🇰|澳门|澳門|Macau|Macao|🇲🇴|中国|中國|国内|China|🇨🇳|俄罗斯|俄羅斯|俄国|Russia|🇷🇺|白俄|Belarus|🇧🇾|朝鲜|朝鮮|North\s*Korea|🇰🇵|伊朗|Iran|🇮🇷|叙利亚|敘利亞|Syria|🇸🇾|古巴|Cuba|🇨🇺|(?:^|[^a-z])(HK|MO|CN|RU|BY|KP|IR|SY|CU)(?:[^a-z]|$))/i;
+const BLOCKED_EXCLUDE_FILTER = "(?i)(香港|Hong\\s*Kong|🇭🇰|澳门|澳門|Macau|Macao|🇲🇴|中国|中國|国内|China|🇨🇳|俄罗斯|俄羅斯|俄国|Russia|🇷🇺|白俄|Belarus|🇧🇾|朝鲜|朝鮮|North\\s*Korea|🇰🇵|伊朗|Iran|🇮🇷|叙利亚|敘利亞|Syria|🇸🇾|古巴|Cuba|🇨🇺|(?:^|[^a-z])(HK|MO|CN|RU|BY|KP|IR|SY|CU)(?:[^a-z]|$))";
 
 const CLAUDE_RULES = [
   // 第 3 层防回传：拦截第三方纯遥测上报域名
@@ -36,6 +36,16 @@ const CLAUDE_RULES = [
 function main(config) {
   config = config || {};
   config.ipv6 = false;
+  // 保障 DNS Fake-IP 防泄漏开启（保留用户原有 nameserver）
+  config.dns = config.dns && typeof config.dns === "object" ? config.dns : {};
+  config.dns.enable = true;
+  config.dns["enhanced-mode"] = "fake-ip";
+  if (!config.dns["fake-ip-range"]) {
+    config.dns["fake-ip-range"] = "198.18.0.1/16";
+  }
+  if (!Array.isArray(config.dns.nameserver) || config.dns.nameserver.length === 0) {
+    config.dns.nameserver = ["223.5.5.5", "119.29.29.29"];
+  }
   // 若机场订阅关闭了进程匹配，恢复为 strict 以确保 PROCESS-NAME,Claude.exe 规则生效
   if (typeof config["find-process-mode"] === "string" && config["find-process-mode"].toLowerCase() === "off") {
     config["find-process-mode"] = "strict";

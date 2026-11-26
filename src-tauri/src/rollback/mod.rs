@@ -16,9 +16,18 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const BASELINE_VERSION: u32 = 1;
+
+static BASELINE_IO_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+static BASELINE_TMP_SEQ: AtomicU64 = AtomicU64::new(0);
+
+fn baseline_io_lock() -> &'static Mutex<()> {
+    BASELINE_IO_LOCK.get_or_init(|| Mutex::new(()))
+}
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -204,18 +213,35 @@ pub fn baseline_file_path() -> PathBuf {
     base.join("system-baseline.json")
 }
 
-/// 从指定路径加载基线快照（文件不存在或损坏时返回空默认基线）
+/// 从指定路径加载基线快照（文件不存在返回默认基线；若存在但 JSON 损坏则自动备份为 `.corrupt-{ts}` 保留取证）
 pub fn load_baseline_from(path: &Path) -> SystemBaseline {
-    fs::read_to_string(path)
-        .ok()
-        .and_then(|raw| serde_json::from_str::<SystemBaseline>(&raw).ok())
-        .unwrap_or_else(|| SystemBaseline {
+    match fs::read_to_string(path) {
+        Ok(raw) => match serde_json::from_str::<SystemBaseline>(raw.trim_start_matches('\u{feff}')) {
+            Ok(bl) => bl,
+            Err(err) => {
+                let backup = path.with_extension(format!("json.corrupt-{}", now_ms()));
+                let _ = fs::copy(path, &backup);
+                crate::logger::log_warn(
+                    "rollback",
+                    format!(
+                        "系统基线 JSON 损坏，已保留损坏副本至 {} ({err})",
+                        backup.display()
+                    ),
+                );
+                SystemBaseline {
+                    version: BASELINE_VERSION,
+                    ..Default::default()
+                }
+            }
+        },
+        Err(_) => SystemBaseline {
             version: BASELINE_VERSION,
             ..Default::default()
-        })
+        },
+    }
 }
 
-/// 原子写入基线快照（写临时文件再覆盖重命名，避免中断损坏）
+/// 原子写入基线快照（进程内串行 + 唯一临时文件名 + 覆盖重命名，彻底消除并发写盘 `.tmp` 竞态）
 pub fn save_baseline_to(path: &Path, baseline: &SystemBaseline) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("创建基线目录失败: {e}"))?;
@@ -225,15 +251,22 @@ pub fn save_baseline_to(path: &Path, baseline: &SystemBaseline) -> Result<(), St
     to_save.updated_at_ms = now_ms();
     let body = serde_json::to_string_pretty(&to_save)
         .map_err(|e| format!("序列化系统基线失败: {e}"))?;
-    let tmp = path.with_extension("json.tmp");
+    let seq = BASELINE_TMP_SEQ.fetch_add(1, Ordering::Relaxed);
+    let tmp = path.with_extension(format!("json.tmp.{}.{}", std::process::id(), seq));
     fs::write(&tmp, body).map_err(|e| format!("写入临时基线文件失败: {e}"))?;
-    fs::rename(&tmp, path).or_else(|_| {
-        let _ = fs::remove_file(path);
-        fs::rename(&tmp, path)
-    }).map_err(|e| format!("原子落盘系统基线失败: {e}"))
+    fs::rename(&tmp, path)
+        .or_else(|_| {
+            let _ = fs::remove_file(path);
+            fs::rename(&tmp, path)
+        })
+        .map_err(|e| {
+            let _ = fs::remove_file(&tmp);
+            format!("原子落盘系统基线失败: {e}")
+        })
 }
 
 pub fn load_baseline() -> SystemBaseline {
+    let _guard = baseline_io_lock().lock().unwrap_or_else(|e| e.into_inner());
     load_baseline_from(&baseline_file_path())
 }
 
@@ -241,10 +274,83 @@ fn update_baseline<F>(updater: F)
 where
     F: FnOnce(&mut SystemBaseline) -> bool,
 {
+    let _guard = baseline_io_lock().lock().unwrap_or_else(|e| e.into_inner());
     let path = baseline_file_path();
     let mut bl = load_baseline_from(&path);
     if updater(&mut bl) {
         let _ = save_baseline_to(&path, &bl);
+    }
+}
+
+/// 从 Windows `ProxyServer` 字符串中解析全部指向本机回环地址的端口号。
+/// 兼容：`127.0.0.1:7897`、`localhost:7890`、`http://127.0.0.1:7897`、
+/// `http=127.0.0.1:7897;https=127.0.0.1:7897;socks=127.0.0.1:7898`、`[::1]:7897`。
+pub fn extract_local_proxy_ports(server: &str) -> Vec<u16> {
+    let mut ports = Vec::new();
+    for seg in server.split(';') {
+        let mut s = seg.trim();
+        if s.is_empty() {
+            continue;
+        }
+        // 剥离 `http=` / `https=` / `socks=` 协议段前缀
+        if let Some((_, rhs)) = s.split_once('=') {
+            s = rhs.trim();
+        }
+        // 剥离 `http://` / `https://` / `socks5://`
+        if let Some((_, rhs)) = s.split_once("://") {
+            s = rhs.trim();
+        }
+        // 剥离路径后缀与账密前缀
+        if let Some((before_slash, _)) = s.split_once('/') {
+            s = before_slash;
+        }
+        if let Some((_, after_at)) = s.rsplit_once('@') {
+            s = after_at;
+        }
+        let Some((host_raw, port_raw)) = s.rsplit_once(':') else {
+            continue;
+        };
+        let host = host_raw.trim().trim_matches(|c| c == '[' || c == ']').to_ascii_lowercase();
+        let is_local = matches!(host.as_str(), "127.0.0.1" | "localhost" | "::1" | "0.0.0.0");
+        if !is_local {
+            continue;
+        }
+        if let Ok(port) = port_raw.trim().parse::<u16>() {
+            if port > 0 && !ports.contains(&port) {
+                ports.push(port);
+            }
+        }
+    }
+    ports
+}
+
+/// 向 Windows 广播环境变量变更（`WM_SETTINGCHANGE`）并通知 WinINET 即时重读系统代理配置
+pub fn notify_windows_env_and_inet_refresh() {
+    #[cfg(windows)]
+    {
+        use std::ptr::null_mut;
+        use windows_sys::Win32::Networking::WinInet::{
+            InternetSetOptionW, INTERNET_OPTION_REFRESH, INTERNET_OPTION_SETTINGS_CHANGED,
+        };
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            SendMessageTimeoutW, HWND_BROADCAST, SMTO_ABORTIFHUNG, WM_SETTINGCHANGE,
+        };
+
+        let env_wide: Vec<u16> = "Environment\0".encode_utf16().collect();
+        unsafe {
+            let mut result: usize = 0;
+            SendMessageTimeoutW(
+                HWND_BROADCAST,
+                WM_SETTINGCHANGE,
+                0,
+                env_wide.as_ptr() as isize,
+                SMTO_ABORTIFHUNG,
+                1500,
+                &mut result,
+            );
+            let _ = InternetSetOptionW(null_mut(), INTERNET_OPTION_SETTINGS_CHANGED, null_mut(), 0);
+            let _ = InternetSetOptionW(null_mut(), INTERNET_OPTION_REFRESH, null_mut(), 0);
+        }
     }
 }
 
@@ -272,9 +378,39 @@ pub fn is_current_process_elevated() -> bool {
     }
 }
 
+/// 将 PowerShell 脚本编码为 UTF-16LE Base64，供 `-EncodedCommand` 无损传递（彻底免疫单双引号、换行与中文路径转义）
+#[cfg(windows)]
+fn encode_ps_utf16le_base64(script: &str) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut bytes = Vec::with_capacity(script.len() * 2);
+    for u in script.encode_utf16() {
+        bytes.extend_from_slice(&u.to_le_bytes());
+    }
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = *chunk.get(1).unwrap_or(&0) as u32;
+        let b2 = *chunk.get(2).unwrap_or(&0) as u32;
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(TABLE[((n >> 18) & 63) as usize] as char);
+        out.push(TABLE[((n >> 12) & 63) as usize] as char);
+        out.push(if chunk.len() > 1 {
+            TABLE[((n >> 6) & 63) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            TABLE[(n & 63) as usize] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
 /// 执行需要管理员权限的 PowerShell 命令：
-/// - 管理员态直接执行（零 UAC 弹窗、避免非交互式会话下 RunAs 被拒）；
-/// - 非管理员态尝试交互提权并校验退出码，失败则显式报错，绝不静默假成功。
+/// - 管理员态直接经 `-EncodedCommand` 执行（零 UAC 弹窗、免疫单双引号与中文转义）；
+/// - 非管理员态交互提权并严格校验取消 UAC 与真实退出码，绝不静默假成功。
 #[cfg(windows)]
 pub fn run_ps_elevated_checked(script: &str, action_label: &str) -> Result<String, String> {
     use std::os::windows::process::CommandExt;
@@ -282,10 +418,11 @@ pub fn run_ps_elevated_checked(script: &str, action_label: &str) -> Result<Strin
     let wrapped = format!(
         "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $ErrorActionPreference = 'Stop'; {script}"
     );
+    let encoded = encode_ps_utf16le_base64(&wrapped);
     if is_current_process_elevated() {
         let out = Command::new("powershell")
             .creation_flags(CREATE_NO_WINDOW)
-            .args(["-NoProfile", "-NonInteractive", "-Command", &wrapped])
+            .args(["-NoProfile", "-NonInteractive", "-EncodedCommand", &encoded])
             .output()
             .map_err(|e| format!("执行 {action_label} 失败: {e}"))?;
         let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
@@ -299,10 +436,9 @@ pub fn run_ps_elevated_checked(script: &str, action_label: &str) -> Result<Strin
         ));
     }
 
-    // 非管理员态：走 RunAs 提权并校验退出码
-    let escaped_inner = wrapped.replace('\'', "''");
+    // 非管理员态：通过 -EncodedCommand 传递内层脚本，并在外层捕获 UAC 取消强制返回非 0 退出码
     let runner = format!(
-        "$p = Start-Process powershell -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ArgumentList '-NoProfile -Command \"{escaped_inner}\"'; exit $p.ExitCode"
+        "$ErrorActionPreference = 'Stop'; try {{ $p = Start-Process powershell -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ArgumentList @('-NoProfile','-NonInteractive','-EncodedCommand','{encoded}'); if (-not $p) {{ exit 1 }}; exit $p.ExitCode }} catch {{ [Console]::Error.WriteLine($_.Exception.Message); exit 1 }}"
     );
     let out = Command::new("powershell")
         .creation_flags(CREATE_NO_WINDOW)
@@ -314,7 +450,7 @@ pub fn run_ps_elevated_checked(script: &str, action_label: &str) -> Result<Strin
     } else {
         let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
         Err(format!(
-            "当前未获得管理员权限，无法完成{action_label}（请以管理员身份运行本工具后重试{}）。",
+            "当前未获得管理员权限或用户取消了授权，无法完成{action_label}（请以管理员身份运行本工具后重试{}）。",
             if stderr.is_empty() {
                 String::new()
             } else {
@@ -572,10 +708,11 @@ pub fn capture_sys_env_baseline_if_needed(
     });
 }
 
-/// 读取顶层 YAML 布尔字段（严格仅匹配无前导空格的顶层键，绝不误读缩进的 `dns.ipv6` 等子键）
+/// 读取顶层 YAML 布尔字段（严格仅匹配无前导空格的顶层键，自动剥离 UTF-8 BOM，绝不误读缩进的 `dns.ipv6` 等子键）
 pub fn read_top_level_yaml_bool(raw: &str, key: &str) -> Option<bool> {
+    let clean = raw.trim_start_matches('\u{feff}');
     let prefix = format!("{key}:");
-    for line in raw.lines() {
+    for line in clean.lines() {
         if let Some(rest) = line.strip_prefix(&prefix) {
             let val = rest.split('#').next().unwrap_or("").trim();
             if val.eq_ignore_ascii_case("true") {
@@ -589,11 +726,12 @@ pub fn read_top_level_yaml_bool(raw: &str, key: &str) -> Option<bool> {
     None
 }
 
-/// 纯函数：精准更新 YAML 顶层布尔字段（如 `ipv6: false`），严格不触碰缩进子键（如 `dns:\n  ipv6: true`）
+/// 纯函数：精准更新 YAML 顶层布尔字段（如 `ipv6: false`），自动剥离 UTF-8 BOM 且严格不触碰缩进子键（如 `dns:\n  ipv6: true`）
 pub fn patch_top_level_yaml_bool(raw: &str, key: &str, value: bool) -> String {
+    let clean = raw.trim_start_matches('\u{feff}');
     let prefix = format!("{key}:");
     let mut replaced = false;
-    let mut out: Vec<String> = raw
+    let mut out: Vec<String> = clean
         .lines()
         .map(|line| {
             if !replaced && line.starts_with(&prefix) {
@@ -1105,6 +1243,33 @@ async fn rollback_clash_rules_inner(bl: &SystemBaseline) -> Result<String, Strin
         }
     }
 
+    // 5. 若基线记录了 verge.yaml 的原始 TUN / 系统代理开关或 clash-verge.yaml 原始 mode，精准还原
+    if let Some(orig_tun) = cfg.and_then(|c| c.original_verge_tun) {
+        let verge_yaml = dir.join("verge.yaml");
+        if let Ok(raw) = fs::read_to_string(&verge_yaml) {
+            let mut next = raw.clone();
+            if read_top_level_yaml_bool(&next, "enable_tun_mode") != Some(orig_tun) {
+                next = patch_top_level_yaml_bool(&next, "enable_tun_mode", orig_tun);
+            }
+            if let Some(orig_sp) = cfg.and_then(|c| c.original_verge_sysproxy) {
+                if read_top_level_yaml_bool(&next, "enable_system_proxy") != Some(orig_sp) {
+                    next = patch_top_level_yaml_bool(&next, "enable_system_proxy", orig_sp);
+                }
+            }
+            if next != raw {
+                let _ = fs::write(&verge_yaml, &next);
+                actions.push(format!("已还原 verge.yaml 原始 TUN={orig_tun}"));
+            }
+        }
+    }
+    if let Some(orig_mode) = cfg.and_then(|c| c.original_mode.as_deref()) {
+        if let Some(ep) = discover_endpoint().await {
+            let body = serde_json::json!({ "mode": orig_mode });
+            let _ = crate::mihomo::patch_configs_json(&ep, &body).await;
+            actions.push(format!("已还原 Clash 代理模式为 {orig_mode}"));
+        }
+    }
+
     // 清理基线中的 clash_rules 标记
     update_baseline(|b| {
         if b.clash_rules.is_some() {
@@ -1335,6 +1500,7 @@ fn rollback_sys_env_inner(bl: &SystemBaseline) -> Result<String, String> {
                 let _ = inet.set_value("ProxyServer", srv);
             }
         }
+        notify_windows_env_and_inet_refresh();
     }
 
     if let Some(ref base_url) = env_bl.claude_settings_base_url {
@@ -1444,6 +1610,8 @@ fn rollback_firewall_inner() -> Result<String, String> {
                 )?;
             }
         }
+        // 立刻失效 60s 计划任务就绪缓存，避免撤回后仍假显示「已安装」
+        crate::killswitch::invalidate_firewall_helper_cache();
     }
 
     update_baseline(|b| {
@@ -1647,25 +1815,23 @@ pub async fn run_network_emergency_rescue() -> NetworkRescueReport {
             let enabled: u32 = inet.get_value("ProxyEnable").unwrap_or(0);
             let server: String = inet.get_value("ProxyServer").unwrap_or_default();
             if enabled == 1 {
-                // 仅当系统代理指向本地端口且该端口根本没人监听时才关闭，避免误关用户正在用的健康代理
-                let dead_local = server
-                    .trim()
-                    .strip_prefix("127.0.0.1:")
-                    .and_then(|p| p.parse::<u16>().ok())
-                    .map(|port| {
+                // 兼容解析 127.0.0.1:7897 / localhost:7897 / http://127.0.0.1:7897 / http=127.0.0.1:7897;https=127.0.0.1:7897
+                let local_ports = extract_local_proxy_ports(&server);
+                let dead_local = !local_ports.is_empty()
+                    && local_ports.iter().all(|&port| {
                         TcpStream::connect_timeout(
                             &SocketAddr::from(([127, 0, 0, 1], port)),
                             Duration::from_millis(250),
                         )
                         .is_err()
-                    })
-                    .unwrap_or(false);
+                    });
                 if dead_local {
                     let _ = inet.set_value("ProxyEnable", &0u32);
+                    notify_windows_env_and_inet_refresh();
                     return RescueStepResult {
                         step: "清理失效系统代理".into(),
                         ok: true,
-                        detail: format!("已关闭指向死端口 ({server}) 的 Windows 系统代理开关。"),
+                        detail: format!("已关闭指向死端口 ({server}) 的 Windows 系统代理开关并刷新 WinINET。"),
                     };
                 }
             }
@@ -2029,5 +2195,36 @@ rules:
         assert_eq!(read_top_level_yaml_bool(&restored, "ipv6"), Some(true));
         assert!(restored.contains("\nipv6: true\n"));
         assert!(restored.contains("\ndns:\n  enable: true\n  ipv6: true\n"));
+    }
+
+    #[test]
+    fn extract_local_proxy_ports_handles_multi_proto_scheme_and_ipv6() {
+        assert_eq!(extract_local_proxy_ports("127.0.0.1:7897"), vec![7897]);
+        assert_eq!(extract_local_proxy_ports("localhost:7890"), vec![7890]);
+        assert_eq!(
+            extract_local_proxy_ports("http://127.0.0.1:7897"),
+            vec![7897]
+        );
+        assert_eq!(
+            extract_local_proxy_ports("http=127.0.0.1:7897;https=127.0.0.1:7897;socks=localhost:7898"),
+            vec![7897, 7898]
+        );
+        assert_eq!(extract_local_proxy_ports("[::1]:10809"), vec![10809]);
+        assert!(extract_local_proxy_ports("192.168.1.10:7897").is_empty());
+        assert!(extract_local_proxy_ports("proxy.corp.local:8080").is_empty());
+    }
+
+    #[test]
+    fn corrupted_baseline_is_backed_up_instead_of_silently_dropped() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let p = dir.path().join("system-baseline.json");
+        fs::write(&p, "{ broken json !!!").expect("write broken");
+        let bl = load_baseline_from(&p);
+        assert!(bl.sys_ipv6.is_none());
+        let has_corrupt_backup = fs::read_dir(dir.path())
+            .expect("readdir")
+            .flatten()
+            .any(|e| e.file_name().to_string_lossy().contains(".corrupt-"));
+        assert!(has_corrupt_backup, "坏基线文件应自动保留 .corrupt-* 备份");
     }
 }

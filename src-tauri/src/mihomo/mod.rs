@@ -106,6 +106,9 @@ struct NodeStabilityRecord {
     probe_total: u32,
     #[serde(default)]
     probe_failures: u32,
+    /// 最近 12 次探测成败滑动窗口（true=成功, false=失败），防止单次瞬时抖动长期拉黑健康节点
+    #[serde(default)]
+    recent_outcomes: Vec<bool>,
     /// (unix_secs, "CC:masked_ip")
     #[serde(default)]
     landing_history: Vec<(i64, String)>,
@@ -186,11 +189,28 @@ fn deep_audit_cancel_flag() -> &'static AtomicBool {
     CANCEL.get_or_init(|| AtomicBool::new(false))
 }
 
+fn deep_audit_running_lock() -> &'static AtomicBool {
+    static RUNNING: OnceLock<AtomicBool> = OnceLock::new();
+    RUNNING.get_or_init(|| AtomicBool::new(false))
+}
+
+/// 原子抢占深度节点核验单飞锁（杜绝并发双跑导致两个核验协程互抢 Claude-Fixed 节点）
+pub fn try_acquire_deep_audit_lock() -> bool {
+    deep_audit_running_lock()
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok()
+}
+
+pub fn release_deep_audit_lock() {
+    deep_audit_running_lock().store(false, Ordering::SeqCst);
+}
+
 pub fn is_deep_audit_running() -> bool {
-    deep_audit_state()
-        .read()
-        .map(|s| s.running)
-        .unwrap_or(false)
+    deep_audit_running_lock().load(Ordering::SeqCst)
+        || deep_audit_state()
+            .read()
+            .map(|s| s.running)
+            .unwrap_or(false)
 }
 
 pub fn get_deep_audit_progress() -> DeepAuditProgress {
@@ -218,7 +238,7 @@ pub fn is_deep_audit_cancelled() -> bool {
     deep_audit_cancel_flag().load(Ordering::SeqCst)
 }
 
-/// 读取节点在有效期内且符合最新探针版本的持久化深度核验记录（瞬时超时 offline 仅缓存 5 分钟，其余 24 小时）
+/// 读取节点在有效期内且符合最新探针版本的持久化深度核验记录（瞬时超时 offline 或 GeoIP 探测失败仅缓存 5 分钟，其余 24 小时）
 pub fn get_fresh_verified_record(node_name: &str) -> Option<VerifiedNodeRecord> {
     let now = chrono::Utc::now().timestamp();
     verified_disk_cache()
@@ -226,7 +246,10 @@ pub fn get_fresh_verified_record(node_name: &str) -> Option<VerifiedNodeRecord> 
         .ok()
         .and_then(|m| m.get(node_name).cloned())
         .filter(|rec| {
-            let ttl = if rec.claude_status == "offline" {
+            let short_ttl = rec.claude_status == "offline"
+                || rec.masked_ip.is_empty()
+                || rec.risk_level == "unknown";
+            let ttl = if short_ttl {
                 OFFLINE_DISK_TTL_SECS
             } else {
                 VERIFIED_DISK_TTL_SECS
@@ -504,6 +527,21 @@ pub fn compute_real_jitter_ms(samples: &[u32]) -> Option<u32> {
     Some((diff_sum / (samples.len() as u64 - 1)) as u32)
 }
 
+/// 计算节点近期滑动窗口断连率与样本数（供单测与生产共用）
+pub fn compute_recent_drop_stats(recent_outcomes: &[bool], fallback_total: u32, fallback_failures: u32) -> (f64, usize) {
+    if !recent_outcomes.is_empty() {
+        let total = recent_outcomes.len();
+        let fails = recent_outcomes.iter().filter(|&&ok| !ok).count();
+        let pct = ((fails as f64 / total as f64) * 1000.0).round() / 10.0;
+        return (pct, total);
+    }
+    if fallback_total > 0 {
+        let pct = ((fallback_failures as f64 / fallback_total as f64) * 1000.0).round() / 10.0;
+        return (pct, fallback_total as usize);
+    }
+    (0.0, 0)
+}
+
 fn record_node_probe_sample(node_name: &str, delay_ms: Option<u32>) {
     if node_name.trim().is_empty() {
         return;
@@ -511,6 +549,11 @@ fn record_node_probe_sample(node_name: &str, delay_ms: Option<u32>) {
     if let Ok(mut map) = stability_cache().write() {
         let entry = map.entry(node_name.to_string()).or_default();
         entry.probe_total = entry.probe_total.saturating_add(1);
+        entry.recent_outcomes.push(delay_ms.is_some());
+        if entry.recent_outcomes.len() > 12 {
+            let excess = entry.recent_outcomes.len() - 12;
+            entry.recent_outcomes.drain(0..excess);
+        }
         if let Some(ms) = delay_ms {
             entry.rtt_samples.push(ms);
             if entry.rtt_samples.len() > 12 {
@@ -932,9 +975,10 @@ pub async fn probe_dual_ai_via_proxy(node_name: &str, proxy_port: u16) -> DualAi
             return ("cn_redirect", "AGY 限区");
         }
 
-        let cloudcode_blocked = match cloudcode_res {
-            Ok(r) => matches!(r.status().as_u16(), 403 | 451),
-            Err(_) => true,
+        // BUG-P1-09：严格区分 HTTP 403/451 真限区 与 网络超时/TLS 错误（传输失败归 unknown / AGY 待测，绝不误判限区也不反判假绿）
+        let cloudcode_state: Option<bool> = match cloudcode_res {
+            Ok(r) => Some(matches!(r.status().as_u16(), 403 | 451)),
+            Err(_) => None,
         };
 
         if let Ok(resp) = api_res {
@@ -946,15 +990,16 @@ pub async fn probe_dual_ai_via_proxy(node_name: &str, proxy_port: u16) -> DualAi
             if st != "ok" {
                 return (st, lbl);
             }
-            if cloudcode_blocked {
+            if cloudcode_state == Some(true) {
                 return ("restricted", "AGY 限区");
             }
             return ("ok", "AGY ✓");
         }
-        if !cloudcode_blocked {
-            return ("ok", "AGY ✓");
+        match cloudcode_state {
+            Some(true) => ("restricted", "AGY 限区"),
+            Some(false) => ("ok", "AGY ✓"),
+            None => ("unknown", "AGY 待测"),
         }
-        ("restricted", "AGY 限区")
     };
 
     let ((mut c_stat, mut c_lbl, cf_blocked, claude_rtt, claude_detail), web_challenge, (g_stat, g_lbl)) =
@@ -1139,11 +1184,11 @@ pub async fn probe_node_delay_via_mihomo(
         .filter(|&d| d > 0)
 }
 
-/// 禁区节点名称匹配正则（精确匹配香港/澳门/中国/俄罗斯等，避免单字“澳”误杀“澳大利亚”）
+/// 禁区节点名称匹配正则（精确覆盖 HK01/HK_01/国旗 Emoji/Macao/Syria/Cuba，同时避免单字“澳”误杀“澳大利亚”）
 pub fn blocked_region_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r"(?i)(香港|Hong\s*Kong|\bHK\b|澳门|澳門|Macau|\bMO\b|中国|中國|国内|China|\bCN\b|俄罗斯|俄羅斯|俄国|Russia|\bRU\b|白俄|\bBY\b|朝鲜|朝鮮|\bKP\b|伊朗|\bIR\b)")
+        Regex::new(r"(?i)(香港|Hong\s*Kong|🇭🇰|澳门|澳門|Macau|Macao|🇲🇴|中国|中國|国内|China|🇨🇳|俄罗斯|俄羅斯|俄国|Russia|🇷🇺|白俄|Belarus|🇧🇾|朝鲜|朝鮮|North\s*Korea|🇰🇵|伊朗|Iran|🇮🇷|叙利亚|敘利亞|Syria|🇸🇾|古巴|Cuba|🇨🇺|(?:^|[^a-z])(HK|MO|CN|RU|BY|KP|IR|SY|CU)(?:[^a-z]|$))")
             .expect("invalid blocked region regex")
     })
 }
@@ -1349,10 +1394,12 @@ pub struct NodeReport {
     pub current_exit_summary: Option<String>,
 }
 
-/// 纯函数：从运行中 Clash / Mihomo 进程命令行或可执行路径反推真实配置目录
-/// 优先识别 `verge-mihomo -d "<dir>"`（天然兼容便携版 Portable、自定义数据目录与跨账号 UAC 提权），次选便携版 `.config\PORTABLE`
-pub fn parse_clash_config_dir_from_cmdlines(lines: &[String]) -> Option<PathBuf> {
-    let re_dash_d = Regex::new(r#"(?i)(?:^|\s)-d\s+(?:"([^"]+)"|'([^']+)'|(\S+))"#).ok()?;
+/// 纯函数：从运行中 Clash / Mihomo 进程命令行反推所有 `-d "<dir>"` 候选配置目录（避免首个进程为服务沙箱提前中止）
+pub fn parse_all_clash_config_dirs_from_cmdlines(lines: &[String]) -> Vec<PathBuf> {
+    let Ok(re_dash_d) = Regex::new(r#"(?i)(?:^|\s)-d\s+(?:"([^"]+)"|'([^']+)'|(\S+))"#) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
     for line in lines {
         if let Some(caps) = re_dash_d.captures(line) {
             let raw = caps
@@ -1362,11 +1409,19 @@ pub fn parse_clash_config_dir_from_cmdlines(lines: &[String]) -> Option<PathBuf>
                 .map(|m| m.as_str().trim())
                 .unwrap_or("");
             if !raw.is_empty() {
-                return Some(PathBuf::from(raw));
+                let p = PathBuf::from(raw);
+                if !out.contains(&p) {
+                    out.push(p);
+                }
             }
         }
     }
-    None
+    out
+}
+
+/// 纯函数：从运行中 Clash / Mihomo 进程命令行反推首个非空 `-d` 目录（保留向后兼容签名）
+pub fn parse_clash_config_dir_from_cmdlines(lines: &[String]) -> Option<PathBuf> {
+    parse_all_clash_config_dirs_from_cmdlines(lines).into_iter().next()
 }
 
 /// 判断路径是否为真正的 Clash Verge Rev 用户配置目录（排除服务模式临时运行沙箱 `ProgramData\clash-verge-service\...\runtime`）
@@ -1392,7 +1447,7 @@ fn detect_live_clash_verge_config_dir() -> Option<PathBuf> {
         .args([
             "-NoProfile",
             "-Command",
-            "Get-CimInstance Win32_Process -Filter \"Name LIKE '%mihomo%' OR Name LIKE '%clash-verge%'\" | ForEach-Object { $_.CommandLine; if ($_.ExecutablePath) { 'EXE::' + $_.ExecutablePath } }",
+            "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-CimInstance Win32_Process -Filter \"Name LIKE '%mihomo%' OR Name LIKE '%clash-verge%'\" | ForEach-Object { $_.CommandLine; if ($_.ExecutablePath) { 'EXE::' + $_.ExecutablePath } }",
         ])
         .output()
         .ok()?;
@@ -1410,8 +1465,8 @@ fn detect_live_clash_verge_config_dir() -> Option<PathBuf> {
             cmdlines.push(t.to_string());
         }
     }
-    // 仅采纳包含真实 profiles.yaml / clash-verge.yaml / verge.yaml 且非服务模式沙箱的 -d 目录
-    if let Some(dir) = parse_clash_config_dir_from_cmdlines(&cmdlines) {
+    // 遍历全部 -d 候选目录，自动跳过 clash-verge-service 服务模式沙箱找到真正的用户配置目录
+    for dir in parse_all_clash_config_dirs_from_cmdlines(&cmdlines) {
         if is_valid_clash_verge_config_dir(&dir) {
             return Some(dir);
         }
@@ -1510,6 +1565,46 @@ pub fn discover_mihomo_pipes() -> Vec<String> {
     Vec::new()
 }
 
+/// 纯函数：从 YAML 内容解析 `external-controller`（归一化 0.0.0.0/[::]/* -> 127.0.0.1）与 `secret`（天然剥离行内 `#` 注释）
+pub fn parse_external_controller_and_secret_yaml(raw: &str) -> (Option<String>, Option<String>) {
+    let Ok(doc) = serde_yaml::from_str::<serde_yaml::Value>(raw.trim_start_matches('\u{feff}')) else {
+        return (None, None);
+    };
+    let ctrl = doc
+        .get("external-controller")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| {
+            let without_scheme = s
+                .strip_prefix("http://")
+                .or_else(|| s.strip_prefix("https://"))
+                .unwrap_or(s);
+            let scheme = if s.starts_with("https://") { "https" } else { "http" };
+            let normalized_host_port = if let Some(port) = without_scheme.strip_prefix(':') {
+                format!("127.0.0.1:{port}")
+            } else if let Some(port) = without_scheme.strip_prefix("0.0.0.0:") {
+                format!("127.0.0.1:{port}")
+            } else if let Some(port) = without_scheme.strip_prefix("[::]:") {
+                format!("127.0.0.1:{port}")
+            } else if let Some(port) = without_scheme.strip_prefix("*:") {
+                format!("127.0.0.1:{port}")
+            } else {
+                without_scheme.to_string()
+            };
+            format!("{scheme}://{normalized_host_port}")
+        });
+    let secret = doc
+        .get("secret")
+        .and_then(|v| match v {
+            serde_yaml::Value::String(s) => Some(s.trim().to_string()),
+            serde_yaml::Value::Number(n) => Some(n.to_string()),
+            _ => None,
+        })
+        .filter(|s| !s.is_empty());
+    (ctrl, secret)
+}
+
 /// 读取 clash-verge.yaml 中的 external-controller 与 secret，供 HTTP 回退模式自动鉴权与自定义端口发现
 fn read_clash_external_controller_and_secret() -> (Option<String>, Option<String>) {
     let Some(dir) = clash_verge_config_dir() else {
@@ -1518,30 +1613,7 @@ fn read_clash_external_controller_and_secret() -> (Option<String>, Option<String
     let Ok(raw) = std::fs::read_to_string(dir.join("clash-verge.yaml")) else {
         return (None, None);
     };
-    let mut ctrl: Option<String> = None;
-    let mut secret: Option<String> = None;
-    for line in raw.lines() {
-        let t = line.trim();
-        if let Some(v) = t.strip_prefix("external-controller:") {
-            let s = v.trim().trim_matches('"').trim_matches('\'');
-            if !s.is_empty() {
-                let normalized = if s.starts_with("http://") || s.starts_with("https://") {
-                    s.to_string()
-                } else if let Some(port) = s.strip_prefix(':') {
-                    format!("http://127.0.0.1:{port}")
-                } else {
-                    format!("http://{s}")
-                };
-                ctrl = Some(normalized);
-            }
-        } else if let Some(v) = t.strip_prefix("secret:") {
-            let s = v.trim().trim_matches('"').trim_matches('\'');
-            if !s.is_empty() {
-                secret = Some(s.to_string());
-            }
-        }
-    }
-    (ctrl, secret)
+    parse_external_controller_and_secret_yaml(&raw)
 }
 
 /// 自动发现可用的 Mihomo 端点（优先命名管道，其次 clash-verge.yaml 配置的 external-controller 与常见 9097/9090）
@@ -1812,6 +1884,16 @@ pub async fn fetch_configs(endpoint: &MihomoEndpoint) -> Result<MihomoConfigs, S
         dns_enhanced_mode,
         mode,
     })
+}
+
+pub async fn patch_configs_json(endpoint: &MihomoEndpoint, body: &Value) -> Result<(), String> {
+    let body_json = body.to_string();
+    let (status, resp_body) = mihomo_request(endpoint, "PATCH", "/configs", Some(&body_json)).await?;
+    if status >= 200 && status < 300 {
+        Ok(())
+    } else {
+        Err(format!("PATCH /configs 返回 HTTP {status}: {resp_body}"))
+    }
 }
 
 pub async fn patch_ipv6_enabled(endpoint: &MihomoEndpoint, enabled: bool) -> Result<(), String> {
@@ -2112,18 +2194,16 @@ pub async fn build_node_report_with_options(force_reprobe: bool) -> NodeReport {
                 }
             });
 
-        let drop_rate_pct = if let Some(ref r) = stab_rec {
-            if r.probe_total > 0 {
-                ((r.probe_failures as f64 / r.probe_total as f64) * 1000.0).round() / 10.0
-            } else {
-                0.0
-            }
+        let (drop_rate_pct, drop_sample_count) = if let Some(ref r) = stab_rec {
+            compute_recent_drop_stats(&r.recent_outcomes, r.probe_total, r.probe_failures)
         } else if history.is_empty() {
-            0.0
+            (0.0, 0)
         } else {
             let zeros = history.iter().filter(|&&d| d == 0).count();
-            ((zeros as f64 / history.len() as f64) * 1000.0).round() / 10.0
+            (((zeros as f64 / history.len() as f64) * 1000.0).round() / 10.0, history.len())
         };
+        let high_drop_unusable =
+            drop_sample_count >= 4 && drop_rate_pct >= crate::protocol::DROP_RATE_REDLINE;
         let drift_count_24h = stab_rec
             .as_ref()
             .map(|r| count_24h_landing_drifts(&r.landing_history, now_secs))
@@ -2301,11 +2381,11 @@ pub async fn build_node_report_with_options(force_reprobe: bool) -> NodeReport {
         };
         let dual_ai_bonus: i32 = if dual_ai_ok { 4 } else { 0 };
         let raw_score = compute_node_score_weighted(delay_ms, jitter_ms as f64, drop_rate_pct, stability);
-        // 唯一真源：仅以下 4 类硬故障判定为「节点不可用」（禁止切换）；漂移(合规区)/延迟偏高/机房/网页弹盾仅算风险提示，绝不误杀为不可用
+        // 唯一真源：仅以下 4 类硬故障判定为「节点不可用」（禁止切换）；高断连需至少 4 次样本防单次抖动误拉黑
         let node_unusable = asn_verified_blocked
             || cf_blocked
             || claude_status == "offline"
-            || drop_rate_pct >= crate::protocol::DROP_RATE_REDLINE
+            || high_drop_unusable
             || matches!(risk_level.as_str(), "abuser" | "proxy");
 
         let score = if node_unusable {
@@ -2319,7 +2399,7 @@ pub async fn build_node_report_with_options(force_reprobe: bool) -> NodeReport {
             "禁区不可用"
         } else if cf_blocked {
             "拉黑不可用"
-        } else if drop_rate_pct >= crate::protocol::DROP_RATE_REDLINE {
+        } else if high_drop_unusable {
             "高断连不可用"
         } else if claude_status == "offline" {
             if delay_ms.is_some() {
@@ -2700,6 +2780,7 @@ mod tests {
                 rtt_samples: vec![200],
                 probe_total: 3,
                 probe_failures: 0,
+                recent_outcomes: Vec::new(),
                 landing_history: vec![
                     (1000, "AU:172.105.xx.xx".into()),
                     (1100, "KR:3.36.xx.xx".into()),
@@ -2852,5 +2933,69 @@ mod tests {
         assert!(now - fresh_offline.verified_at_unix <= OFFLINE_DISK_TTL_SECS);
         assert!(now - expired_offline.verified_at_unix > OFFLINE_DISK_TTL_SECS);
         assert!(now - ok_12h.verified_at_unix <= VERIFIED_DISK_TTL_SECS);
+    }
+
+    #[test]
+    fn blocked_region_regex_catches_alnum_underscore_emoji_and_sy_cu_without_false_positive() {
+        for blocked in [
+            "HK01",
+            "HK_01",
+            "hk-bgp-2",
+            "CN01",
+            "RU_02",
+            "MO01",
+            "SY01",
+            "CU-1",
+            "🇭🇰 节点1",
+            "🇨🇳 回国专线",
+            "Macao IEPL",
+            "Syria Relay",
+            "Cuba Direct",
+        ] {
+            assert!(
+                is_blocked_node_name(blocked),
+                "禁区节点名 {blocked} 必须被拦截"
+            );
+        }
+        for safe in [
+            "🇦🇺澳大利亚|原生",
+            "🇺🇸 US01-ISP",
+            "🇯🇵 Tokyo-02",
+            "🇸🇬 SG_03",
+            "🇬🇧 UK-London",
+            "🇨🇦 Canada-01",
+            "Custom-Node-01",
+            "Symbol-US",
+            "Missouri-US",
+        ] {
+            assert!(
+                !is_blocked_node_name(safe),
+                "合规节点名 {safe} 不得被误杀"
+            );
+        }
+    }
+
+    #[test]
+    fn parse_external_controller_normalizes_wildcard_and_strips_yaml_comments() {
+        let yaml = "external-controller: 0.0.0.0:9097 # lan listen\nsecret: \"my-secret-123\" # comment\n";
+        let (ctrl, sec) = parse_external_controller_and_secret_yaml(yaml);
+        assert_eq!(ctrl.as_deref(), Some("http://127.0.0.1:9097"));
+        assert_eq!(sec.as_deref(), Some("my-secret-123"));
+
+        let yaml_v6 = "external-controller: '[::]:9090'\nsecret: ''\n";
+        let (ctrl2, sec2) = parse_external_controller_and_secret_yaml(yaml_v6);
+        assert_eq!(ctrl2.as_deref(), Some("http://127.0.0.1:9090"));
+        assert_eq!(sec2, None);
+    }
+
+    #[test]
+    fn recent_drop_window_requires_min_samples_and_recovers_after_window_slides() {
+        let (pct1, cnt1) = compute_recent_drop_stats(&[true, false], 2, 1);
+        assert_eq!(cnt1, 2);
+        assert!(pct1 > 40.0);
+        // 样本不足 4 次时不会误拉黑；连续恢复后滑动窗口断连率归零
+        let (pct2, cnt2) = compute_recent_drop_stats(&[true, true, true, true, true], 10, 1);
+        assert_eq!(cnt2, 5);
+        assert_eq!(pct2, 0.0);
     }
 }

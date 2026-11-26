@@ -85,6 +85,7 @@ function scoreColorCss(colorToken: string): { pillCls: string; barColor: string 
 export function AccountAuditPage() {
   const report = useGuardStore((s) => s.accountAudit);
   const loading = useGuardStore((s) => s.accountAuditLoading);
+  const auditError = useGuardStore((s) => s.accountAuditError);
   const subTab = useGuardStore((s) => s.auditSubTab);
   const setSubTab = useGuardStore((s) => s.setAuditSubTab);
   const refreshAccountAudit = useGuardStore((s) => s.refreshAccountAudit);
@@ -116,10 +117,10 @@ export function AccountAuditPage() {
   const skInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    if (!report) {
+    if (!report && !loading && !auditError) {
       void refreshAccountAudit(true);
     }
-  }, [report, refreshAccountAudit]);
+  }, [report, loading, auditError, refreshAccountAudit]);
 
   useEffect(() => {
     if (!guideOpen) return;
@@ -811,8 +812,8 @@ export function AccountAuditPage() {
                     busyKey === "enable_hold"
                       ? "强杀盯防中..."
                       : disRuntimeGap
-                      ? "立即清退并盯防 45s"
-                      : "切代理前清退并盯防 45s",
+                      ? `立即清退并盯防 ${config.killHoldSeconds ?? 45}s`
+                      : `切代理前清退并盯防 ${config.killHoldSeconds ?? 45}s`,
                   primary: disRuntimeGap,
                   busy: busyKey === "enable_hold",
                   onClick: () => void handleEnableHold(),
@@ -838,7 +839,7 @@ export function AccountAuditPage() {
         },
       ],
       advice:
-        "Claude 正常使用时需满足 5 重硬防线（Clash 在线、TUN 接管、策略组规则锁死、Fake-IP DNS 无泄漏且 0 异常直连、开启运行中自动 4 层热熔断）；平时正常使用无需手动强杀，仅在准备手动切换节点、重启或关闭 Clash 代理前再点「清退并盯防 45s」即可阻断断连瞬间的裸连回传。",
+        `Claude 正常使用时需满足 5 重硬防线（Clash 在线、TUN 接管、策略组规则锁死、Fake-IP DNS 无泄漏且 0 异常直连、开启运行中自动 4 层热熔断）；平时正常使用无需手动强杀，仅在准备手动切换节点、重启或关闭 Clash 代理前再点「清退并盯防 ${config.killHoldSeconds ?? 45}s」即可阻断断连瞬间的裸连回传。`,
     };
 
     // 第 7 项：本机遥测开关与缓存清理（2 列固定位，未装 CLI 且 0 B 缓存自动豁免）
@@ -925,6 +926,7 @@ export function AccountAuditPage() {
     snapshot.killHoldActive,
     snapshot.killHoldRemainingSecs,
     snapshot.bgClaudeProcs,
+    config.killHoldSeconds,
     setActiveTab,
     setNodesSubTab,
     openCleanModal,
@@ -1484,12 +1486,76 @@ export function AccountAuditPage() {
   };
 
   if (!report) {
+    if (subTab === "logs") {
+      return (
+        <section className="audit-page" data-testid="account-audit-page">
+          <div className="audit-page-hd">
+            <div style={{ minWidth: 0 }}>
+              <h1 className="audit-page-title">账户审计</h1>
+              <p className="audit-page-sub">本地只读体检与按需云端核验，提前排查账号风控隐患</p>
+            </div>
+            <div className="audit-hd-btns">
+              <button
+                type="button"
+                className="guard-btn guard-btn-flat guard-btn-sm"
+                onClick={() => setSubTab("audit")}
+              >
+                返回账号审计
+              </button>
+            </div>
+          </div>
+          <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+            <LogAnalysisPage />
+          </div>
+        </section>
+      );
+    }
     return (
       <section className="audit-page" style={{ alignItems: "center", justifyContent: "center" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--text-2)" }}>
-          <Loader2 size={16} strokeWidth={2} className="guard-spin" />
-          <span>正在执行本地只读账户审计...</span>
-        </div>
+        {loading ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--text-2)" }}>
+            <Loader2 size={16} strokeWidth={2} className="guard-spin" />
+            <span>正在执行本地只读账户审计...</span>
+          </div>
+        ) : (
+          <div
+            className="guard-card"
+            data-testid="audit-load-error-card"
+            style={{
+              maxWidth: 420,
+              padding: "20px 22px",
+              display: "flex",
+              flexDirection: "column",
+              gap: 10,
+              alignItems: "flex-start",
+            }}
+          >
+            <div style={{ fontSize: 15, fontWeight: 600, color: "var(--danger-bright)" }}>
+              本地账户审计加载失败
+            </div>
+            <div style={{ fontSize: 12.5, color: "var(--text-2)", lineHeight: 1.55 }}>
+              {auditError || "未能完成本地账号与日志扫描，请点击下方按钮重试。"}
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+              <button
+                type="button"
+                data-testid="btn-retry-account-audit"
+                className="guard-btn guard-btn-primary guard-btn-sm"
+                onClick={() => void refreshAccountAudit(false)}
+              >
+                <RefreshCw size={13} strokeWidth={2} />
+                <span>重试审计</span>
+              </button>
+              <button
+                type="button"
+                className="guard-btn guard-btn-flat guard-btn-sm"
+                onClick={() => setSubTab("logs")}
+              >
+                查看实时异常日志流
+              </button>
+            </div>
+          </div>
+        )}
       </section>
     );
   }
@@ -1580,114 +1646,196 @@ export function AccountAuditPage() {
         {/* 左栏 244px */}
         <section className="audit-acct-pane">
           <div className="audit-acct-top">
-            <div className="audit-pane-hd">
-              <span className="audit-pane-title tabular">当前档案 (1)</span>
-              <span style={{ fontSize: 11, color: "var(--text-3)" }}>本机激活</span>
-            </div>
+            {(() => {
+              const extraAccounts = (report.detectedAccounts ?? []).filter((a) => !a.isPrimary);
+              const totalAccounts = Math.max(1, (report.detectedAccounts ?? []).length);
+              return (
+                <>
+                  <div className="audit-pane-hd">
+                    <span className="audit-pane-title tabular">当前档案 ({totalAccounts})</span>
+                    {totalAccounts > 1 ? (
+                      <span
+                        className="guard-chip guard-chip-warn"
+                        data-testid="audit-multi-account-chip"
+                        style={{ padding: "1px 6px", fontSize: 10.5 }}
+                      >
+                        {totalAccounts === 2 ? "双号" : `${totalAccounts} 号`}
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: 11, color: "var(--text-3)" }}>本机激活</span>
+                    )}
+                  </div>
 
-            <div
-              className="audit-acct-card tabular"
-              onClick={() => setSubTab("audit")}
-              role="button"
-              tabIndex={0}
-            >
-              <div className="audit-acct-row1">
-                <div className="audit-acct-mail">
-                  <span
-                    className={`guard-dot ${
-                      report.hasDangerIssue
-                        ? "danger"
-                        : report.pendingIssueCount > 0
-                        ? "warn"
-                        : ""
-                    }`}
-                  />
-                  <span className="audit-acct-mail-txt">{report.emailMasked}</span>
-                </div>
-                <span className="guard-chip guard-chip-neutral">{report.plan}</span>
-              </div>
-
-              <div className="audit-acct-sub">
-                <span
-                  style={{
-                    color:
-                      report.geoConsistency === "cross_continent_mismatch"
-                        ? "var(--danger-bright)"
-                        : "var(--text-3)",
-                  }}
-                >
-                  {report.workspaceGeo
-                    ? `归属 ${report.workspaceGeo} · 出口 ${
-                        report.exitColo ?? report.exitCountry ?? "未知"
-                      }`
-                    : `属地待核 · 出口 ${report.exitCountry ?? "未知"}`}
-                </span>
-                <span
-                  title={report.quota.stampTooltip}
-                  style={{ color: "var(--text-3)", flexShrink: 0 }}
-                >
-                  {report.quota.stampShort}
-                </span>
-              </div>
-
-              <div className="audit-acct-quota">
-                <div
-                  className="audit-q-row"
-                  title={report.quota.fiveHourOfflineNote ?? report.quota.stampTooltip}
-                >
-                  <span>5h 额度</span>
-                  <span style={{ fontWeight: 600 }}>
-                    {report.quota.fiveHourPct != null ? `${report.quota.fiveHourPct}%` : "—"}
-                  </span>
-                </div>
-                <div className="audit-q-track">
                   <div
-                    className="audit-q-fill"
-                    style={{ width: `${report.quota.fiveHourPct ?? 0}%` }}
-                  />
-                </div>
-                <div
-                  className="audit-q-row"
-                  style={{ marginTop: 2 }}
-                  title={report.quota.sevenDayOfflineNote ?? report.quota.stampTooltip}
-                >
-                  <span>7d 额度</span>
-                  <span>
-                    {report.quota.sevenDayPct != null
-                      ? `${report.quota.sevenDayPct}%`
-                      : report.quota.sevenDayOfflineNote
-                      ? "已过窗·待核"
-                      : "—"}
-                  </span>
-                </div>
-                <div className="audit-q-track">
-                  <div
-                    className="audit-q-fill soft"
-                    style={{ width: `${report.quota.sevenDayPct ?? 0}%` }}
-                  />
-                </div>
-              </div>
+                    className="audit-acct-card tabular"
+                    onClick={() => setSubTab("audit")}
+                    role="button"
+                    tabIndex={0}
+                  >
+                    <div className="audit-acct-row1">
+                      <div className="audit-acct-mail">
+                        <span
+                          className={`guard-dot ${
+                            report.hasDangerIssue
+                              ? "danger"
+                              : report.pendingIssueCount > 0 || totalAccounts > 1
+                              ? "warn"
+                              : ""
+                          }`}
+                        />
+                        <span className="audit-acct-mail-txt">
+                          {!report.cloudVerified &&
+                          report.orgIdPrefix8 &&
+                          report.emailMasked.startsWith("桌面端账号")
+                            ? `新号 · ${report.orgIdPrefix8}`
+                            : report.emailMasked}
+                        </span>
+                      </div>
+                      <span className="guard-chip guard-chip-neutral">
+                        {!report.cloudVerified && report.plan === "未知" ? "待核验" : report.plan}
+                      </span>
+                    </div>
 
-              <div className="audit-acct-tags">
-                <span
-                  style={{
-                    color: report.hasDangerIssue
-                      ? "var(--danger-bright)"
-                      : report.pendingIssueCount > 0
-                      ? "var(--warning)"
-                      : "var(--text-2)",
-                    fontWeight: report.pendingIssueCount > 0 ? 600 : 500,
-                  }}
-                >
-                  {report.pendingIssueCount > 0
-                    ? `${report.pendingIssueCount} 项待处理`
-                    : "状态安全"}
-                </span>
-                <span style={{ color: "var(--text-3)" }}>
-                  {report.accountAgeDays != null ? `${report.accountAgeDays} 天` : "年龄未知"}
-                </span>
-              </div>
-            </div>
+                    <div className="audit-acct-sub">
+                      <span
+                        style={{
+                          color:
+                            report.geoConsistency === "cross_continent_mismatch"
+                              ? "var(--danger-bright)"
+                              : "var(--text-3)",
+                        }}
+                      >
+                        {report.workspaceGeo
+                          ? `归属 ${report.workspaceGeo} · 出口 ${
+                              report.exitColo ?? report.exitCountry ?? "未知"
+                            }`
+                          : `属地待核 · 出口 ${report.exitCountry ?? "未知"}`}
+                      </span>
+                      <span
+                        title={report.quota.stampTooltip}
+                        style={{
+                          color:
+                            !report.cloudVerified && totalAccounts > 1
+                              ? "var(--primary-hover)"
+                              : "var(--text-3)",
+                          fontWeight: !report.cloudVerified && totalAccounts > 1 ? 500 : 400,
+                          flexShrink: 0,
+                        }}
+                      >
+                        {!report.cloudVerified && totalAccounts > 1 ? "新登录" : report.quota.stampShort}
+                      </span>
+                    </div>
+
+                    <div className="audit-acct-quota">
+                      <div
+                        className="audit-q-row"
+                        title={report.quota.fiveHourOfflineNote ?? report.quota.stampTooltip}
+                      >
+                        <span>5h 额度</span>
+                        <span style={{ fontWeight: 600 }}>
+                          {report.quota.fiveHourPct != null ? `${report.quota.fiveHourPct}%` : "—"}
+                        </span>
+                      </div>
+                      <div className="audit-q-track">
+                        <div
+                          className="audit-q-fill"
+                          style={{ width: `${report.quota.fiveHourPct ?? 0}%` }}
+                        />
+                      </div>
+                      <div
+                        className="audit-q-row"
+                        style={{ marginTop: 2 }}
+                        title={report.quota.sevenDayOfflineNote ?? report.quota.stampTooltip}
+                      >
+                        <span>7d 额度</span>
+                        <span>
+                          {report.quota.sevenDayPct != null
+                            ? `${report.quota.sevenDayPct}%`
+                            : report.quota.sevenDayOfflineNote
+                            ? "已过窗·待核"
+                            : "—"}
+                        </span>
+                      </div>
+                      <div className="audit-q-track">
+                        <div
+                          className="audit-q-fill soft"
+                          style={{ width: `${report.quota.sevenDayPct ?? 0}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="audit-acct-tags">
+                      <span
+                        style={{
+                          color: report.hasDangerIssue
+                            ? "var(--danger-bright)"
+                            : report.pendingIssueCount > 0
+                            ? "var(--warning)"
+                            : "var(--text-2)",
+                          fontWeight: report.pendingIssueCount > 0 ? 600 : 500,
+                        }}
+                      >
+                        {report.pendingIssueCount > 0
+                          ? `${report.pendingIssueCount} 项待处理`
+                          : "状态安全"}
+                      </span>
+                      <span style={{ color: "var(--text-3)" }}>
+                        {report.accountAgeDays != null
+                          ? `${report.accountAgeDays} 天`
+                          : !report.cloudVerified
+                          ? "未核验"
+                          : "年龄未知"}
+                      </span>
+                    </div>
+                  </div>
+
+                  {extraAccounts.map((acc) => (
+                    <div
+                      key={acc.orgPrefix8}
+                      data-testid={`audit-extra-account-${acc.orgPrefix8}`}
+                      className="audit-acct-extra tabular"
+                    >
+                      <div className="audit-acct-row1">
+                        <div className="audit-acct-mail" style={{ fontSize: 12.5 }}>
+                          <span className="guard-dot warn" />
+                          <span className="audit-acct-mail-txt">
+                            {acc.emailMasked ?? `组织 ${acc.orgPrefix8}`}
+                          </span>
+                        </div>
+                        {acc.plan && (
+                          <span
+                            className="guard-chip guard-chip-neutral"
+                            style={{ fontSize: 10.5, padding: "1px 6px" }}
+                          >
+                            {acc.plan}
+                          </span>
+                        )}
+                      </div>
+                      <div className="audit-acct-sub">
+                        <span>
+                          旧残留 · {acc.orgPrefix8}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => openCleanModal({ sourceLabel: "来自账户审计多号残留" })}
+                          style={{
+                            border: "none",
+                            background: "transparent",
+                            padding: 0,
+                            color: "var(--primary-hover)",
+                            fontSize: 11,
+                            fontWeight: 500,
+                            cursor: "pointer",
+                          }}
+                        >
+                          去清理 →
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </>
+              );
+            })()}
 
             <button
               type="button"
@@ -1773,22 +1921,24 @@ export function AccountAuditPage() {
                           : "仅 CLI 账号"}
                       </span>
                     )}
-                    <button
-                      type="button"
-                      data-testid="btn-sub-toggle"
-                      className="audit-sub-toggle"
-                      title="点击切换「已订阅天数」与「预计到期/续费日」"
-                      onClick={() => setSubShowExpire((v) => !v)}
-                    >
-                      <span>
-                        {subShowExpire
-                          ? report.subscriptionRenewLabel
-                          : report.subscriptionAgeDays != null
-                          ? `订阅 ${report.subscriptionAgeDays} 天`
-                          : "订阅时长未知"}
-                      </span>
-                      <span style={{ opacity: 0.55, fontSize: 10 }}>⇄</span>
-                    </button>
+                    {!report.plan.toLowerCase().includes("free") && (
+                      <button
+                        type="button"
+                        data-testid="btn-sub-toggle"
+                        className="audit-sub-toggle"
+                        title="点击切换「已订阅天数」与「预计到期/续费日」"
+                        onClick={() => setSubShowExpire((v) => !v)}
+                      >
+                        <span>
+                          {subShowExpire
+                            ? report.subscriptionRenewLabel
+                            : report.subscriptionAgeDays != null
+                            ? `订阅 ${report.subscriptionAgeDays} 天`
+                            : "订阅时长未知"}
+                        </span>
+                        <span style={{ opacity: 0.55, fontSize: 10 }}>⇄</span>
+                      </button>
+                    )}
                     <span>{report.merchantChannel}</span>
                   </div>
 

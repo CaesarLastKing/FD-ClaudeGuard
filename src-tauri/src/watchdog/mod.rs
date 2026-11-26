@@ -867,7 +867,7 @@ pub fn audit_log_text_for_accounts(text: &str, audit: &mut AccountLogAudit) {
         let lower = line.to_lowercase();
         let mut line_orgs: Vec<String> = Vec::new();
         for caps in re_org.captures_iter(line) {
-            let prefix = caps[1].chars().take(8).collect::<String>();
+            let prefix = caps[1].chars().take(8).collect::<String>().to_ascii_lowercase();
             if !audit.unique_org_ids.contains(&prefix) {
                 audit.unique_org_ids.push(prefix.clone());
             }
@@ -877,7 +877,7 @@ pub fn audit_log_text_for_accounts(text: &str, audit: &mut AccountLogAudit) {
             last_seen_org = Some(prefix);
         }
         for caps in re_acct.captures_iter(line) {
-            let prefix = caps[1].chars().take(8).collect::<String>();
+            let prefix = caps[1].chars().take(8).collect::<String>().to_ascii_lowercase();
             if !audit.unique_account_ids.contains(&prefix) {
                 audit.unique_account_ids.push(prefix);
             }
@@ -1177,13 +1177,22 @@ fn scan_log_file_tail_with_meta(
     if file.read_to_end(&mut buf).is_err() {
         return (Vec::new(), 0, std::collections::BTreeMap::new(), None);
     }
-    let text = String::from_utf8_lossy(&buf);
+    let raw_text = String::from_utf8_lossy(&buf);
+    // BUG-P1-18：尾读偏移 > 0 时丢弃首个不完整首行残片，防止无时间戳残片被归入 "" 永久置顶
+    let text = if start_offset > 0 {
+        raw_text
+            .split_once('\n')
+            .map(|(_, rest)| rest)
+            .unwrap_or(raw_text.as_ref())
+    } else {
+        raw_text.as_ref()
+    };
     let file_name = path
         .file_name()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "main.log".into());
 
-    scan_log_text_with_context_detailed(&file_name, &text, max_events)
+    scan_log_text_with_context_detailed(&file_name, text, max_events)
 }
 
 /// T-201：60 秒内同一文件完全相同 tag + title 的连续刷屏异常/风险折叠合并（显示 ×N 及行号范围）
@@ -1398,7 +1407,7 @@ pub fn collect_log_analysis_with_acked(
     all = collapse_repeated_events(all);
     all.truncate(80);
 
-    // 标记持久化已读状态：当条目自身 ID 或其全部折叠原始 ID 均在已读集合中时视为已读
+    // 标记持久化已读状态（BUG-P1-18）：折叠条目必须全部子 ID 均已读才算已读，防止新增同类告警被旧主 ID 静默吞掉
     let ack_set: std::collections::HashSet<&str> = acked_ids.iter().map(|s| s.as_str()).collect();
     for ev in &mut all {
         if !ev.anomaly {
@@ -1410,7 +1419,7 @@ pub fn collect_log_analysis_with_acked(
         } else {
             ev.collapsed_ids.iter().all(|cid| ack_set.contains(cid.as_str()))
         };
-        ev.acked = ack_set.contains(ev.id.as_str()) || all_collapsed_acked;
+        ev.acked = all_collapsed_acked;
     }
 
     // T-301：仅当存在未读高危异常（level == "fail"）时才按需计算 72h 前置线索，避免日常扫盘重复读 2MB

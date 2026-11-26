@@ -7,8 +7,18 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 static LOG_LOCK: Mutex<()> = Mutex::new(());
-const MAX_LOG_FILE_BYTES: u64 = 10 * 1024 * 1024; // 10 MB 单文件滚动上限
+const MAX_LOG_FILE_BYTES: u64 = 5 * 1024 * 1024; // 5 MB 单文件滚动上限（防止高频异常撑爆单日日志）
 const RETENTION_DAYS: i64 = 14;
+const DEDUP_WINDOW_SECS: i64 = 10;
+
+/// 高频同类 WARN/ERROR 折叠槽位（按 (dir, level, module, msg) 分桶，防止多模块交错写日志互相顶掉折叠态）
+struct DedupBucket {
+    first_ts_secs: i64,
+    suppressed: u64,
+}
+
+static REPEAT_DEDUP: std::sync::OnceLock<Mutex<std::collections::HashMap<(String, String, String, String), DedupBucket>>> =
+    std::sync::OnceLock::new();
 
 /// 结构化运行日志记录（JSON Lines，严禁包含任何明文 Token / 邮箱 / 口令）
 #[derive(Debug, Clone, Serialize)]
@@ -112,13 +122,79 @@ pub fn write_structured_to_dir(
         }
     }
 
+    let level_up = level.to_uppercase();
+    let clean_msg = sanitize_sensitive_text(message)
+        .replace('\r', "")
+        .replace('\n', " | ");
+    let now_dt = chrono::Local::now();
+    let now_secs = now_dt.timestamp();
+
+    // 对 10 秒内完全相同的 WARN/ERROR 日志按 (dir, level, module, msg) 分桶节流，杜绝异常重入刷爆数 MB 日志
+    let mut flushed_summaries: Vec<String> = Vec::new();
+    if level_up == "WARN" || level_up == "ERROR" {
+        let dedup_lock = REPEAT_DEDUP.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+        if let Ok(mut map) = dedup_lock.lock() {
+            let dir_str = dir.to_string_lossy().to_string();
+            let key = (
+                dir_str.clone(),
+                level_up.clone(),
+                module.to_string(),
+                clean_msg.clone(),
+            );
+            if let Some(bucket) = map.get_mut(&key) {
+                if now_secs.saturating_sub(bucket.first_ts_secs) < DEDUP_WINDOW_SECS {
+                    bucket.suppressed = bucket.suppressed.saturating_add(1);
+                    return Ok(());
+                }
+            }
+            // 同目录下其余已有抑制计数的条目（或本条目已超窗）一并刷出折叠汇总
+            let mut to_remove = Vec::new();
+            for (k, b) in map.iter_mut() {
+                let expired = now_secs.saturating_sub(b.first_ts_secs) >= DEDUP_WINDOW_SECS;
+                let same_dir_other = k.0 == dir_str && k != &key && b.suppressed > 0;
+                if (expired || same_dir_other) && b.suppressed > 0 {
+                    let summary_entry = StructuredLogEntry {
+                        ts: now_dt.format("%Y-%m-%dT%H:%M:%S%.3f%:z").to_string(),
+                        level: k.1.clone(),
+                        module: k.2.clone(),
+                        event: "log_dedup_summary".into(),
+                        duration_ms: None,
+                        message: format!("[高频重复日志已合并 ×{}] {}", b.suppressed, k.3),
+                        meta: None,
+                    };
+                    if let Ok(mut s) = serde_json::to_string(&summary_entry) {
+                        s.push('\n');
+                        flushed_summaries.push(s);
+                    }
+                    b.suppressed = 0;
+                }
+                if expired {
+                    to_remove.push(k.clone());
+                }
+            }
+            for k in to_remove {
+                map.remove(&k);
+            }
+            if map.len() >= 64 {
+                map.clear();
+            }
+            map.insert(
+                key,
+                DedupBucket {
+                    first_ts_secs: now_secs,
+                    suppressed: 0,
+                },
+            );
+        }
+    }
+
     let entry = StructuredLogEntry {
-        ts: chrono::Local::now().format("%Y-%m-%dT%H:%M:%S%.3f%:z").to_string(),
-        level: level.to_uppercase(),
+        ts: now_dt.format("%Y-%m-%dT%H:%M:%S%.3f%:z").to_string(),
+        level: level_up,
         module: module.to_string(),
         event: event.to_string(),
         duration_ms,
-        message: sanitize_sensitive_text(message).replace('\r', "").replace('\n', " | "),
+        message: clean_msg,
         meta: meta.map(sanitize_json_value),
     };
 
@@ -130,6 +206,9 @@ pub fn write_structured_to_dir(
         .append(true)
         .open(&path)
         .map_err(|e| format!("打开日志文件失败: {e}"))?;
+    for summary_line in flushed_summaries {
+        let _ = file.write_all(summary_line.as_bytes());
+    }
     file.write_all(line.as_bytes())
         .map_err(|e| format!("写入日志失败: {e}"))?;
     Ok(())
@@ -308,5 +387,36 @@ mod tests {
         assert_eq!(collected.len(), 1);
         assert!(collected[0].0.starts_with("guard-runtime-"));
         assert!(collected[0].0.ends_with(".jsonl"));
+    }
+
+    #[test]
+    fn throttles_identical_high_frequency_warn_logs_within_window() {
+        let dir = tempdir().unwrap();
+        for _ in 0..8 {
+            write_structured_to_dir(
+                dir.path(),
+                "WARN",
+                "updater",
+                "log",
+                None,
+                "经本机代理检查更新失败，自动回退直连重试",
+                None,
+            )
+            .unwrap();
+        }
+        write_structured_to_dir(
+            dir.path(),
+            "WARN",
+            "updater",
+            "log",
+            None,
+            "直连检查恢复正常",
+            None,
+        )
+        .unwrap();
+
+        let lines = read_recent_logs_in(dir.path(), 20);
+        assert_eq!(lines.len(), 3, "8 次相同高频 WARN 应压缩为首条 + 1 条合并汇总 + 新日志");
+        assert!(lines[1].contains("[高频重复日志已合并 ×7]"), "实得: {}", lines[1]);
     }
 }

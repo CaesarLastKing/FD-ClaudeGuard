@@ -55,9 +55,8 @@ export function ConsolePage() {
       }
     };
     syncRemain();
-    const timer = window.setInterval(() => {
-      setRemainSec((s) => (s > 0 ? s - 1 : 0));
-    }, 1000);
+    // BUG-P2-06：直接按 wall-clock 目标时间戳重算剩余秒数，避免电脑休眠或后台节流导致倒计时漂移
+    const timer = window.setInterval(syncRemain, 1000);
     return () => window.clearInterval(timer);
   }, [snapshot.nextFullAuditEpochMs]);
 
@@ -504,7 +503,23 @@ export function ConsolePage() {
             <span>{checking ? "实测中..." : "重新实测"}</span>
           </button>
 
-          {mustFail >= 2 ? (
+          {/* BUG-P1-21：熔断态最高优先级直出「解除熔断保护」，不被伴随的多项体检失败遮盖 */}
+          {snapshot.killSwitchActive ? (
+            <button
+              type="button"
+              data-testid="btn-console-release-killswitch"
+              className="guard-btn guard-btn-danger-soft"
+              disabled={releasingKs || checking || fixing}
+              onClick={openReleaseKillswitchModal}
+            >
+              {releasingKs ? (
+                <Loader2 size={14} strokeWidth={2} className="guard-spin" />
+              ) : (
+                <Lock size={14} strokeWidth={1.9} />
+              )}
+              <span>{releasingKs ? "正在解除熔断..." : "解除熔断保护"}</span>
+            </button>
+          ) : mustFail >= 2 ? (
             <button
               type="button"
               data-testid="btn-batch-fix-all"
@@ -527,21 +542,6 @@ export function ConsolePage() {
               <span>
                 核验节点中 ({deepAudit.currentIndex}/{deepAudit.total || "?"}) · 暂禁启动
               </span>
-            </button>
-          ) : snapshot.killSwitchActive ? (
-            <button
-              type="button"
-              data-testid="btn-console-release-killswitch"
-              className="guard-btn guard-btn-danger-soft"
-              disabled={releasingKs || checking || fixing}
-              onClick={openReleaseKillswitchModal}
-            >
-              {releasingKs ? (
-                <Loader2 size={14} strokeWidth={2} className="guard-spin" />
-              ) : (
-                <Lock size={14} strokeWidth={1.9} />
-              )}
-              <span>{releasingKs ? "正在解除熔断..." : "解除熔断保护"}</span>
             </button>
           ) : blocked ? (
             <button type="button" className="guard-btn guard-btn-primary" disabled>

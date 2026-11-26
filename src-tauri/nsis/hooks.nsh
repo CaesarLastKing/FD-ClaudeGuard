@@ -11,11 +11,12 @@
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
-  nsExec::ExecToStack 'taskkill /F /IM fd-claude-guard.exe'
+  nsExec::ExecToStack 'taskkill /F /T /IM fd-claude-guard.exe'
   Pop $0
   Pop $1
+  Sleep 500
   ${If} $UpdateMode <> 1
-    MessageBox MB_OK|MB_ICONINFORMATION "卸载提示：卸载 FD Claude 安全启动器将同步清空防火墙守护规则，确保卸载后网络恢复正常。"
+    MessageBox MB_OK|MB_ICONINFORMATION "卸载提示：卸载 FD Claude 安全启动器将同步清空防火墙守护规则与开机自启计划任务，确保卸载后网络恢复正常。"
     nsExec::ExecToStack 'netsh advfirewall firewall delete rule name="FDClaudeGuard_KillSwitch_BlockOut"'
     Pop $0
     Pop $1
@@ -29,6 +30,9 @@
     Pop $0
     Pop $1
     nsExec::ExecToStack 'schtasks /Delete /F /TN "FDClaudeGuard_FirewallHelper"'
+    Pop $0
+    Pop $1
+    nsExec::ExecToStack 'schtasks /Delete /F /TN "FDClaudeGuard_AutoStart"'
     Pop $0
     Pop $1
   ${EndIf}

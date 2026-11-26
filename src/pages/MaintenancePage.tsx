@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { Activity, Loader2, ShieldOff, Trash2, X } from "lucide-react";
+import { Loader2, ShieldOff, Trash2 } from "lucide-react";
 import { NetworkRescueRollbackPanel } from "@/components/NetworkRescueRollbackPanel";
 import { ipc } from "@/lib/ipc";
 import { useGuardStore } from "@/stores/guardStore";
-import type { BackupInfo, ClaudeDataRootsSummary, FeedbackReportResult } from "@/types/guard";
+import type { BackupInfo, ClaudeDataRootsSummary } from "@/types/guard";
 
 export function MaintenancePage() {
   const [backups, setBackups] = useState<BackupInfo[]>([]);
@@ -13,10 +13,6 @@ export function MaintenancePage() {
     telemetryExists: true,
   });
   const [busyAction, setBusyAction] = useState<string | null>(null);
-  const [reportModalOpen, setReportModalOpen] = useState(false);
-  const [reportSubmitting, setReportSubmitting] = useState(false);
-  const [reportResult, setReportResult] = useState<FeedbackReportResult | null>(null);
-  const [reportError, setReportError] = useState<string | null>(null);
   const snapshot = useGuardStore((s) => s.snapshot);
   const openRiskModal = useGuardStore((s) => s.openRiskModal);
   const openCleanModal = useGuardStore((s) => s.openCleanModal);
@@ -48,17 +44,6 @@ export function MaintenancePage() {
       cancelled = true;
     };
   }, []);
-
-  useEffect(() => {
-    if (!reportModalOpen) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !reportSubmitting) {
-        setReportModalOpen(false);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [reportModalOpen, reportSubmitting]);
 
   const handleKillAndClean = async () => {
     setBusyAction("kill");
@@ -225,6 +210,8 @@ export function MaintenancePage() {
           `已掐断 ${ks.claudeConnectionsClosed} 条连接、强杀 ${ks.killedProcesses} 个进程并清扫 ${ks.telemetryClearedBytes} B 遥测缓存。`,
           "danger"
         );
+      } catch (err) {
+        pushToast("触发紧急熔断失败", String(err), "danger");
       } finally {
         setBusyAction(null);
       }
@@ -282,19 +269,6 @@ export function MaintenancePage() {
           >
             {busyAction === "export_diag" && <Loader2 size={13} className="guard-spin" />}
             <span>{busyAction === "export_diag" ? "导出中..." : "导出脱敏 AI 诊断包"}</span>
-          </button>
-          <button
-            type="button"
-            data-testid="btn-anonymous-report"
-            disabled={busy}
-            className="guard-btn guard-btn-flat guard-btn-sm"
-            onClick={() => {
-              setReportResult(null);
-              setReportError(null);
-              setReportModalOpen(true);
-            }}
-          >
-            <span>一键匿名上报排障</span>
           </button>
         </div>
       </div>
@@ -567,209 +541,6 @@ export function MaintenancePage() {
           </div>
         </div>
       </div>
-
-      {/* T-303：标准 496px 三段式一键匿名上报排障模态框（遵循 ui-design-system 4.4） */}
-      {reportModalOpen && (
-        <div
-          data-testid="anonymous-report-modal"
-          onClick={() => {
-            if (!reportSubmitting) setReportModalOpen(false);
-          }}
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 90,
-            background: "rgba(0, 0, 0, 0.62)",
-            backdropFilter: "blur(5px)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 16,
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              width: 496,
-              maxWidth: "96vw",
-              background: "var(--bg-card)",
-              border: "1px solid var(--border-strong)",
-              borderRadius: 14,
-              overflow: "hidden",
-              boxShadow: "0 24px 64px rgba(0, 0, 0, 0.45)",
-            }}
-          >
-            <div
-              style={{
-                padding: "18px 20px 14px",
-                display: "flex",
-                alignItems: "flex-start",
-                justifyContent: "space-between",
-                gap: 12,
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <div
-                  style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: 10,
-                    background: "var(--primary-soft)",
-                    color: "var(--primary)",
-                    display: "grid",
-                    placeItems: "center",
-                    flexShrink: 0,
-                  }}
-                >
-                  <Activity size={18} strokeWidth={1.85} />
-                </div>
-                <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 15.5, fontWeight: 600 }}>一键匿名上报排障诊断</span>
-                    <span className="guard-chip guard-chip-ok">已全量脱敏</span>
-                  </div>
-                  <div style={{ fontSize: 12, color: "var(--text-2)", marginTop: 2 }}>
-                    将发送脱敏运行故障与 72h 封号前置归因快照并生成单号
-                  </div>
-                </div>
-              </div>
-              <button
-                type="button"
-                aria-label="关闭弹窗"
-                disabled={reportSubmitting}
-                onClick={() => setReportModalOpen(false)}
-                style={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: 7,
-                  border: "none",
-                  background: "transparent",
-                  color: "var(--text-2)",
-                  cursor: "pointer",
-                  display: "grid",
-                  placeItems: "center",
-                }}
-              >
-                <X size={15} strokeWidth={1.85} />
-              </button>
-            </div>
-
-            <div style={{ padding: "0 20px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
-              <div
-                style={{
-                  background: "var(--bg-subtle)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 10,
-                  padding: "10px 12px",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 7,
-                  fontSize: 12,
-                }}
-              >
-                <div style={{ display: "grid", gridTemplateColumns: "78px 1fr", gap: 10 }}>
-                  <span style={{ color: "var(--text-3)" }}>上传内容</span>
-                  <span style={{ color: "var(--text-1)" }}>
-                    FDtools 近 7 天脱敏故障 + Claude 报错类型 + 72h 前置因子
-                  </span>
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "78px 1fr", gap: 10 }}>
-                  <span style={{ color: "var(--text-3)" }}>已剔除隐私</span>
-                  <span style={{ color: "var(--success)" }}>
-                    邮箱 / Token / 机场订阅 URL / 真实 IP / 用户名 / 对话内容
-                  </span>
-                </div>
-              </div>
-
-              {reportResult && (
-                <div
-                  data-testid="anonymous-report-ticket"
-                  style={{
-                    padding: "10px 12px",
-                    borderRadius: 8,
-                    background: "var(--success-soft)",
-                    color: "var(--success)",
-                    fontSize: 12,
-                    lineHeight: 1.55,
-                  }}
-                >
-                  已生成排障单号：
-                  <strong className="font-mono-code">{reportResult.ticketId}</strong>
-                  （已复制，发给开发者即可快速定位）
-                </div>
-              )}
-
-              {reportError && (
-                <div
-                  style={{
-                    padding: "10px 12px",
-                    borderRadius: 8,
-                    background: "var(--danger-soft)",
-                    color: "var(--danger-bright)",
-                    fontSize: 12,
-                    lineHeight: 1.55,
-                  }}
-                >
-                  {reportError}
-                </div>
-              )}
-            </div>
-
-            <div
-              style={{
-                padding: "12px 20px",
-                borderTop: "1px solid var(--border)",
-                background: "rgba(128, 128, 140, 0.03)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 10,
-              }}
-            >
-              <span style={{ fontSize: 11.5, color: "var(--text-3)" }}>数据经统一脱敏管线处理</span>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button
-                  type="button"
-                  disabled={reportSubmitting}
-                  className="guard-btn guard-btn-flat guard-btn-sm"
-                  onClick={() => setReportModalOpen(false)}
-                >
-                  {reportResult ? "关闭" : "取消"}
-                </button>
-                {!reportResult && (
-                  <button
-                    type="button"
-                    data-testid="btn-confirm-anonymous-report"
-                    disabled={reportSubmitting}
-                    className="guard-btn guard-btn-primary guard-btn-sm"
-                    onClick={async () => {
-                      setReportSubmitting(true);
-                      setReportError(null);
-                      try {
-                        const res = await ipc.submitAnonymousFeedbackReport();
-                        setReportResult(res);
-                        try {
-                          await navigator.clipboard.writeText(res.ticketId);
-                        } catch {
-                          // 剪贴板不可用时静默降级
-                        }
-                        pushToast("已匿名上报排障快照", `排障单号：${res.ticketId}`, "ok");
-                      } catch (err) {
-                        setReportError(String(err));
-                      } finally {
-                        setReportSubmitting(false);
-                      }
-                    }}
-                  >
-                    {reportSubmitting && <Loader2 size={13} className="guard-spin" />}
-                    <span>{reportSubmitting ? "上报中..." : "确认匿名上报"}</span>
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </section>
   );
 }

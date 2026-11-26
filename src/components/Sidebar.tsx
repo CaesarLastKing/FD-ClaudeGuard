@@ -44,18 +44,30 @@ export function Sidebar() {
   // Clash Verge 指示灯仅纯粹反映代理内核连接本身：在线恒定绿灯，仅离线时红灯提示
   const sideDotClass = snapshot.clashOnline ? "guard-dot" : "guard-dot danger";
 
-  // 每次拦截到 Claude 非安全启动（拦截次数递增），触发边框脉冲闪烁提醒
+  // 每次拦截到 Claude 非安全启动（拦截次数递增），触发边框脉冲闪烁提醒（用 ref 管定时器防 holdBlocked 归零时 cleanup 误取消致闪烁常驻）
   const [interceptFlash, setInterceptFlash] = useState(false);
   const prevBlockedRef = useRef(holdBlocked);
+  const flashTimerRef = useRef<number | null>(null);
   useEffect(() => {
     if (holdBlocked > prevBlockedRef.current) {
       setInterceptFlash(true);
-      const timer = window.setTimeout(() => setInterceptFlash(false), 1500);
-      prevBlockedRef.current = holdBlocked;
-      return () => window.clearTimeout(timer);
+      if (flashTimerRef.current !== null) {
+        window.clearTimeout(flashTimerRef.current);
+      }
+      flashTimerRef.current = window.setTimeout(() => {
+        setInterceptFlash(false);
+        flashTimerRef.current = null;
+      }, 1500);
     }
     prevBlockedRef.current = holdBlocked;
   }, [holdBlocked]);
+  useEffect(() => {
+    return () => {
+      if (flashTimerRef.current !== null) {
+        window.clearTimeout(flashTimerRef.current);
+      }
+    };
+  }, []);
 
   return (
     <aside

@@ -70,6 +70,7 @@ interface GuardStore {
   nodesSubTab: "quality" | "traffic";
   accountAudit: AccountAuditReport | null;
   accountAuditLoading: boolean;
+  accountAuditError: string | null;
   selectedCheckId: string;
   playbookOpen: boolean;
   playbookFocusId: string | null;
@@ -82,6 +83,12 @@ interface GuardStore {
   updateInfo: AppUpdateInfo | null;
   updateChecking: boolean;
   updateInstalling: boolean;
+  updateProgress: {
+    stage: string;
+    downloadedBytes: number;
+    totalBytes?: number | null;
+    percent?: number | null;
+  } | null;
   updateError: string | null;
   initialized: boolean;
 
@@ -91,7 +98,7 @@ interface GuardStore {
   oneClickFixAll: () => Promise<void>;
   safeLaunchClaude: () => Promise<void>;
   safeExitClaude: () => Promise<void>;
-  refreshNodes: (force?: boolean) => Promise<void>;
+  refreshNodes: (force?: boolean) => Promise<boolean>;
   startDeepNodeAudit: (forceAll?: boolean, targetNode?: string) => Promise<void>;
   cancelDeepNodeAudit: () => Promise<void>;
   setDeepAuditFromEvent: (progress: DeepAuditProgress) => void;
@@ -106,10 +113,10 @@ interface GuardStore {
   focusFirstUnhealthyCheck: () => void;
   setPlaybookOpen: (open: boolean) => void;
   openPlaybookFocus: (ruleId: string) => void;
-  ackLogId: (id: string) => void;
-  ackLogIds: (ids: string[]) => void;
-  ackAllLogIds: (ids: string[]) => void;
-  ackAllFlowIds: (ids: string[]) => void;
+  ackLogId: (id: string) => Promise<boolean>;
+  ackLogIds: (ids: string[]) => Promise<boolean>;
+  ackAllLogIds: (ids: string[]) => Promise<boolean>;
+  ackAllFlowIds: (ids: string[]) => Promise<boolean>;
   pushToast: (
     title: string,
     body: string,
@@ -127,6 +134,14 @@ interface GuardStore {
   setSupportModalOpen: (open: boolean) => void;
   checkForAppUpdate: (silent?: boolean) => Promise<AppUpdateInfo | null>;
   installAppUpdate: () => Promise<void>;
+  setUpdateProgress: (
+    progress: {
+      stage: string;
+      downloadedBytes: number;
+      totalBytes?: number | null;
+      percent?: number | null;
+    } | null
+  ) => void;
 }
 
 function applyThemeToDom(theme: "dark" | "light") {
@@ -144,6 +159,10 @@ let nodesRefreshInFlight = false;
 let preflightReqSeq = 0;
 let nodesReqSeq = 0;
 let ackLogReqSeq = 0;
+let accountAuditReqSeq = 0;
+let configReqSeq = 0;
+// 深度核验事件版本号：防止 invoke 返回值晚于事件终态倒灌 running:true 永锁主按钮
+let deepAuditEventSeq = 0;
 
 export const useGuardStore = create<GuardStore>((set, get) => ({
   config: DEFAULT_CONFIG,
@@ -164,6 +183,7 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
   nodesSubTab: "quality",
   accountAudit: null,
   accountAuditLoading: false,
+  accountAuditError: null,
   selectedCheckId: "node_proxy",
   playbookOpen: false,
   playbookFocusId: null,
@@ -176,12 +196,19 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
   updateInfo: null,
   updateChecking: false,
   updateInstalling: false,
+  updateProgress: null,
   updateError: null,
   initialized: false,
 
   async bootstrap() {
+    const seqPre = ++preflightReqSeq;
+    const seqNode = ++nodesReqSeq;
+    const seqAudit = ++accountAuditReqSeq;
+    const seqCfg = ++configReqSeq;
+    const beforeAuditEvSeq = deepAuditEventSeq;
     set({ checking: true });
     try {
+      let auditErr: string | null = null;
       const [config, preflight, startupAudit, nodeReport, deepAudit, accountAudit] =
         await Promise.all([
           ipc.getConfig(),
@@ -189,26 +216,31 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
           ipc.auditStartupItems(),
           ipc.getNodesAndQuality(),
           ipc.getDeepAuditStatus(),
-          ipc.auditAccountLocal().catch(() => null),
+          ipc.auditAccountLocal().catch((e) => {
+            auditErr = String(e);
+            return null;
+          }),
         ]);
       const snapshot = await ipc.getSnapshot();
       applyThemeToDom(config.theme);
       const firstFail =
         preflight.items.find((x) => x.part === "must" && x.status !== "ok") ??
         preflight.items[0];
-      set({
-        config,
+      set((state) => ({
+        config: seqCfg === configReqSeq ? config : state.config,
         snapshot,
-        preflight,
+        preflight: seqPre === preflightReqSeq ? preflight : state.preflight,
         startupAudit,
-        nodeReport,
-        deepAudit,
-        accountAudit,
+        nodeReport: seqNode === nodesReqSeq ? nodeReport : state.nodeReport,
+        deepAudit:
+          deepAuditEventSeq === beforeAuditEvSeq ? deepAudit : state.deepAudit,
+        accountAudit: seqAudit === accountAuditReqSeq ? accountAudit : state.accountAudit,
+        accountAuditError: seqAudit === accountAuditReqSeq ? auditErr : state.accountAuditError,
         ackedLogIds: Array.isArray(config.ackedLogIds) ? config.ackedLogIds : [],
         selectedCheckId: firstFail?.id ?? "node_proxy",
         initialized: true,
         checking: false,
-      });
+      }));
     } catch (err) {
       set({ checking: false, initialized: true });
       get().pushToast("初始化探测失败", String(err), "danger");
@@ -243,6 +275,9 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
   },
 
   async fixPreflightItem(itemId) {
+    if (get().fixing) return;
+    const seqPre = ++preflightReqSeq;
+    const seqNode = ++nodesReqSeq;
     set({ fixing: true, fixingItemId: itemId });
     try {
       const res = await ipc.fixPreflightItem(itemId);
@@ -250,14 +285,14 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
         ipc.auditStartupItems(),
         ipc.getNodesAndQuality(),
       ]);
-      set({
-        preflight: res.report,
+      set((state) => ({
+        preflight: seqPre === preflightReqSeq ? res.report : state.preflight,
         snapshot: res.snapshot,
         startupAudit,
-        nodeReport,
+        nodeReport: seqNode === nodesReqSeq ? nodeReport : state.nodeReport,
         fixing: false,
         fixingItemId: null,
-      });
+      }));
       get().pushToast(
         res.success && !res.requiresManualStep
           ? "已自动修复并实测通过"
@@ -272,6 +307,9 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
   },
 
   async oneClickFixAll() {
+    if (get().fixing) return;
+    const seqPre = ++preflightReqSeq;
+    const seqNode = ++nodesReqSeq;
     set({ fixing: true, fixingItemId: "__all__" });
     try {
       const res = await ipc.oneClickFixAll();
@@ -280,10 +318,10 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
         ipc.getNodesAndQuality(),
       ]);
       set((state) => ({
-        preflight: res.report,
+        preflight: seqPre === preflightReqSeq ? res.report : state.preflight,
         snapshot: res.snapshot,
         startupAudit,
-        nodeReport,
+        nodeReport: seqNode === nodesReqSeq ? nodeReport : state.nodeReport,
         selectedCheckId: res.skippedManualId ?? state.selectedCheckId,
         fixing: false,
         fixingItemId: null,
@@ -329,17 +367,23 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
     const seq = ++nodesReqSeq;
     try {
       const nodeReport = await ipc.getNodesAndQuality(force);
-      if (seq !== nodesReqSeq) return;
+      if (seq !== nodesReqSeq) return true;
       set({ nodeReport });
+      return true;
     } catch (err) {
       get().pushToast("刷新节点列表失败", String(err), "danger");
+      return false;
     }
   },
 
   async startDeepNodeAudit(forceAll = false, targetNode?: string) {
+    const beforeSeq = deepAuditEventSeq;
     try {
       const progress = await ipc.startDeepNodeAudit(forceAll, targetNode);
-      set({ deepAudit: progress });
+      // BUG-P0-15：若期间已收到后端推送的更新事件（尤其是 done/cancelled 终态），绝不拿滞后的 invoke 返回值把 running 覆写回 true
+      if (deepAuditEventSeq === beforeSeq) {
+        set({ deepAudit: progress });
+      }
       if (!progress.running && progress.message) {
         get().pushToast("节点深度核验", progress.message, progress.phase === "blocked" ? "danger" : "info");
       }
@@ -349,9 +393,12 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
   },
 
   async cancelDeepNodeAudit() {
+    const beforeSeq = deepAuditEventSeq;
     try {
       const progress = await ipc.cancelDeepNodeAudit();
-      set({ deepAudit: progress });
+      if (deepAuditEventSeq === beforeSeq) {
+        set({ deepAudit: progress });
+      }
       get().pushToast("已停止深度核验", progress.message || "正在恢复原锁定节点...", "info");
     } catch (err) {
       get().pushToast("停止深度核验失败", String(err), "danger");
@@ -359,6 +406,7 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
   },
 
   setDeepAuditFromEvent(progress) {
+    deepAuditEventSeq += 1;
     const prev = get().deepAudit;
     set({ deepAudit: progress });
     const finishedNow = !progress.running && prev.running;
@@ -394,18 +442,23 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
   },
 
   async switchNode(name, forceIgnoreRisk = false) {
+    if (get().fixing) return;
+    const seqPre = ++preflightReqSeq;
+    const seqNode = ++nodesReqSeq;
     set({ fixing: true, switchingNodeName: name });
     try {
       const res = await ipc.switchLockedNode(name, forceIgnoreRisk);
       const nodeReport = await ipc.getNodesAndQuality();
-      set({
-        preflight: res.report,
+      set((state) => ({
+        preflight: seqPre === preflightReqSeq ? res.report : state.preflight,
         snapshot: res.snapshot,
-        nodeReport,
+        nodeReport: seqNode === nodesReqSeq ? nodeReport : state.nodeReport,
         fixing: false,
         switchingNodeName: null,
-      });
+      }));
       get().pushToast("已切换锁定节点", res.message, "ok");
+      // 切换锁定节点后同步静默刷新账户审计，让出口地区与跨洲一致性立即联动更新
+      void get().refreshAccountAudit(true);
     } catch (err) {
       set({ fixing: false, switchingNodeName: null });
       get().pushToast("切换节点被拦截或失败", String(err), "danger");
@@ -413,8 +466,10 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
   },
 
   async updateConfig(patch, toastLabel) {
+    const seq = ++configReqSeq;
     try {
       const updated = await ipc.updateConfig(patch);
+      if (seq !== configReqSeq) return;
       applyThemeToDom(updated.theme);
       // 仅修改自启相关配置时才重新扫描开机启动项，改主题/静音/遥测等不再无谓扫注册表
       const needsStartupReaudit =
@@ -422,6 +477,7 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
       const startupAudit = needsStartupReaudit
         ? await ipc.auditStartupItems().catch(() => get().startupAudit)
         : get().startupAudit;
+      if (seq !== configReqSeq) return;
       set((state) => {
         const ids = new Set(state.snapshot.triggeredPlaybookIds);
         if (updated.calm24h) ids.add("pb_24h");
@@ -472,10 +528,12 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
   },
 
   async refreshAccountAudit(silent = false) {
-    set({ accountAuditLoading: true });
+    const seq = ++accountAuditReqSeq;
+    set({ accountAuditLoading: true, accountAuditError: null });
     try {
       const report = await ipc.auditAccountLocal();
-      set({ accountAudit: report, accountAuditLoading: false });
+      if (seq !== accountAuditReqSeq) return;
+      set({ accountAudit: report, accountAuditLoading: false, accountAuditError: null });
       if (!silent) {
         get().pushToast(
           "本地只读审计已刷新",
@@ -484,15 +542,18 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
         );
       }
     } catch (err) {
-      set({ accountAuditLoading: false });
+      if (seq !== accountAuditReqSeq) return;
+      const msg = String(err);
+      set({ accountAuditLoading: false, accountAuditError: msg });
       if (!silent) {
-        get().pushToast("账户审计刷新失败", String(err), "danger");
+        get().pushToast("账户审计刷新失败", msg, "danger");
       }
     }
   },
 
   setAccountAudit(report) {
-    set({ accountAudit: report });
+    accountAuditReqSeq += 1;
+    set({ accountAudit: report, accountAuditError: null });
   },
 
   setNodesSubTab(sub) {
@@ -526,32 +587,38 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
     }));
   },
 
-  ackLogId(id) {
-    get().ackLogIds([id]);
+  async ackLogId(id) {
+    return get().ackLogIds([id]);
   },
 
-  ackLogIds(ids) {
+  async ackLogIds(ids) {
     const uniq = Array.from(new Set(ids.filter(Boolean)));
-    if (uniq.length === 0) return;
+    if (uniq.length === 0) return true;
     const seq = ++ackLogReqSeq;
+    const prevAcked = get().ackedLogIds;
     set((state) => ({
       ackedLogIds: Array.from(new Set([...state.ackedLogIds, ...uniq])),
     }));
-    void ipc
-      .ackLogEvents(uniq)
-      .then((snap) => {
-        if (seq === ackLogReqSeq) {
-          set({ snapshot: snap });
-        }
-      })
-      .catch((err) => {
-        get().pushToast("同步已读游标失败", String(err), "danger");
-      });
+    try {
+      const snap = await ipc.ackLogEvents(uniq);
+      if (seq === ackLogReqSeq) {
+        set({ snapshot: snap });
+      }
+      return true;
+    } catch (err) {
+      if (seq === ackLogReqSeq) {
+        set({ ackedLogIds: prevAcked });
+      }
+      get().pushToast("同步已读游标失败", String(err), "danger");
+      return false;
+    }
   },
 
-  ackAllLogIds(ids) {
+  async ackAllLogIds(ids) {
     const uniq = Array.from(new Set(ids.filter(Boolean)));
     const seq = ++ackLogReqSeq;
+    const prevAcked = get().ackedLogIds;
+    const prevSnap = get().snapshot;
     set((state) => ({
       ackedLogIds: Array.from(new Set([...state.ackedLogIds, ...uniq])),
       snapshot: {
@@ -562,22 +629,37 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
       },
     }));
     // 统一走后端 ack_all_log_events，将 watchdog 真实未读事件及折叠子 ID 一次性持久化标为已读并广播归零快照
-    void ipc
-      .ackAllLogEvents()
-      .then((snap) => {
-        if (seq === ackLogReqSeq) {
-          set({ snapshot: snap });
-        }
-      })
-      .catch((err) => {
-        get().pushToast("同步全部已读失败", String(err), "danger");
-      });
+    try {
+      const snap = await ipc.ackAllLogEvents();
+      if (seq === ackLogReqSeq) {
+        set({ snapshot: snap });
+      }
+      return true;
+    } catch (err) {
+      if (seq === ackLogReqSeq) {
+        set({ ackedLogIds: prevAcked, snapshot: prevSnap });
+      }
+      get().pushToast("同步全部已读失败", String(err), "danger");
+      return false;
+    }
   },
 
-  ackAllFlowIds(ids) {
+  async ackAllFlowIds(ids) {
+    const uniq = Array.from(new Set(ids.filter(Boolean)));
+    const prevAcked = get().ackedFlowIds;
+    const prevSnap = get().snapshot;
     set((state) => ({
-      ackedFlowIds: Array.from(new Set([...state.ackedFlowIds, ...ids])),
+      ackedFlowIds: Array.from(new Set([...state.ackedFlowIds, ...uniq])),
     }));
+    try {
+      const snap = await ipc.ackFlowAnomalies(uniq);
+      set({ snapshot: snap });
+      return true;
+    } catch (err) {
+      set({ ackedFlowIds: prevAcked, snapshot: prevSnap });
+      get().pushToast("同步流量已处理状态失败", String(err), "danger");
+      return false;
+    }
   },
 
   pushToast(title, body, type = "info", options) {
@@ -699,9 +781,13 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
     }
   },
 
+  setUpdateProgress(progress) {
+    set({ updateProgress: progress });
+  },
+
   async installAppUpdate() {
     if (get().updateInstalling) return;
-    set({ updateInstalling: true, updateError: null });
+    set({ updateInstalling: true, updateProgress: null, updateError: null });
     try {
       const msg = await ipc.installAppUpdate();
       get().pushToast("更新包校验通过", msg, "ok");
@@ -710,7 +796,7 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
       set({ updateError: msg });
       get().pushToast("自动更新安装失败", msg, "danger");
     } finally {
-      set({ updateInstalling: false });
+      set({ updateInstalling: false, updateProgress: null });
     }
   },
 }));

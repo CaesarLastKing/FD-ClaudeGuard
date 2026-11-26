@@ -286,7 +286,11 @@ pub async fn run_all_preflight_checks(cfg: &AppConfig, bg_claude_procs: u32) -> 
     };
 
     let mihomo_cfg = configs_res.as_ref().ok().cloned();
-    let mixed_port = mihomo_cfg.as_ref().map(|c| c.mixed_port).unwrap_or(7890);
+    // BUG-P1-13：Mihomo 离线时仍从 verge.yaml / clash-verge.yaml 读出真实端口（如 7897），避免退回 7890 导致 sys_env 假冲突死循环
+    let mixed_port = match mihomo_cfg.as_ref() {
+        Some(c) => c.mixed_port,
+        None => resolve_active_mixed_port().await,
+    };
     let clash_version = version_res
         .as_ref()
         .map(|v| format!("Mihomo {}", v.version))
@@ -1174,7 +1178,7 @@ async fn probe_exit_geo(
                 }
                 _ => false,
             };
-            let landing_drifted = drift_24h > 0 || (baseline_changed && drift_24h > 0);
+            let landing_drifted = drift_24h > 0 || baseline_changed;
             if landing_drifted {
                 crate::logger::log_event(
                     "WARN",
@@ -1859,6 +1863,47 @@ pub async fn resolve_active_mixed_port() -> u16 {
     7890
 }
 
+/// 纯函数：严格校验代理地址串是否全部指向本机回环地址且端口严格等于 `expected_port`（杜绝 `contains(":7897")` 子串绕过与远端代理漏检）
+pub fn is_local_proxy_matching_port(raw: &str, expected_port: u16) -> bool {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    let mut seg_count = 0usize;
+    for seg in trimmed.split(';') {
+        let mut s = seg.trim();
+        if s.is_empty() {
+            continue;
+        }
+        seg_count += 1;
+        if let Some((_, rhs)) = s.split_once('=') {
+            s = rhs.trim();
+        }
+        if let Some((_, rhs)) = s.split_once("://") {
+            s = rhs.trim();
+        }
+        if let Some((before_slash, _)) = s.split_once('/') {
+            s = before_slash;
+        }
+        if let Some((_, after_at)) = s.rsplit_once('@') {
+            s = after_at;
+        }
+        let Some((host_raw, port_raw)) = s.rsplit_once(':') else {
+            return false;
+        };
+        let host = host_raw.trim().trim_matches(|c| c == '[' || c == ']').to_ascii_lowercase();
+        let is_local = matches!(host.as_str(), "127.0.0.1" | "localhost" | "::1");
+        if !is_local {
+            return false;
+        }
+        match port_raw.trim().parse::<u16>() {
+            Ok(p) if p == expected_port => {}
+            _ => return false,
+        }
+    }
+    seg_count > 0
+}
+
 /// 纯函数：判定单个代理环境变量是否与 Clash 当前真实端口冲突而需要备份清理（供生产与单元测试共用）
 pub fn should_clear_proxy_env_var(key: &str, val: &str, expected_port: u16) -> bool {
     let trimmed = val.trim();
@@ -1866,13 +1911,19 @@ pub fn should_clear_proxy_env_var(key: &str, val: &str, expected_port: u16) -> b
         return false;
     }
     let upper_k = key.to_uppercase();
-    if upper_k == "ANTHROPIC_BASE_URL" || upper_k == "CLAUDE_API_BASE_URL" {
+    if matches!(
+        upper_k.as_str(),
+        "ANTHROPIC_BASE_URL"
+            | "CLAUDE_API_BASE_URL"
+            | "CLAUDE_CODE_API_BASE_URL"
+            | "ANTHROPIC_API_BASE_URL"
+    ) {
         is_third_party_base_url(trimmed)
     } else if upper_k == "NO_PROXY" {
         let l = trimmed.to_lowercase();
         l.contains("anthropic.com") || l.contains("claude.ai") || l.contains("claude.com")
     } else if matches!(upper_k.as_str(), "HTTP_PROXY" | "HTTPS_PROXY" | "ALL_PROXY") {
-        !trimmed.contains(&format!(":{expected_port}"))
+        !is_local_proxy_matching_port(trimmed, expected_port)
     } else {
         false
     }
@@ -1981,7 +2032,13 @@ fn inspect_system_proxy_and_env_sync(expected_port: u16) -> (Vec<String>, bool, 
             return;
         }
         let upper_k = key.to_uppercase();
-        if upper_k == "ANTHROPIC_BASE_URL" || upper_k == "CLAUDE_API_BASE_URL" {
+        if matches!(
+            upper_k.as_str(),
+            "ANTHROPIC_BASE_URL"
+                | "CLAUDE_API_BASE_URL"
+                | "CLAUDE_CODE_API_BASE_URL"
+                | "ANTHROPIC_API_BASE_URL"
+        ) {
             if is_third_party_base_url(trimmed) {
                 oauth_relay = true;
                 conflicts.push(format!("{scope} {key}={trimmed} (第三方反代高危)"));
@@ -1992,10 +2049,9 @@ fn inspect_system_proxy_and_env_sync(expected_port: u16) -> (Vec<String>, bool, 
                 conflicts.push(format!("{scope} NO_PROXY 包含 Anthropic 直连豁免: {trimmed}"));
             }
         } else if matches!(upper_k.as_str(), "HTTP_PROXY" | "HTTPS_PROXY" | "ALL_PROXY") {
-            let expected_suffix = format!(":{expected_port}");
-            if !trimmed.contains(&expected_suffix) {
+            if !is_local_proxy_matching_port(trimmed, expected_port) {
                 conflicts.push(format!(
-                    "{scope} {key}={trimmed} (与 Clash 端口 {expected_port} 冲突)"
+                    "{scope} {key}={trimmed} (与本机 Clash 端口 {expected_port} 冲突)"
                 ));
             }
         }
@@ -2004,6 +2060,8 @@ fn inspect_system_proxy_and_env_sync(expected_port: u16) -> (Vec<String>, bool, 
     let keys = [
         "ANTHROPIC_BASE_URL",
         "CLAUDE_API_BASE_URL",
+        "CLAUDE_CODE_API_BASE_URL",
+        "ANTHROPIC_API_BASE_URL",
         "HTTP_PROXY",
         "HTTPS_PROXY",
         "ALL_PROXY",
@@ -2045,13 +2103,12 @@ fn inspect_system_proxy_and_env_sync(expected_port: u16) -> (Vec<String>, bool, 
             let enabled: u32 = inet.get_value("ProxyEnable").unwrap_or(0);
             let server: String = inet.get_value("ProxyServer").unwrap_or_default();
             if enabled == 1 && !server.trim().is_empty() {
-                let expected_suffix = format!(":{expected_port}");
-                if server.contains(&expected_suffix) {
+                if is_local_proxy_matching_port(&server, expected_port) {
                     wininet_summary = format!("{server} (端口一致 · 三端同 IP)");
                 } else {
-                    wininet_summary = format!("{server} (与 Clash 端口 {expected_port} 不一致)");
+                    wininet_summary = format!("{server} (与本机 Clash 端口 {expected_port} 不一致)");
                     conflicts.push(format!(
-                        "WinINET ProxyServer={server} (与 Clash 端口 {expected_port} 冲突)"
+                        "WinINET ProxyServer={server} (与本机 Clash 端口 {expected_port} 冲突)"
                     ));
                 }
             }
@@ -2092,6 +2149,8 @@ fn fix_system_proxy_and_env(expected_port: u16) -> Result<String, String> {
     let keys = [
         "ANTHROPIC_BASE_URL",
         "CLAUDE_API_BASE_URL",
+        "CLAUDE_CODE_API_BASE_URL",
+        "ANTHROPIC_API_BASE_URL",
         "HTTP_PROXY",
         "HTTPS_PROXY",
         "ALL_PROXY",
@@ -2113,6 +2172,7 @@ fn fix_system_proxy_and_env(expected_port: u16) -> Result<String, String> {
     let mut wininet_orig_server: Option<String> = None;
     let mut settings_orig_base_url: Option<String> = None;
     let mut dns_fix_err: Option<String> = None;
+    let mut hklm_perm_err: Option<String> = None;
 
     #[cfg(windows)]
     {
@@ -2134,18 +2194,49 @@ fn fix_system_proxy_and_env(expected_port: u16) -> Result<String, String> {
                 }
             }
         }
-        // T-101：管理员权限下同步清理 HKLM 系统级冲突代理环境变量，防止新开终端持续继承旧 7890 变量
-        if let Ok(sys_env_key) = RegKey::predef(HKEY_LOCAL_MACHINE).open_subkey_with_flags(
+        // T-101 + BUG-P1-13：同步清理 HKLM 系统级冲突环境变量；若存在 HKLM 冲突但无管理员写权限，走提权清理或明确报错绝不静默吞错
+        match RegKey::predef(HKEY_LOCAL_MACHINE).open_subkey_with_flags(
             r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
             KEY_READ | KEY_WRITE,
         ) {
-            for k in keys {
-                if let Ok(v) = sys_env_key.get_value::<String, _>(k) {
-                    if should_clear_proxy_env_var(k, &v, expected_port) {
-                        hklm_orig_pairs.push((k.to_string(), v.clone()));
-                        backed_up.insert(format!("hklm:{k}"), Value::String(v));
-                        if sys_env_key.delete_value(k).is_ok() {
-                            reg_changed = true;
+            Ok(sys_env_key) => {
+                for k in keys {
+                    if let Ok(v) = sys_env_key.get_value::<String, _>(k) {
+                        if should_clear_proxy_env_var(k, &v, expected_port) {
+                            hklm_orig_pairs.push((k.to_string(), v.clone()));
+                            backed_up.insert(format!("hklm:{k}"), Value::String(v));
+                            if sys_env_key.delete_value(k).is_ok() {
+                                reg_changed = true;
+                            }
+                        }
+                    }
+                }
+            }
+            Err(_) => {
+                // 只读探测 HKLM 是否真有冲突，有冲突则提权删除，失败明确回传错误
+                if let Ok(ro) = RegKey::predef(HKEY_LOCAL_MACHINE)
+                    .open_subkey(r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment")
+                {
+                    let mut hklm_del_cmds = Vec::new();
+                    for k in keys {
+                        if let Ok(v) = ro.get_value::<String, _>(k) {
+                            if should_clear_proxy_env_var(k, &v, expected_port) {
+                                hklm_orig_pairs.push((k.to_string(), v.clone()));
+                                backed_up.insert(format!("hklm:{k}"), Value::String(v));
+                                hklm_del_cmds.push(format!(
+                                    "Remove-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment' -Name '{}' -ErrorAction Stop",
+                                    k.replace('\'', "''")
+                                ));
+                            }
+                        }
+                    }
+                    if !hklm_del_cmds.is_empty() {
+                        match crate::rollback::run_ps_elevated_checked(
+                            &hklm_del_cmds.join("; "),
+                            "清理 HKLM 系统级冲突代理环境变量",
+                        ) {
+                            Ok(_) => reg_changed = true,
+                            Err(err) => hklm_perm_err = Some(err),
                         }
                     }
                 }
@@ -2157,12 +2248,12 @@ fn fix_system_proxy_and_env(expected_port: u16) -> Result<String, String> {
         ) {
             let enabled: u32 = inet.get_value("ProxyEnable").unwrap_or(0);
             let server: String = inet.get_value("ProxyServer").unwrap_or_default();
-            // 同步更新启用的代理端口或残留的旧本地代理端口（如 127.0.0.1:7890 -> 127.0.0.1:7897）
-            let stale_local = server.trim().starts_with("127.0.0.1:")
-                && !server.contains(&format!(":{expected_port}"));
+            // 同步更新启用的冲突代理或残留的旧本地代理端口
+            let stale_local = !crate::rollback::extract_local_proxy_ports(&server).is_empty()
+                && !is_local_proxy_matching_port(&server, expected_port);
             if (enabled == 1 || stale_local)
                 && !server.trim().is_empty()
-                && !server.contains(&format!(":{expected_port}"))
+                && !is_local_proxy_matching_port(&server, expected_port)
             {
                 wininet_orig_enable = Some(enabled);
                 wininet_orig_server = Some(server.clone());
@@ -2191,19 +2282,7 @@ fn fix_system_proxy_and_env(expected_port: u16) -> Result<String, String> {
             }
         }
         if reg_changed {
-            let mut cmd = std::process::Command::new("powershell");
-            cmd.args([
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                "Add-Type -Namespace Win32 -Name NativeMethods -MemberDefinition '[DllImport(\"user32.dll\", SetLastError=true, CharSet=CharSet.Auto)] public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);'; $r=[UIntPtr]::Zero; [Win32.NativeMethods]::SendMessageTimeout([IntPtr]0xffff, 0x001A, [UIntPtr]::Zero, 'Environment', 2, 1000, [ref]$r) | Out-Null",
-            ]);
-            #[cfg(windows)]
-            {
-                use std::os::windows::process::CommandExt;
-                cmd.creation_flags(0x0800_0000);
-            }
-            let _ = cmd.output();
+            crate::rollback::notify_windows_env_and_inet_refresh();
         }
     }
 
@@ -2252,6 +2331,9 @@ fn fix_system_proxy_and_env(expected_port: u16) -> Result<String, String> {
         }
     }
 
+    if let Some(err) = hklm_perm_err {
+        return Err(err);
+    }
     if let Some(err) = dns_fix_err {
         return Err(err);
     }
@@ -2507,7 +2589,7 @@ fn inspect_windows_ipv6() -> (Vec<String>, Vec<String>, Option<u32>) {
         .args([
             "-NoProfile",
             "-Command",
-            "Get-NetAdapterBinding -ComponentID ms_tcpip6 -ErrorAction SilentlyContinue | Where-Object { $_.Enabled -eq $true } | ForEach-Object { $a = Get-NetAdapter -Name $_.Name -ErrorAction SilentlyContinue; \"$($_.Name)|$($a.InterfaceDescription)\" }",
+            "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-NetAdapterBinding -ComponentID ms_tcpip6 -ErrorAction SilentlyContinue | Where-Object { $_.Enabled -eq $true } | ForEach-Object { $a = Get-NetAdapter -Name $_.Name -ErrorAction SilentlyContinue; \"$($_.Name)|$($a.InterfaceDescription)\" }",
         ])
         .output();
 
@@ -2747,7 +2829,7 @@ fn inspect_wintun_adapter() -> Option<String> {
         .args([
             "-NoProfile",
             "-Command",
-            "Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { ($_.Status -eq 'Up') -and ($_.Name -match 'Mihomo|Clash|Meta|Wintun' -or $_.InterfaceDescription -match 'Wintun|Mihomo|Clash') } | Select-Object -First 1 -ExpandProperty Name",
+            "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { ($_.Status -eq 'Up') -and ($_.Name -match 'Mihomo|Clash|Meta|Wintun' -or $_.InterfaceDescription -match 'Wintun|Mihomo|Clash') } | Select-Object -First 1 -ExpandProperty Name",
         ])
         .output()
         .ok()?;
@@ -3573,7 +3655,8 @@ fn inspect_browser_webrtc_sync() -> (bool, Vec<String>, usize) {
             .open_subkey(subkey)
             .ok()
             .and_then(|k| k.get_value::<String, _>("WebRtcIPHandling").ok());
-        let effective = hkcu_val.or(hklm_val);
+        // BUG-P1-14：Chromium 策略优先级为机器策略 (HKLM) 高于用户策略 (HKCU)，按真实优先级求有效值避免假绿
+        let effective = hklm_val.or(hkcu_val);
         let ok = effective
             .as_deref()
             .map(|v| v.eq_ignore_ascii_case("disable_non_proxied_udp"))
@@ -3599,11 +3682,9 @@ fn inspect_browser_webrtc_sync() -> (bool, Vec<String>, usize) {
 fn fix_browser_webrtc_policy() -> Result<String, String> {
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
         use winreg::enums::HKEY_CURRENT_USER;
         use winreg::RegKey;
 
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         let browsers = detect_installed_chromium_browsers();
         if browsers.is_empty() {
             return Ok("未检测到需要配置的 Chromium 浏览器。".into());
@@ -3612,10 +3693,20 @@ fn fix_browser_webrtc_policy() -> Result<String, String> {
         // 先锁定 First-Write-Wins 基线快照，供用户随时一键清除组策略恢复浏览器原貌
         crate::rollback::capture_webrtc_baseline_if_needed(&browsers);
 
-        // 1. 优先尝试无弹窗写入 HKCU\Software\Policies；若受系统 ACL 拒绝访问 (os error 5)，自动转管理员写 HKLM
+        // 1. 若 HKLM 已有不合规策略（HKLM 优先于 HKCU），必须写 HKLM 覆盖；否则先尝试写 HKCU，受 ACL 拒绝再提权写 HKLM
         let mut hkcu_ok = Vec::new();
         let mut need_elevated: Vec<(&'static str, &'static str)> = Vec::new();
         for (label, subkey) in &browsers {
+            let hklm_existing = RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE)
+                .open_subkey(subkey)
+                .ok()
+                .and_then(|k| k.get_value::<String, _>("WebRtcIPHandling").ok());
+            if let Some(ref cur_lm) = hklm_existing {
+                if !cur_lm.eq_ignore_ascii_case("disable_non_proxied_udp") {
+                    need_elevated.push((*label, *subkey));
+                    continue;
+                }
+            }
             let res = RegKey::predef(HKEY_CURRENT_USER)
                 .create_subkey(subkey)
                 .and_then(|(key, _)| key.set_value("WebRtcIPHandling", &"disable_non_proxied_udp"));
@@ -3633,7 +3724,7 @@ fn fix_browser_webrtc_policy() -> Result<String, String> {
             ));
         }
 
-        // 2. 通过无黑窗管理员提权写入 HKLM\Software\Policies（兼容 Windows 10/11 默认锁死 HKCU\Policies ACL 的场景）
+        // 2. 通过编码安全提权写入 HKLM\Software\Policies（兼容 HKLM 策略覆盖与 Windows 10/11 ACL 锁定场景）
         let mut ps_cmds = Vec::new();
         for (_, subkey) in &need_elevated {
             let reg_path = format!(r"HKLM:\{subkey}");
@@ -3641,19 +3732,14 @@ fn fix_browser_webrtc_policy() -> Result<String, String> {
                 "New-Item -Path '{reg_path}' -Force | Out-Null; Set-ItemProperty -Path '{reg_path}' -Name 'WebRtcIPHandling' -Value 'disable_non_proxied_udp' -Type String"
             ));
         }
-        let inner = ps_cmds.join("; ");
-        let elevated = format!(
-            "Start-Process powershell -Verb RunAs -WindowStyle Hidden -Wait -ArgumentList '-NoProfile -Command \"{inner}\"'"
-        );
-        let status = Command::new("powershell")
-            .creation_flags(CREATE_NO_WINDOW)
-            .args(["-NoProfile", "-Command", &elevated])
-            .status()
-            .map_err(|e| format!("拉起管理员权限写入浏览器策略失败: {e}"))?;
+        crate::rollback::run_ps_elevated_checked(
+            &ps_cmds.join("; "),
+            "写入浏览器 WebRTC 防泄露组策略 (HKLM)",
+        )?;
 
         // 3. 写入后立刻真实回读验证（若用户点取消 UAC 绝不报假成功）
         let (all_locked, _, remaining) = inspect_browser_webrtc_sync();
-        if !status.success() || !all_locked {
+        if !all_locked {
             return Err(format!(
                 "未能写入浏览器 WebRTC 策略（仍有 {remaining} 款浏览器未锁定，请确认已同意 UAC 管理员授权）。"
             ));
@@ -4136,26 +4222,28 @@ pub async fn execute_fix_item(
             message = "请通过二选一确认框选择「备份并重置污染目录」或「确认永久更换绑定主号」。".into();
         }
         "node_group" => {
-            let mut handled_quick = false;
-            let mut quick_msg = String::new();
+            let mut quick_actions: Vec<String> = Vec::new();
+            let mut need_full_inject = false;
             let ep_opt = discover_endpoint().await;
             if let Some(ep) = ep_opt.as_ref() {
                 let m_cfg = fetch_configs(ep).await.ok();
-                let clash_mode = m_cfg
+                let mut clash_mode = m_cfg
                     .as_ref()
                     .map(|c| c.mode.to_ascii_lowercase())
                     .unwrap_or_else(|| "rule".to_string());
                 if m_cfg.as_ref().map(|c| c.ipv6).unwrap_or(false) {
                     let _ = patch_ipv6_disabled(ep).await;
                     let _ = sync_clash_ipv6_to_disk(false);
+                    quick_actions.push("已关闭 Clash ipv6:false 并持久化至 config.yaml".into());
                 }
                 if clash_mode == "direct" {
-                    // 同时切回内核 mode=rule 并同步写入 config.yaml / clash-verge.yaml（内核与 Clash Verge 首页代理模式同步变回「规则」）
+                    // BUG-P1-15：切回 rule 模式后不再短路跳过 Claude-Fixed / 规则表检查，保证一次点修复全修完
                     patch_clash_mode_rule(ep).await?;
                     let _ = sync_clash_mode_to_disk("rule");
-                    handled_quick = true;
-                    quick_msg = "已一键将 Clash 代理模式切回「规则 (Rule)」并同步写入配置文件，正在复测验收。".into();
-                } else if let Ok(proxies) = fetch_proxies_raw(ep).await {
+                    clash_mode = "rule".to_string();
+                    quick_actions.push("已将 Clash 代理模式切回「规则 (Rule)」".into());
+                }
+                if let Ok(proxies) = fetch_proxies_raw(ep).await {
                     let rules = fetch_rules_raw(ep).await.ok();
                     let (rules_ok, _) = rules.as_deref().map(verify_claude_rules).unwrap_or((false, 0));
                     let exit_rule_ok = rules.as_deref().map(verify_exit_probe_rules).unwrap_or(false);
@@ -4168,42 +4256,54 @@ pub async fn execute_fix_item(
                                 .unwrap_or_default();
                             if !global_now.eq_ignore_ascii_case("Claude-Fixed") {
                                 select_proxy_in_group(ep, "GLOBAL", "Claude-Fixed").await?;
-                                handled_quick = true;
-                                quick_msg = "已将 Clash GLOBAL 全局模式锁回「Claude-Fixed」策略组，正在复测验收。".into();
+                                quick_actions.push("已将 Clash GLOBAL 模式锁回「Claude-Fixed」策略组".into());
                             }
                         }
 
-                        // 2) 若 Claude-Fixed 当前误选禁区或 DIRECT，自动切回首个安全白名单节点
+                        // 2) 若 Claude-Fixed 当前误选禁区或 DIRECT，自动切回最优安全白名单节点
                         if is_blocked_node_name(&g.now) || g.now.eq_ignore_ascii_case("DIRECT") {
-                            if let Some(safe) = g.all.iter().find(|n| {
-                                !is_blocked_node_name(n)
-                                    && !n.eq_ignore_ascii_case("DIRECT")
-                                    && !n.eq_ignore_ascii_case("REJECT")
-                            }) {
-                                select_proxy_in_group(ep, "Claude-Fixed", safe).await?;
-                                handled_quick = true;
-                                quick_msg = format!("已将 Claude-Fixed 自动切回安全节点 {safe} 并关闭 Mihomo IPv6。");
+                            let safe_candidates: Vec<String> = g
+                                .all
+                                .iter()
+                                .filter(|n| {
+                                    !is_blocked_node_name(n)
+                                        && !n.eq_ignore_ascii_case("DIRECT")
+                                        && !n.eq_ignore_ascii_case("REJECT")
+                                })
+                                .cloned()
+                                .collect();
+                            if let Some(safe) = pick_best_compliant_node(&safe_candidates) {
+                                select_proxy_in_group(ep, "Claude-Fixed", &safe).await?;
+                                quick_actions.push(format!("已将 Claude-Fixed 自动切回合规节点「{safe}」"));
+                            } else {
+                                need_full_inject = true;
                             }
-                        } else if !handled_quick
-                            && !g.now.is_empty()
-                            && g.group_type.eq_ignore_ascii_case("Selector")
-                            && (clash_mode == "global" || (rules_ok && exit_rule_ok))
-                        {
-                            // 仅 ipv6:true 未关的场景可直接通过 API 关闭并同步写盘 config.yaml 防止重启/切服务模式反弹
-                            let _ = sync_clash_ipv6_to_disk(false);
-                            handled_quick = true;
-                            quick_msg = "已通过 Mihomo API 关闭 ipv6:false 并同步写入 config.yaml 持久化，正在重跑实测验收。".into();
                         }
+
+                        // 3) 若策略组不是 Selector 或规则表缺失，仍必须走完整注入热重载
+                        if !g.group_type.eq_ignore_ascii_case("Selector")
+                            || (clash_mode != "global" && !(rules_ok && exit_rule_ok))
+                        {
+                            need_full_inject = true;
+                        }
+                    } else {
+                        need_full_inject = true;
                     }
+                } else {
+                    need_full_inject = true;
                 }
             }
-            if handled_quick {
-                message = quick_msg;
+            if !need_full_inject && !quick_actions.is_empty() {
+                message = quick_actions.join("；") + "，正在复测验收。";
             } else if let Some(ep) = ep_opt.as_ref() {
                 // 直接持久化全局 Script.js + 自动排雷损坏的订阅空脚本 + 直接注入生效配置 clash-verge.yaml 并调用 Mihomo API 热重载（0 手动步骤立即生效！）
                 match apply_clash_rules_directly_and_reload(ep).await {
                     Ok(ok_msg) => {
-                        message = ok_msg;
+                        message = if quick_actions.is_empty() {
+                            ok_msg
+                        } else {
+                            format!("{}；{}", quick_actions.join("；"), ok_msg)
+                        };
                     }
                     Err(err) => {
                         let script_path = clash_verge_config_dir()
@@ -4230,16 +4330,25 @@ pub async fn execute_fix_item(
             if let Some(ep) = discover_endpoint().await {
                 if let Ok(proxies) = fetch_proxies_raw(&ep).await {
                     if let Some(g) = extract_proxy_group(&proxies, "Claude-Fixed") {
-                        if let Some(safe) = g.all.iter().find(|n| {
-                            !is_blocked_node_name(n)
-                                && !n.eq_ignore_ascii_case("DIRECT")
-                                && !n.eq_ignore_ascii_case("REJECT")
-                        }) {
-                            select_proxy_in_group(&ep, "Claude-Fixed", safe).await?;
-                            message = format!("已切换 Claude-Fixed 至白名单节点 {safe}，正在重测出口 IP 与 Anthropic 可达性。");
+                        // BUG-P1-15：排除当前已失败的 g.now，并优先按 pick_best_compliant_node 挑选最优合规备选节点
+                        let others: Vec<String> = g
+                            .all
+                            .iter()
+                            .filter(|n| {
+                                n.as_str() != g.now.as_str()
+                                    && !is_blocked_node_name(n)
+                                    && !n.eq_ignore_ascii_case("DIRECT")
+                                    && !n.eq_ignore_ascii_case("REJECT")
+                            })
+                            .cloned()
+                            .collect();
+                        if let Some(safe) = pick_best_compliant_node(&others) {
+                            let _ = sync_clash_selection_everywhere(&ep, &safe).await;
+                            crate::mihomo::reset_node_drift_history(&safe);
+                            message = format!("已从「{}」切换至最优合规备选节点「{safe}」，正在重测出口 IP 与 Anthropic 可达性。", g.now);
                         } else {
                             requires_manual_step = true;
-                            message = "Claude-Fixed 中未找到非禁区候选节点，请在 Clash 订阅中检查可用白名单节点。".into();
+                            message = "Claude-Fixed 中未找到其他可用的非禁区备选节点，请在 Clash 订阅中补充白名单节点。".into();
                         }
                     } else {
                         requires_manual_step = true;
@@ -4254,12 +4363,30 @@ pub async fn execute_fix_item(
                 message = "未检测到 Clash Verge 运行，请先启动代理客户端。".into();
             }
         }
+        "opt_exit_geo" => {
+            // BUG-P1-15：补齐出口合规建议项处理分支（若存在 24h 漂移提醒则校准当前节点基线，否则引导切换更优节点）
+            if let Some(ep) = discover_endpoint().await {
+                let cur_node = crate::mihomo::fetch_proxy_group_now(&ep, "Claude-Fixed")
+                    .await
+                    .unwrap_or_default();
+                if !cur_node.is_empty() && !is_blocked_node_name(&cur_node) {
+                    crate::mihomo::reset_node_drift_history(&cur_node);
+                    message = format!("已校准节点「{cur_node}」的 24h 出口漂移基线并完成复测；如需更换为 ISP 原生住宅节点请前往「节点流量」挑选。");
+                } else {
+                    requires_manual_step = true;
+                    message = "请先前往「节点流量」页选择一个非禁区的 ISP 原生或稳定合规节点。".into();
+                }
+            } else {
+                requires_manual_step = true;
+                message = "未检测到 Clash Verge 在线，请先启动代理客户端。".into();
+            }
+        }
         "sys_ipv6" => {
             // 先锁定 First-Write-Wins 物理网卡 IPv6 与 DisabledComponents 原值基线，供随时撤回
             crate::rollback::capture_ipv6_baseline_if_needed();
-            // 仅操作 Windows 物理网卡 IPv6 绑定并加固系统 IPv4 优先，不越界改 Clash 与 Claude
+            // 仅操作 Windows 物理网卡 IPv6 绑定（绝不误伤 WSL / Hyper-V / VPN 虚拟网卡），与基线捕获/撤回 100% 同口径
             let ipv6_res = crate::rollback::run_ps_elevated_checked(
-                "Get-NetAdapterBinding -ComponentID ms_tcpip6 | Where-Object {$_.Enabled} | Disable-NetAdapterBinding -ComponentID ms_tcpip6 -Confirm:$false; Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip6\\Parameters' -Name 'DisabledComponents' -Value 32 -Type DWord -ErrorAction SilentlyContinue",
+                "Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Get-NetAdapterBinding -ComponentID ms_tcpip6 -ErrorAction SilentlyContinue | Where-Object {$_.Enabled} | Disable-NetAdapterBinding -ComponentID ms_tcpip6 -Confirm:$false; Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip6\\Parameters' -Name 'DisabledComponents' -Value 32 -Type DWord -ErrorAction SilentlyContinue",
                 "禁用物理网卡 IPv6 绑定",
             );
             match ipv6_res {
@@ -4426,13 +4553,19 @@ pub async fn execute_fix_item(
             }
         }
         "node_dns" => {
-            let launched = bring_clash_verge_to_front();
-            requires_manual_step = true;
-            message = if launched {
-                "已为你打开/唤起 Clash Verge，请按右侧指引完成后等待 3 秒自动识别或点击「重新实测」。".into()
-            } else {
-                "请先手动打开 Clash Verge，按右侧指引设置完成后点击「重新实测」。".into()
-            };
+            // BUG-P0-11：真正写入 Fake-IP DNS 配置至 clash-verge.yaml 与 Script.js 并热重载 Mihomo + 刷新本地 DNS 缓存，实测验收 claude.ai 落入 198.18.0.0/15
+            match apply_fake_ip_dns_and_reload().await {
+                Ok(ok_msg) => {
+                    message = ok_msg;
+                }
+                Err(err) => {
+                    let _ = bring_clash_verge_to_front();
+                    requires_manual_step = true;
+                    message = format!(
+                        "自动写入 Fake-IP DNS 失败（{err}）。请确认 Clash Verge 在线并已开启虚拟网卡模式，或在 Clash 设置中开启 Fake-IP 后点击「重新实测」。"
+                    );
+                }
+            }
         }
         _ => {
             requires_manual_step = true;
@@ -4502,8 +4635,14 @@ pub async fn execute_one_click_fix_all(
         .iter()
         .any(|i| i.id == "node_group" && i.status != CheckStatus::Ok);
 
-    // 1. 合并单次重启前置门禁：只要 Clash 离线或 TUN 未开，先统一落盘配置（关系统代理 + 开 TUN），再一次性启动/重启 Clash Verge
-    if proxy_failed || tun_failed {
+    let proxy_port_conflict = current_bundle
+        .report
+        .items
+        .iter()
+        .any(|i| i.id == "node_proxy" && i.status != CheckStatus::Ok && i.summary.contains("占用"));
+
+    // 1. 合并单次重启前置门禁：只要 Clash 离线或 TUN 未开（且非端口冲突），先统一落盘配置（关系统代理 + 开 TUN），再一次性启动/重启 Clash Verge
+    if (proxy_failed && !proxy_port_conflict) || tun_failed {
         // 先检查/协助安装 TUN 系统服务（仅当需要开启 TUN 时）
         let mut can_enable_tun = true;
         if tun_failed {
@@ -4599,6 +4738,11 @@ pub async fn execute_one_click_fix_all(
         .filter(|i| i.part == CheckPart::Must && i.status != CheckStatus::Ok)
     {
         match item.id.as_str() {
+            "node_dns" => {
+                if apply_fake_ip_dns_and_reload().await.is_ok() {
+                    fixed_ids.push("node_dns".to_string());
+                }
+            }
             "node_geo" => {
                 // 仅漂移风险提示 (Warn) 时按默认选项重置当前节点漂移基准并复测；
                 // 真不可用 (Fail：禁区/CF 403/离线/高危黑名单) 绝不擅自跨洲乱切，保留给用户点备用项去「节点流量」更换
@@ -4645,7 +4789,10 @@ pub async fn execute_one_click_fix_all(
             fixed_ids.len(),
             rem.title
         ),
-        None => "全部 11 项必须门禁已通过真实探针验收，现可点击「安全启动 Claude」！".into(),
+        None => format!(
+            "全部 {} 项必须门禁已通过真实探针验收，现可点击「安全启动 Claude」！",
+            after.snapshot.must_total
+        ),
     };
 
     crate::logger::log_event(
@@ -4699,8 +4846,8 @@ const FD_CLAUDE_FIXED_RULES: &[&str] = &[
     "PROCESS-NAME,fd-claude-guard.exe,Claude-Fixed",
 ];
 
-/// 禁区节点 exclude-filter 正则（用于 proxy-providers 节点池订阅过滤 HK/MO/CN/RU/BY/KP/IR）
-const CLAUDE_BLOCKED_EXCLUDE_FILTER: &str = r"(?i)(香港|Hong\s*Kong|\bHK\b|澳门|澳門|Macau|\bMO\b|中国|中國|国内|China|\bCN\b|俄罗斯|俄羅斯|俄国|Russia|\bRU\b|白俄|\bBY\b|朝鲜|朝鮮|\bKP\b|伊朗|\bIR\b)";
+/// 禁区节点 exclude-filter 正则（用于 proxy-providers 节点池订阅过滤 HK/MO/CN/RU/BY/KP/IR/SY/CU 与国旗 Emoji）
+const CLAUDE_BLOCKED_EXCLUDE_FILTER: &str = r"(?i)(香港|Hong\s*Kong|🇭🇰|澳门|澳門|Macau|Macao|🇲🇴|中国|中國|国内|China|🇨🇳|俄罗斯|俄羅斯|俄国|Russia|🇷🇺|白俄|Belarus|🇧🇾|朝鲜|朝鮮|North\s*Korea|🇰🇵|伊朗|Iran|🇮🇷|叙利亚|敘利亞|Syria|🇸🇾|古巴|Cuba|🇨🇺|(?:^|[^a-z])(HK|MO|CN|RU|BY|KP|IR|SY|CU)(?:[^a-z]|$))";
 
 /// P0-6 安全修复：严禁在商业版中用 include_str! 嵌入明文覆写脚本绕过 AES-256-GCM 资产保护；
 /// 所有覆写脚本必须且仅能来自 `licensing::get_override_script()` 解密后的受保护资产。
@@ -4989,15 +5136,19 @@ fn inject_claude_fixed_into_yaml_value(doc: &mut serde_yaml::Value) -> Result<us
         })
         .unwrap_or_default();
 
-    let mut safe_proxies: Vec<String> = all_proxies
+    let safe_proxies: Vec<String> = all_proxies
         .iter()
         .filter(|n| !is_blocked_node_name(n))
         .cloned()
         .collect();
+    // BUG-P0-12：严禁在无合规节点时兜底塞入全禁区节点！全禁区订阅直接拦截报错
     if safe_proxies.is_empty() && provider_names.is_empty() {
-        safe_proxies = all_proxies;
-    }
-    if safe_proxies.is_empty() && provider_names.is_empty() {
+        if !all_proxies.is_empty() {
+            return Err(format!(
+                "当前订阅的全部 {} 个节点均命中禁区过滤规则（无任何可用白名单节点），已拒绝将其写入 Claude-Fixed，请先补充美国/日本/新加坡等合规节点。",
+                all_proxies.len()
+            ));
+        }
         return Err("当前 Clash 生效配置中未找到任何可用代理节点或 proxy-providers 节点池，无法构建 Claude-Fixed 策略组".into());
     }
     let safe_count = if !safe_proxies.is_empty() {
@@ -5383,15 +5534,127 @@ async fn apply_clash_rules_directly_and_reload(endpoint: &MihomoEndpoint) -> Res
     ))
 }
 
-/// 同步更新 Clash Verge 磁盘配置中的 mode 字段（config.yaml / clash-verge.yaml），确保重启后保持一致
+/// 纯函数（BUG-P0-11）：将 Fake-IP DNS 段安全写入 Clash 配置 YAML，保留用户原有 `nameserver`
+pub fn inject_fake_ip_dns_into_yaml_value(doc: &mut serde_yaml::Value) -> Result<(), String> {
+    let map = doc
+        .as_mapping_mut()
+        .ok_or_else(|| "clash-verge.yaml 根节点不是有效的 YAML 映射".to_string())?;
+    let dns_key = serde_yaml::Value::String("dns".into());
+    let mut dns_map = map
+        .get(&dns_key)
+        .and_then(|v| v.as_mapping())
+        .cloned()
+        .unwrap_or_default();
+    dns_map.insert(
+        serde_yaml::Value::String("enable".into()),
+        serde_yaml::Value::Bool(true),
+    );
+    dns_map.insert(
+        serde_yaml::Value::String("enhanced-mode".into()),
+        serde_yaml::Value::String("fake-ip".into()),
+    );
+    let range_key = serde_yaml::Value::String("fake-ip-range".into());
+    if dns_map
+        .get(&range_key)
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().is_empty())
+        .unwrap_or(true)
+    {
+        dns_map.insert(
+            range_key,
+            serde_yaml::Value::String("198.18.0.1/16".into()),
+        );
+    }
+    let ns_key = serde_yaml::Value::String("nameserver".into());
+    let has_ns = dns_map
+        .get(&ns_key)
+        .and_then(|v| v.as_sequence())
+        .map(|s| !s.is_empty())
+        .unwrap_or(false);
+    if !has_ns {
+        dns_map.insert(
+            ns_key,
+            serde_yaml::Value::Sequence(vec![
+                serde_yaml::Value::String("223.5.5.5".into()),
+                serde_yaml::Value::String("119.29.29.29".into()),
+            ]),
+        );
+    }
+    map.insert(dns_key, serde_yaml::Value::Mapping(dns_map));
+    Ok(())
+}
+
+/// 一键向 clash-verge.yaml 与全局 Script.js 写入 Fake-IP DNS 配置并热重载 Mihomo + 刷新 Windows DNS 缓存
+async fn apply_fake_ip_dns_and_reload() -> Result<String, String> {
+    let dir = clash_verge_config_dir()
+        .ok_or_else(|| "无法定位 Clash Verge Rev 配置目录".to_string())?;
+    crate::rollback::capture_clash_rules_baseline_if_needed(&dir);
+    let _ = write_clash_override_script();
+
+    let runtime_yaml = dir.join("clash-verge.yaml");
+    if !runtime_yaml.exists() {
+        return Err("未找到 clash-verge.yaml 生效配置文件".to_string());
+    }
+    let raw_yaml = fs::read_to_string(&runtime_yaml)
+        .map_err(|e| format!("读取 clash-verge.yaml 失败: {e}"))?;
+    let mut doc: serde_yaml::Value =
+        serde_yaml::from_str(raw_yaml.trim_start_matches('\u{feff}'))
+            .map_err(|e| format!("解析 clash-verge.yaml 失败: {e}"))?;
+    inject_fake_ip_dns_into_yaml_value(&mut doc)?;
+    let merged_yaml = serde_yaml::to_string(&doc)
+        .map_err(|e| format!("序列化 clash-verge.yaml 失败: {e}"))?;
+    atomic_write_text(&runtime_yaml, &merged_yaml)
+        .map_err(|e| format!("写入 clash-verge.yaml 失败: {e}"))?;
+
+    if let Some(ep) = discover_endpoint().await {
+        reload_config_via_payload(&ep, &merged_yaml).await?;
+        #[cfg(windows)]
+        {
+            let _ = tokio::task::spawn_blocking(|| {
+                use std::os::windows::process::CommandExt;
+                const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+                let _ = Command::new("ipconfig")
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .arg("/flushdns")
+                    .status();
+            })
+            .await;
+        }
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        Ok("已写入 dns.enhanced-mode: fake-ip 至 Clash 配置与全局脚本、热重载内核并刷新本地 DNS 缓存，正在复测 claude.ai 解析。".into())
+    } else {
+        Err("已将 Fake-IP DNS 写入磁盘配置，但 Clash Verge 当前未在线，无法热重载".into())
+    }
+}
+
+/// 原子写文本文件（先写同目录临时文件再覆盖重命名，防止中断写坏 YAML）
+fn atomic_write_text(path: &Path, content: &str) -> Result<(), String> {
+    let tmp = path.with_extension(format!(
+        "tmp.{}",
+        chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+    ));
+    fs::write(&tmp, content).map_err(|e| format!("写临时文件失败: {e}"))?;
+    fs::rename(&tmp, path)
+        .or_else(|_| {
+            let _ = fs::remove_file(path);
+            fs::rename(&tmp, path)
+        })
+        .map_err(|e| {
+            let _ = fs::remove_file(&tmp);
+            format!("覆盖目标文件失败: {e}")
+        })
+}
+
+/// 同步更新 Clash Verge 磁盘配置中的 mode 字段（config.yaml / clash-verge.yaml），剥离 UTF-8 BOM 并原子落盘
 fn sync_clash_mode_to_disk(mode: &str) -> Result<(), String> {
     let dir = clash_verge_config_dir()
         .ok_or_else(|| "无法定位 Clash Verge Rev 配置目录".to_string())?;
     for file_name in ["config.yaml", "clash-verge.yaml"] {
         let path = dir.join(file_name);
         if let Ok(raw) = fs::read_to_string(&path) {
+            let clean = raw.trim_start_matches('\u{feff}');
             let mut replaced = false;
-            let mut out: Vec<String> = raw
+            let mut out: Vec<String> = clean
                 .lines()
                 .map(|line| {
                     if !replaced && line.starts_with("mode:") {
@@ -5405,7 +5668,7 @@ fn sync_clash_mode_to_disk(mode: &str) -> Result<(), String> {
             if !replaced {
                 out.push(format!("mode: {mode}"));
             }
-            let _ = fs::write(&path, out.join("\n") + "\n");
+            let _ = atomic_write_text(&path, &(out.join("\n") + "\n"));
         }
     }
     Ok(())
@@ -6451,5 +6714,57 @@ items:
         // 真正缺失 return 的空模板仍必须识别并修复
         let broken = "function main(config) { // return config; \n }";
         assert!(repair_broken_script_text(broken).is_some());
+    }
+
+    #[test]
+    fn inject_claude_fixed_rejects_all_blocked_subscription_never_falls_back_to_blocked() {
+        let yaml = r#"
+proxies:
+  - name: HK01-IEPL
+    type: vless
+  - name: 🇭🇰香港专线
+    type: ss
+  - name: CN_01
+    type: trojan
+proxy-groups: []
+rules: []
+"#;
+        let mut doc: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
+        let err = inject_claude_fixed_into_yaml_value(&mut doc).unwrap_err();
+        assert!(err.contains("禁区"), "全禁区订阅必须明确报错拒绝注入: {err}");
+    }
+
+    #[test]
+    fn inject_fake_ip_dns_writes_required_fields_and_preserves_user_nameservers() {
+        let yaml = r#"
+mode: rule
+dns:
+  enable: false
+  enhanced-mode: redir-host
+  nameserver:
+    - 1.1.1.1
+"#;
+        let mut doc: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
+        inject_fake_ip_dns_into_yaml_value(&mut doc).unwrap();
+        assert_eq!(doc["dns"]["enable"].as_bool(), Some(true));
+        assert_eq!(doc["dns"]["enhanced-mode"].as_str(), Some("fake-ip"));
+        assert_eq!(doc["dns"]["fake-ip-range"].as_str(), Some("198.18.0.1/16"));
+        assert_eq!(doc["dns"]["nameserver"][0].as_str(), Some("1.1.1.1"));
+    }
+
+    #[test]
+    fn local_proxy_port_matcher_blocks_substring_bypass_and_remote_hosts() {
+        assert!(is_local_proxy_matching_port("http://127.0.0.1:7897", 7897));
+        assert!(is_local_proxy_matching_port("127.0.0.1:7897", 7897));
+        assert!(is_local_proxy_matching_port("http=localhost:7897;https=127.0.0.1:7897", 7897));
+        // 远端代理即便端口相同也必须判为冲突
+        assert!(!is_local_proxy_matching_port("http://192.168.1.5:7897", 7897));
+        // 混合不一致端口必须判为冲突
+        assert!(!is_local_proxy_matching_port("http=127.0.0.1:7897;https=127.0.0.1:10809", 7897));
+        // 端口前缀截断（78970 vs 7897）必须判为冲突
+        assert!(!is_local_proxy_matching_port("http://127.0.0.1:78970", 7897));
+        // 额外端点键也应命中第三方反代检查
+        assert!(should_clear_proxy_env_var("CLAUDE_CODE_API_BASE_URL", "https://relay.example.com", 7897));
+        assert!(should_clear_proxy_env_var("ANTHROPIC_API_BASE_URL", "https://relay.example.com", 7897));
     }
 }

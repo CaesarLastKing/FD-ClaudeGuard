@@ -431,7 +431,7 @@ pub fn check_firewall_helper_ready() -> (bool, bool, String) {
     result
 }
 
-fn invalidate_firewall_helper_cache() {
+pub fn invalidate_firewall_helper_cache() {
     if let Some(lock) = FW_HELPER_CACHE.get() {
         if let Ok(mut guard) = lock.lock() {
             *guard = None;
@@ -494,9 +494,10 @@ pub fn install_firewall_helper_task() -> Result<String, String> {
             .unwrap_or_else(|_| "fd-claude-guard.exe".into());
         invalidate_firewall_helper_cache();
 
-        // 管理员态直跑、非管理员态按需提权并校验退出码
+        // 管理员态直跑、非管理员态经 UTF-16LE EncodedCommand 提权并逐条严格校验原生命令 $LASTEXITCODE
+        let safe_exe = exe_path.replace('\'', "''");
         let inner_cmd = format!(
-            "schtasks /Create /F /RL HIGHEST /SC ONEVENT /EC Application /MO '*[System[EventID=0]]' /TN '{FIREWALL_HELPER_TASK_NAME}' /TR '\"{exe_path}\" --autostart'; netsh advfirewall firewall add rule name={FIREWALL_PROBE_RULE_NAME} dir=out action=allow enable=no; netsh advfirewall firewall delete rule name={FIREWALL_PROBE_RULE_NAME}"
+            "schtasks /Create /F /RL HIGHEST /SC ONEVENT /EC Application /MO '*[System[EventID=0]]' /TN '{FIREWALL_HELPER_TASK_NAME}' /TR '\"{safe_exe}\" --autostart'; if ($LASTEXITCODE -ne 0) {{ exit $LASTEXITCODE }}; netsh advfirewall firewall add rule name={FIREWALL_PROBE_RULE_NAME} dir=out action=allow enable=no; if ($LASTEXITCODE -ne 0) {{ exit $LASTEXITCODE }}; netsh advfirewall firewall delete rule name={FIREWALL_PROBE_RULE_NAME}; if ($LASTEXITCODE -ne 0) {{ exit $LASTEXITCODE }}"
         );
         match crate::rollback::run_ps_elevated_checked(&inner_cmd, "安装免 UAC 防火墙守护计划任务") {
             Ok(_) => {

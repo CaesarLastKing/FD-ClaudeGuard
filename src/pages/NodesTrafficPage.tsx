@@ -130,7 +130,7 @@ export function NodesTrafficPage() {
     }
   };
 
-  const handleAckAllFlows = () => {
+  const handleAckAllFlows = async () => {
     if (snapshot.killSwitchActive) {
       pushToast(
         "当前正处于熔断阻断状态",
@@ -140,12 +140,14 @@ export function NodesTrafficPage() {
       return;
     }
     const anomIds = conns.filter((c) => c.anomaly).map((c) => c.id);
-    ackAllFlowIds(anomIds);
-    pushToast(
-      "已清零当前异常拦截角标",
-      "历史拦截明细仍保留在下方列表供查验（12 小时滚动窗口到期也会自动归零）。",
-      "ok"
-    );
+    const ok = await ackAllFlowIds(anomIds);
+    if (ok) {
+      pushToast(
+        "已清零当前异常拦截角标",
+        "已同步消除侧边栏与悬浮窗报警灯，历史拦截明细仍保留在下方列表供查验。",
+        "ok"
+      );
+    }
   };
 
   /**
@@ -359,13 +361,15 @@ export function NodesTrafficPage() {
               if (subTab === "quality") {
                 setRefreshingNodes(true);
                 try {
-                  await refreshNodes(false);
-                  const latest = useGuardStore.getState().nodeReport;
-                  pushToast(
-                    "已刷新节点状态",
-                    `已加载 ${latest.nodes.length} 个合规节点的实时状态与持久化核验缓存。`,
-                    "ok"
-                  );
+                  const ok = await refreshNodes(false);
+                  if (ok) {
+                    const latest = useGuardStore.getState().nodeReport;
+                    pushToast(
+                      "已刷新节点状态",
+                      `已加载 ${latest.nodes.length} 个合规节点的实时状态与持久化核验缓存。`,
+                      "ok"
+                    );
+                  }
                 } finally {
                   setRefreshingNodes(false);
                 }

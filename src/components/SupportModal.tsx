@@ -40,7 +40,7 @@ export function SupportModal() {
       }
       await navigator.clipboard.writeText(OFFICIAL_SUPPORT_QQ);
       setCopied(true);
-      pushToast("已复制官方售后 QQ 号", `QQ：${OFFICIAL_SUPPORT_QQ}，添加时请备注“FD 启动器”。`, "ok");
+      pushToast("已复制交流 QQ 号", `QQ：${OFFICIAL_SUPPORT_QQ}，添加时请备注“FD 启动器”。`, "ok");
       if (copyTimerRef.current !== null) {
         window.clearTimeout(copyTimerRef.current);
       }
@@ -49,7 +49,7 @@ export function SupportModal() {
         copyTimerRef.current = null;
       }, 2400);
     } catch {
-      pushToast("请手动复制 QQ 号", `官方售后 QQ：${OFFICIAL_SUPPORT_QQ}`, "info");
+      pushToast("请手动复制 QQ 号", `开发者交流 QQ：${OFFICIAL_SUPPORT_QQ}`, "info");
     }
   };
 
@@ -158,7 +158,7 @@ export function SupportModal() {
         <div style={{ padding: "0 20px 18px", display: "flex", flexDirection: "column", gap: 12 }}>
           <div className="qq-card">
             <div>
-              <div style={{ fontSize: 11.5, color: "var(--text-3)" }}>官方售后 QQ</div>
+              <div style={{ fontSize: 11.5, color: "var(--text-3)" }}>开发者交流 QQ</div>
               <div className="qq-num" data-testid="support-qq-number">
                 {OFFICIAL_SUPPORT_QQ}
               </div>

@@ -755,6 +755,17 @@ export const ipc = {
     return invoke<ClaudeConn[]>("get_live_connections");
   },
 
+  async ackFlowAnomalies(ids: string[]): Promise<GuardSnapshot> {
+    if (!isTauriRuntime()) {
+      return {
+        ...FALLBACK_SNAPSHOT,
+        liveFlowAnomalies: 0,
+        activeFlowAnomalies: FALLBACK_SNAPSHOT.nodeDown || FALLBACK_SNAPSHOT.nodeDriftWarn ? 1 : 0,
+      };
+    }
+    return invoke<GuardSnapshot>("ack_flow_anomalies", { ids });
+  },
+
   async closeConnection(id: string): Promise<void> {
     if (!isTauriRuntime()) return;
     await invoke("close_connection", { id });
@@ -1306,6 +1317,27 @@ export const ipc = {
   async listenNakedLaunchIntercepted(cb: (count: number) => void): Promise<UnlistenFn> {
     if (!isTauriRuntime()) return () => {};
     return listen<number>("guard://naked-launch-intercepted", (e) => cb(e.payload));
+  },
+
+  async listenUpdateProgress(
+    cb: (progress: {
+      stage: string;
+      downloadedBytes: number;
+      totalBytes?: number | null;
+      percent?: number | null;
+    }) => void
+  ): Promise<UnlistenFn> {
+    if (!isTauriRuntime()) return () => {};
+    return listen("guard://update-progress", (e) =>
+      cb(
+        e.payload as {
+          stage: string;
+          downloadedBytes: number;
+          totalBytes?: number | null;
+          percent?: number | null;
+        }
+      )
+    );
   },
 
   async getDeepAuditStatus(): Promise<DeepAuditProgress> {

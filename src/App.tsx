@@ -30,6 +30,7 @@ export function App() {
   const openRiskModal = useGuardStore((s) => s.openRiskModal);
   const pushToast = useGuardStore((s) => s.pushToast);
   const checkForAppUpdate = useGuardStore((s) => s.checkForAppUpdate);
+  const setUpdateProgress = useGuardStore((s) => s.setUpdateProgress);
 
   useEffect(() => {
     void bootstrap();
@@ -76,9 +77,9 @@ export function App() {
         if (nav.tab === "nodes" && (nav.subTab === "quality" || nav.subTab === "traffic")) {
           setNodesSubTab(nav.subTab);
         }
-        if (nav.focusItemId === "__first_fail__") {
+        if (nav.focusItemId === "__first_fail__" && nav.tab === "console") {
           focusFirstUnhealthyCheck();
-        } else if (nav.focusItemId) {
+        } else if (nav.focusItemId && nav.focusItemId !== "__first_fail__") {
           setSelectedCheckId(nav.focusItemId);
         }
         if (nav.openPlaybook) {
@@ -88,29 +89,37 @@ export function App() {
     );
     register(
       ipc.listenConfirmExit((bgProcs) => {
+        const hasProcs = bgProcs > 0;
         openRiskModal({
           tone: "danger",
           badge: "安全退出防呆",
-          title: "检测到 Claude 仍在后台运行",
-          subtitle: "直接退出安全启动器将失去实时断流与防裸奔保护",
+          title: hasProcs ? "检测到 Claude 仍在后台运行" : "检测到防火墙熔断规则仍在生效",
+          subtitle: hasProcs
+            ? "直接退出安全启动器将失去实时断流与防裸奔保护"
+            : "确认退出将自动清空本工具写入的 Defender 出站阻断规则以恢复网络",
           rows: [
             {
               label: "当前状态",
-              value: `检测到 ${bgProcs} 个 Claude 后台进程存活`,
+              value: hasProcs
+                ? `检测到 ${bgProcs} 个 Claude 后台进程存活`
+                : "Claude 进程为 0，但出站熔断防火墙规则处于激活态",
               tone: "danger",
             },
             {
               label: "安全建议",
-              value: "建议先强杀 Claude 进程丢弃内存遥测队列，再安全退出本工具。",
+              value: hasProcs
+                ? "建议先强杀 Claude 进程丢弃内存遥测队列，再安全退出本工具。"
+                : "点击「清理规则并安全退出」会自动清除防火墙规则并恢复网络。",
             },
           ],
-          primaryLabel: "先强杀 Claude 并退出",
-          onPrimary: () => void ipc.quitApp(true),
-          dangerLabel: "忽略风险，直接退出",
-          onDanger: () => void ipc.quitApp(false),
+          primaryLabel: hasProcs ? "先强杀 Claude 并退出" : "清理规则并安全退出",
+          onPrimary: () => void ipc.quitApp(hasProcs),
+          dangerLabel: hasProcs ? "忽略风险，直接退出" : undefined,
+          onDanger: hasProcs ? () => void ipc.quitApp(false) : undefined,
         });
       })
     );
+    register(ipc.listenUpdateProgress((prog) => setUpdateProgress(prog)));
     register(
       ipc.listenNakedLaunchIntercepted((count) => {
         pushToast(
@@ -146,6 +155,7 @@ export function App() {
     setPreflightFromEvent,
     setSnapshot,
     setDeepAuditFromEvent,
+    setUpdateProgress,
   ]);
 
   return (

@@ -193,40 +193,32 @@ describe("v0.2.7 日志风险/异常分开统计、OAuth v2 拆分折叠与匿�
     expect(useGuardStore.getState().snapshot.unreadLogCritical).toBe(0);
   });
 
-  it("环境维护页一键匿名上报排障弹窗生成单号，守卫配置页可预览脱敏数据结构", async () => {
+  it("开源默认版不暴露无后端必报错的「一键匿名上报排障」按钮与空转遥测开关", async () => {
     vi.spyOn(ipc, "listBackups").mockResolvedValue([]);
     vi.spyOn(ipc, "inspectClaudeDataRoots").mockResolvedValue({
       classicDetected: true,
       msixPackages: [],
       telemetryExists: false,
     });
-    const submitSpy = vi.spyOn(ipc, "submitAnonymousFeedbackReport").mockResolvedValue({
-      ticketId: "FD-20261125-7A3F",
-      createdAt: "2026-11-25T08:00:00Z",
-      uploadedBytes: 512,
-      endpointUsed: "https://worker.test/api/v1/feedback/report",
-      message: "已匿名上报",
+    vi.spyOn(ipc, "checkAppUpdate").mockResolvedValue({
+      currentVersion: "0.3.3",
+      available: false,
+      latestVersion: "0.3.3",
+      viaProxy: true,
+      message: "当前已是最新版本 v0.3.3。",
     });
 
     const { unmount } = render(<MaintenancePage />);
-    fireEvent.click(screen.getByTestId("btn-anonymous-report"));
-    expect(screen.getByTestId("anonymous-report-modal")).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("btn-confirm-anonymous-report"));
-
     await waitFor(() => {
-      expect(submitSpy).toHaveBeenCalledTimes(1);
-      expect(screen.getByTestId("anonymous-report-ticket")).toHaveTextContent("FD-20261125-7A3F");
+      expect(screen.getByText("导出脱敏 AI 诊断包")).toBeInTheDocument();
     });
+    expect(screen.queryByTestId("btn-anonymous-report")).not.toBeInTheDocument();
     unmount();
 
-    const previewSpy = vi
-      .spyOn(ipc, "previewAnonymousFeedbackPayload")
-      .mockResolvedValue('{"schemaVersion": 2, "preBanAttribution72h": {}}');
     render(<SettingsPage />);
-    fireEvent.click(screen.getByTestId("btn-preview-telemetry-sample"));
-    await waitFor(() => {
-      expect(previewSpy).toHaveBeenCalledTimes(1);
-      expect(screen.getByTestId("telemetry-sample-modal")).toHaveTextContent("preBanAttribution72h");
-    });
+    expect(await screen.findByTestId("updater-status-badge")).toHaveTextContent("已是最新版本");
+    expect(screen.queryByTestId("btn-preview-telemetry-sample")).not.toBeInTheDocument();
+    // 确保守卫配置页仅保留单一「检查更新」按钮，彻底消灭页头/卡片双按钮双转圈
+    expect(screen.getAllByTestId("btn-check-app-update")).toHaveLength(1);
   });
 });

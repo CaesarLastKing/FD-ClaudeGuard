@@ -6,10 +6,30 @@
 //! - 严禁静默强制重启打断用户正在进行的 Claude 会话，始终由用户主动确认下载安装。
 
 use serde::{Deserialize, Serialize};
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 use tauri_plugin_updater::UpdaterExt;
 
 use crate::logger;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static UPDATE_INSTALL_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+
+struct UpdateInstallGuard;
+impl Drop for UpdateInstallGuard {
+    fn drop(&mut self) {
+        UPDATE_INSTALL_IN_FLIGHT.store(false, Ordering::SeqCst);
+    }
+}
+
+/// 更新包下载进度事件载荷（`guard://update-progress`）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppUpdateProgressEvent {
+    pub stage: String, // "downloading" | "verifying" | "installing"
+    pub downloaded_bytes: u64,
+    pub total_bytes: Option<u64>,
+    pub percent: Option<u8>,
+}
 
 /// 自动更新检测结果 DTO
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -135,15 +155,23 @@ pub async fn check_for_app_update(
     }
 }
 
-/// 下载校验签名并安装更新，完成后触发应用重启（优先本机 Clash 代理，拉取或下载失败自动回退直连）
+/// 下载校验签名并安装更新（优先本机 Clash 代理，拉取或下载失败自动回退直连；含并发重入保护与 300s 下载超时）
 pub async fn download_and_install_app_update(
     app: &AppHandle,
     clash_port: Option<u16>,
 ) -> Result<String, String> {
+    if UPDATE_INSTALL_IN_FLIGHT
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return Err("正在下载或安装更新包，请勿重复点击".into());
+    }
+    let _in_flight_guard = UpdateInstallGuard;
+
     let proxy_url = build_local_proxy_url(clash_port);
     let build_direct = || {
         app.updater_builder()
-            .timeout(std::time::Duration::from_secs(60))
+            .timeout(std::time::Duration::from_secs(300))
             .build()
             .map_err(|e| format!("初始化直连更新器失败：{e}"))
     };
@@ -152,7 +180,7 @@ pub async fn download_and_install_app_update(
         match app
             .updater_builder()
             .proxy(url)
-            .timeout(std::time::Duration::from_secs(60))
+            .timeout(std::time::Duration::from_secs(300))
             .build()
         {
             Ok(proxy_updater) => match proxy_updater.check().await {
@@ -202,13 +230,54 @@ pub async fn download_and_install_app_update(
         format!("开始下载并校验签名更新包 v{target_ver}（via_proxy={used_proxy}）"),
     );
 
+    let emit_progress_cb = |app_clone: AppHandle| {
+        let downloaded = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let last_emitted_pct = std::sync::Arc::new(std::sync::atomic::AtomicU8::new(255));
+        let last_emitted_bytes = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        move |chunk_len: usize, content_len: Option<u64>| {
+            let cur = downloaded.fetch_add(chunk_len as u64, std::sync::atomic::Ordering::Relaxed)
+                + chunk_len as u64;
+            let pct = content_len.filter(|&t| t > 0).map(|t| {
+                ((cur.saturating_mul(100)) / t).min(100) as u8
+            });
+            let prev_pct = last_emitted_pct.load(std::sync::atomic::Ordering::Relaxed);
+            let prev_bytes = last_emitted_bytes.load(std::sync::atomic::Ordering::Relaxed);
+            let should_emit = match pct {
+                Some(p) => prev_pct == 255 || p >= 100 || p.saturating_sub(prev_pct) >= 3,
+                None => cur.saturating_sub(prev_bytes) >= 128 * 1024,
+            };
+            if should_emit {
+                if let Some(p) = pct {
+                    last_emitted_pct.store(p, std::sync::atomic::Ordering::Relaxed);
+                }
+                last_emitted_bytes.store(cur, std::sync::atomic::Ordering::Relaxed);
+                let _ = app_clone.emit(
+                    "guard://update-progress",
+                    AppUpdateProgressEvent {
+                        stage: "downloading".into(),
+                        downloaded_bytes: cur,
+                        total_bytes: content_len,
+                        percent: pct,
+                    },
+                );
+            }
+        }
+    };
+
+    let app_for_finish = app.clone();
     let install_res = update
-        .download_and_install(
-            |_chunk_len, _content_len| {},
-            || {
-                logger::log_info("updater", "更新包 Ed25519 签名校验通过，正在准备安装");
-            },
-        )
+        .download_and_install(emit_progress_cb(app.clone()), move || {
+            let _ = app_for_finish.emit(
+                "guard://update-progress",
+                AppUpdateProgressEvent {
+                    stage: "verifying".into(),
+                    downloaded_bytes: 0,
+                    total_bytes: None,
+                    percent: Some(100),
+                },
+            );
+            logger::log_info("updater", "更新包 Ed25519 签名校验通过，正在准备安装");
+        })
         .await;
 
     if let Err(first_err) = install_res {
@@ -228,16 +297,23 @@ pub async fn download_and_install_app_update(
                     env!("CARGO_PKG_VERSION")
                 ));
             };
+            let app_for_direct_finish = app.clone();
             direct_update
-                .download_and_install(
-                    |_chunk_len, _content_len| {},
-                    || {
-                        logger::log_info(
-                            "updater",
-                            "直连回退更新包 Ed25519 签名校验通过，正在准备安装",
-                        );
-                    },
-                )
+                .download_and_install(emit_progress_cb(app.clone()), move || {
+                    let _ = app_for_direct_finish.emit(
+                        "guard://update-progress",
+                        AppUpdateProgressEvent {
+                            stage: "verifying".into(),
+                            downloaded_bytes: 0,
+                            total_bytes: None,
+                            percent: Some(100),
+                        },
+                    );
+                    logger::log_info(
+                        "updater",
+                        "直连回退更新包 Ed25519 签名校验通过，正在准备安装",
+                    );
+                })
                 .await
                 .map_err(|e| format!("下载或安装更新包失败（请检查网络与签名）：{e}"))?;
         } else {
@@ -249,15 +325,19 @@ pub async fn download_and_install_app_update(
 
     logger::log_info(
         "updater",
-        format!("更新包 v{target_ver} 安装完成，即将重启应用"),
+        format!("更新包 v{target_ver} 签名校验通过并已交由安装器执行覆盖升级"),
     );
-    let handle = app.clone();
-    tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
-        handle.restart();
-    });
+    // Windows NSIS 目标由 tauri-plugin-updater 拉起新安装器覆盖安装并重启，绝不可在 400ms 后抢拉旧版 handle.restart() 导致文件锁冲突
+    #[cfg(not(windows))]
+    {
+        let handle = app.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+            handle.restart();
+        });
+    }
 
-    Ok(format!("已下载并校验 v{target_ver} 更新包，正在安装并重启..."))
+    Ok(format!("已下载并校验 v{target_ver} 更新包，安装程序正在覆盖升级..."))
 }
 
 #[cfg(test)]

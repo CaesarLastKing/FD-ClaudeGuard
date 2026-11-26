@@ -400,7 +400,7 @@ pub fn resolve_claude_exe_path() -> Option<PathBuf> {
             .args([
                 "-NoProfile",
                 "-Command",
-                "$p = Get-AppxPackage | Where-Object { $_.Name -match 'Anthropic|Claude' } | Select-Object -First 1; if ($p) { Get-ChildItem -Path $p.InstallLocation -Filter 'Claude.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName }",
+                "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; foreach ($p in (Get-AppxPackage | Where-Object { $_.Name -match 'Anthropic|Claude' })) { if ($p.InstallLocation) { $hit = Get-ChildItem -Path $p.InstallLocation -Filter 'Claude.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName; if ($hit) { Write-Output $hit; break } } }",
             ])
             .output()
             .ok()?;

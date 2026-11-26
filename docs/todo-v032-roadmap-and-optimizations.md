@@ -63,7 +63,7 @@
 | `FIX-03` | **P2** | 运行态验收 | 浏览器预览 Mock 态下 `ackAllLogEvents` 未联动 `getLogAnalysis`、`currentNode` 残留 `US-LA-Static-01`、本地分写死 `84` 与扣分项不自洽 | 引入 `MOCK_ACKED_LOG_IDS` 同步内存态、未连接节点改为 `未连接`、Mock 本地分按公式 `min(85, 100-10-3)=85` 严格对齐 | `已完成` |
 | `OPT-01` | **P2** | 工程质量 | Vitest 输出二十余条 React `not wrapped in act(...)` stderr 噪音 | 全量收口 `v027`/`v028`/`v029`/`v17_v18_v19`/`protocol_and_v15` 测试异步状态更新，实现 `0 act(...) 警告` | `已完成` |
 | `BUG-11` | **P0** | 真实用户日志排查 (`v0.3.3`) | `cloud_probe` 请求非原生 `billing_portal` 且将 404/无字段兜底假绿为 `clear`；漏检 `chat_conversations` 错误体、`kyc_status` 阻塞态与 `active_flags` 扩展词；未与本地同 `orgId` Portal 日志融合 | 消灭假绿改为诚实返回 `unknown`（前端灰字「接口未返回」无绿点），多路响应体全扫描 + 按精确 `orgId` 融合本地 Portal 实锤为 `local_hold` 并熔断 `≤ 15` | `已完成` |
-| `BUG-12` | **P1** | 真实用户日志排查 (`v0.3.3`) | `watchdog` / `local_scan` 的 `RE_ORG` 未匹配 URL 参数 `[?&]org=`，导致 `portal.anthropic.com/verify?org=B` 错归前文 `last_seen_org`（A）；`score.rs` 未对 `chat_restricted`（`!chat_available && !is_banned`）触发熔断；`maintenance::sanitize_sensitive_text` 对已脱敏 `yiya***88@qq.com` 二次截断域名 | `RE_ORG` 扩展匹配 `[?&]org=`；`RiskScoreInput` 新增 `chat_restricted` 致命熔断并同步外部 API；`RE_EMAIL` 纳入 `*` 跳过含 `***` 的脱敏邮箱 | `已完成` |
+| `BUG-12` | **P1** | 真实用户日志排查 (`v0.3.3`) | `watchdog` / `local_scan` 的 `RE_ORG` 未匹配 URL 参数 `[?&]org=`，导致 `portal.anthropic.com/verify?org=B` 错归前文 `last_seen_org`（A）；`score.rs` 未对 `chat_restricted`（`!chat_available && !is_banned`）触发熔断；`maintenance::sanitize_sensitive_text` 对已脱敏邮箱二次截断域名 | `RE_ORG` 扩展匹配 `[?&]org=`；`RiskScoreInput` 新增 `chat_restricted` 致命熔断并同步外部 API；`RE_EMAIL` 纳入 `*` 跳过含 `***` 的脱敏邮箱 | `已完成` |
 
 ### 2.2 已落地的无 UI 设计变动工程优化
 

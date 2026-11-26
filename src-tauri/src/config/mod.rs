@@ -210,20 +210,35 @@ pub fn default_config_path() -> PathBuf {
     base.join(".fd-claude-guard").join("config.json")
 }
 
+static CONFIG_WRITE_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+static CONFIG_TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
 pub fn load_config(path: &Path) -> AppConfig {
     match fs::read_to_string(path) {
-        Ok(raw) => serde_json::from_str::<AppConfig>(raw.trim_start_matches('\u{feff}'))
-            .unwrap_or_default(),
+        Ok(raw) => match serde_json::from_str::<AppConfig>(raw.trim_start_matches('\u{feff}')) {
+            Ok(cfg) => cfg,
+            Err(_) => {
+                // 损坏配置先备份留档，避免下次保存静默永久抹掉用户原配置
+                let ts = chrono::Local::now().format("%Y%m%d-%H%M%S");
+                let backup = path.with_extension(format!("json.corrupt-{ts}"));
+                let _ = fs::copy(path, backup);
+                AppConfig::default()
+            }
+        },
         Err(_) => AppConfig::default(),
     }
 }
 
 pub fn save_config(path: &Path, cfg: &AppConfig) -> Result<(), String> {
+    let lock = CONFIG_WRITE_LOCK.get_or_init(|| std::sync::Mutex::new(()));
+    let _guard = lock.lock().map_err(|_| "配置写盘锁异常".to_string())?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("创建配置目录失败: {e}"))?;
     }
     let json = serde_json::to_string_pretty(cfg).map_err(|e| format!("序列化配置失败: {e}"))?;
-    let tmp_path = path.with_extension("json.tmp");
+    let seq = CONFIG_TMP_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let pid = std::process::id();
+    let tmp_path = path.with_extension(format!("json.tmp.{pid}.{seq}"));
     fs::write(&tmp_path, &json).map_err(|e| format!("写入临时配置失败: {e}"))?;
     if fs::rename(&tmp_path, path).is_err() {
         let write_res = fs::write(path, &json).map_err(|e| format!("保存配置文件失败: {e}"));

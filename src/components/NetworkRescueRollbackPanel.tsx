@@ -28,6 +28,7 @@ interface NetworkRescueRollbackPanelProps {
 export function NetworkRescueRollbackPanel({ compact = false }: NetworkRescueRollbackPanelProps) {
   const [overview, setOverview] = useState<RollbackOverview | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [rescueReport, setRescueReport] = useState<NetworkRescueReport | null>(null);
 
@@ -38,11 +39,12 @@ export function NetworkRescueRollbackPanel({ compact = false }: NetworkRescueRol
 
   const loadOverview = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const data = await ipc.inspectRollbackStatus();
       setOverview(data);
-    } catch {
-      // 忽略首次读取失败，保留空态提示
+    } catch (err) {
+      setLoadError(String(err));
     } finally {
       setLoading(false);
     }
@@ -125,7 +127,7 @@ export function NetworkRescueRollbackPanel({ compact = false }: NetworkRescueRol
           value: "100% 保留你后续新导入的 Clash 订阅与现有项目代码，不覆盖用户数据。",
         },
       ],
-      primaryLabel: "取消",
+      primaryLabel: "暂不撤回",
       onPrimary: () => {},
       dangerLabel: "确认全部撤回",
       onDanger: async () => {
@@ -331,7 +333,9 @@ export function NetworkRescueRollbackPanel({ compact = false }: NetworkRescueRol
                   系统改动与撤回中心
                 </span>
                 <span className="guard-chip guard-chip-mode tabular">
-                  已记录改动 {overview?.touchedCount ?? 0} 项
+                  {loadError
+                    ? "状态读取失败"
+                    : `已记录改动 ${overview?.touchedCount ?? 0} 项`}
                 </span>
               </div>
               <div style={{ fontSize: 12, color: "var(--text-2)", marginTop: 2 }}>
@@ -376,6 +380,33 @@ export function NetworkRescueRollbackPanel({ compact = false }: NetworkRescueRol
         {loading && !overview ? (
           <div style={{ fontSize: 12, color: "var(--text-3)", padding: "8px 0" }}>
             正在读取系统基线快照...
+          </div>
+        ) : loadError && !overview ? (
+          <div
+            data-testid="rollback-load-error"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              padding: "12px 14px",
+              borderRadius: 10,
+              background: "var(--danger-soft)",
+              border: "1px solid var(--danger-border)",
+              color: "var(--danger-bright)",
+              fontSize: 12.5,
+            }}
+          >
+            <span>读取撤回基线失败：{loadError}</span>
+            <button
+              type="button"
+              data-testid="btn-retry-rollback-overview"
+              className="guard-btn guard-btn-flat guard-btn-sm"
+              onClick={() => void loadOverview()}
+              style={{ whiteSpace: "nowrap" }}
+            >
+              重新读取
+            </button>
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>

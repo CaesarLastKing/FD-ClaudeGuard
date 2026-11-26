@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState } from "react";
-import { Activity, Bell, CheckCircle2, Download, ExternalLink, Loader2, RefreshCw, ShieldAlert, X } from "lucide-react";
+import { useEffect, useRef } from "react";
+import { Bell, CheckCircle2, Download, ExternalLink, Loader2, RefreshCw } from "lucide-react";
 import { CheckIcon } from "@/components/CheckIcon";
 import { ipc } from "@/lib/ipc";
 import { useGuardStore } from "@/stores/guardStore";
 import type { AppConfig } from "@/types/guard";
 
 const GITHUB_OFFICIAL_URL = "https://github.com/CaesarLastKing/FD-ClaudeGuard";
+const GITHUB_RELEASES_URL = "https://github.com/CaesarLastKing/FD-ClaudeGuard/releases";
 
 type BoolConfigKey =
   | "showHud"
@@ -17,9 +18,7 @@ type BoolConfigKey =
   | "autoKillSwitch"
   | "antiUploadFlush"
   | "safeExitPrompt"
-  | "calm24h"
-  | "telemetryToolDiagEnabled"
-  | "telemetryClaudeSummaryEnabled";
+  | "calm24h";
 
 interface SwitchRowProps {
   configKey: BoolConfigKey;
@@ -109,9 +108,6 @@ function SwitchRow({
 }
 
 export function SettingsPage() {
-  const [sampleOpen, setSampleOpen] = useState(false);
-  const [sampleJson, setSampleJson] = useState("");
-  const [sampleLoading, setSampleLoading] = useState(false);
   const config: AppConfig = useGuardStore((s) => s.config);
   const startupAudit = useGuardStore((s) => s.startupAudit);
   const updateConfig = useGuardStore((s) => s.updateConfig);
@@ -119,6 +115,7 @@ export function SettingsPage() {
   const updateInfo = useGuardStore((s) => s.updateInfo);
   const updateChecking = useGuardStore((s) => s.updateChecking);
   const updateInstalling = useGuardStore((s) => s.updateInstalling);
+  const updateProgress = useGuardStore((s) => s.updateProgress);
   const updateError = useGuardStore((s) => s.updateError);
   const checkForAppUpdate = useGuardStore((s) => s.checkForAppUpdate);
   const installAppUpdate = useGuardStore((s) => s.installAppUpdate);
@@ -133,17 +130,6 @@ export function SettingsPage() {
     }
   }, [updateInfo, updateChecking, updateError, checkForAppUpdate]);
 
-  useEffect(() => {
-    if (!sampleOpen) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setSampleOpen(false);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [sampleOpen]);
-
   const handleToggle = (key: BoolConfigKey, next: boolean, label: string) => {
     void updateConfig({ [key]: next }, label);
   };
@@ -156,13 +142,21 @@ export function SettingsPage() {
     await installAppUpdate();
   };
 
-  const handleOpenGithub = async () => {
+  const handleOpenExternal = async (url: string) => {
     try {
-      await ipc.openExternalUrl(GITHUB_OFFICIAL_URL);
+      await ipc.openExternalUrl(url);
     } catch (err) {
-      pushToast("打开 GitHub 官网失败", String(err), "danger");
+      pushToast("打开外部链接失败", String(err), "danger");
     }
   };
+
+  const installBtnText = !updateInstalling
+    ? `立即更新 v${updateInfo?.latestVersion ?? ""}`
+    : updateProgress?.stage === "verifying"
+    ? "正在校验签名..."
+    : updateProgress?.percent != null
+    ? `下载中 ${updateProgress.percent}%`
+    : "正在下载更新包...";
 
   return (
     <section style={{ display: "flex", flex: 1, minHeight: 0, flexDirection: "column" }}>
@@ -185,21 +179,6 @@ export function SettingsPage() {
             所有自动防护策略默认开启，均可按需手动开关 · 含客户端签名更新与开机启动项监测
           </div>
         </div>
-        <button
-          type="button"
-          data-testid="btn-check-app-update"
-          disabled={updateChecking || updateInstalling}
-          className="guard-btn guard-btn-flat guard-btn-sm"
-          onClick={() => void handleCheckUpdate()}
-          style={{ whiteSpace: "nowrap", flexShrink: 0 }}
-        >
-          {updateChecking ? (
-            <Loader2 size={13.5} className="guard-spin" />
-          ) : (
-            <RefreshCw size={13.5} strokeWidth={1.85} />
-          )}
-          <span>{updateChecking ? "正在检查更新..." : "检查更新"}</span>
-        </button>
       </div>
 
       <div
@@ -211,12 +190,12 @@ export function SettingsPage() {
           gap: 16,
         }}
       >
-        {/* 客户端版本与自动更新卡片 */}
+        {/* 客户端版本与自动更新卡片：状态文案（徽章）与单一检测/更新按钮严格分离 */}
         <div
           className="guard-card"
           data-testid="app-updater-card"
           style={{
-            padding: "12px 14px",
+            padding: "14px 16px",
             display: "flex",
             flexDirection: "column",
             gap: 8,
@@ -244,18 +223,40 @@ export function SettingsPage() {
                   <span className="guard-chip guard-chip-neutral tabular">
                     v{updateInfo?.currentVersion ?? __APP_VERSION__}
                   </span>
-                  {updateInfo?.available && updateInfo.latestVersion && (
-                    <span className="guard-chip guard-chip-ok tabular">
+                  {updateInfo?.available && updateInfo.latestVersion ? (
+                    <span className="guard-chip guard-chip-ok tabular" data-testid="updater-status-badge">
                       发现新版本 v{updateInfo.latestVersion}
                     </span>
-                  )}
+                  ) : updateError ? (
+                    <span className="guard-chip guard-chip-warn" data-testid="updater-status-badge">
+                      检查失败
+                    </span>
+                  ) : updateInfo ? (
+                    <span
+                      className="guard-chip guard-chip-ok"
+                      data-testid="updater-status-badge"
+                      style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+                    >
+                      <CheckCircle2 size={12} strokeWidth={2} />
+                      <span>已是最新版本</span>
+                    </span>
+                  ) : null}
                 </div>
-                <div style={{ fontSize: 12, color: "var(--text-2)", marginTop: 2, lineHeight: 1.48 }}>
-                  {updateError
-                    ? `检查更新遇到问题：${updateError}`
-                    : updateInfo
-                    ? updateInfo.message
-                    : "基于 GitHub Releases 官方签发通道（Ed25519 公钥验签），自动复用本机代理并在失败时回退直连。"}
+                <div style={{ fontSize: 12, color: "var(--text-2)", marginTop: 3, lineHeight: 1.48 }}>
+                  {updateError ? (
+                    <>
+                      <span>{updateError}</span>{" "}
+                      <button
+                        type="button"
+                        className="guard-text-link"
+                        onClick={() => void handleOpenExternal(GITHUB_RELEASES_URL)}
+                      >
+                        前往 Releases 手动下载 ↗
+                      </button>
+                    </>
+                  ) : (
+                    "GitHub Releases 官方签名通道（Ed25519 验签），优先走本机代理。"
+                  )}
                 </div>
               </div>
             </div>
@@ -274,45 +275,23 @@ export function SettingsPage() {
                   ) : (
                     <Download size={13.5} strokeWidth={1.9} />
                   )}
-                  <span>
-                    {updateInstalling
-                      ? "正在下载并校验签名..."
-                      : `立即更新 v${updateInfo.latestVersion ?? ""}`}
-                  </span>
-                </button>
-              ) : updateChecking ? (
-                <button
-                  type="button"
-                  data-testid="btn-update-card-status"
-                  disabled
-                  className="guard-btn guard-btn-flat guard-btn-sm"
-                  style={{ whiteSpace: "nowrap" }}
-                >
-                  <Loader2 size={13.5} className="guard-spin" />
-                  <span>正在检查版本...</span>
-                </button>
-              ) : updateInfo ? (
-                <button
-                  type="button"
-                  data-testid="btn-update-card-status"
-                  className="guard-btn guard-btn-flat guard-btn-sm"
-                  onClick={() => void handleCheckUpdate()}
-                  title="点击可重新检查更新"
-                  style={{ whiteSpace: "nowrap", color: "var(--success)" }}
-                >
-                  <CheckCircle2 size={13.5} strokeWidth={1.9} />
-                  <span>已是最新版本</span>
+                  <span className="tabular">{installBtnText}</span>
                 </button>
               ) : (
                 <button
                   type="button"
-                  data-testid="btn-update-card-status"
+                  data-testid="btn-check-app-update"
+                  disabled={updateChecking || updateInstalling}
                   className="guard-btn guard-btn-flat guard-btn-sm"
                   onClick={() => void handleCheckUpdate()}
                   style={{ whiteSpace: "nowrap" }}
                 >
-                  <RefreshCw size={13.5} strokeWidth={1.85} />
-                  <span>检查更新</span>
+                  {updateChecking ? (
+                    <Loader2 size={13.5} className="guard-spin" />
+                  ) : (
+                    <RefreshCw size={13.5} strokeWidth={1.85} />
+                  )}
+                  <span>{updateChecking ? "检查中..." : "检查更新"}</span>
                 </button>
               )}
 
@@ -320,7 +299,7 @@ export function SettingsPage() {
                 type="button"
                 data-testid="btn-open-github-official"
                 className="guard-btn guard-btn-flat guard-btn-sm"
-                onClick={() => void handleOpenGithub()}
+                onClick={() => void handleOpenExternal(GITHUB_OFFICIAL_URL)}
                 title={`前往项目官方 GitHub 仓库：${GITHUB_OFFICIAL_URL}`}
                 style={{ whiteSpace: "nowrap" }}
               >
@@ -526,58 +505,6 @@ export function SettingsPage() {
 
         <div>
           <div style={sectionHeaderStyle}>
-            <span>匿名诊断与封号归因遥测（可随时关闭）</span>
-            <span style={{ fontSize: 12, color: "var(--text-3)", fontWeight: 400 }}>
-              严格脱敏，绝不上传账号 / Token / IP / 对话
-            </span>
-          </div>
-          <div className="guard-card">
-            <SwitchRow
-              configKey="telemetryToolDiagEnabled"
-              icon="startup"
-              customIcon={<Activity size={16} strokeWidth={1.75} />}
-              title="上报本工具运行异常与一键修复诊断"
-              desc="日常体检与一般业务日志仅本地记录；仅当自动修复真实失败或触发 4 层热熔断时低频上报脱敏错误摘要（跨重启去重、单机每日上限 10 条，超时 2 秒静默跳过）"
-              badge={{ text: "推荐开启", tone: "ok" }}
-              checked={config.telemetryToolDiagEnabled ?? true}
-              onToggle={handleToggle}
-            />
-            <SwitchRow
-              configKey="telemetryClaudeSummaryEnabled"
-              icon="ban"
-              customIcon={<ShieldAlert size={16} strokeWidth={1.75} />}
-              title="上报 Claude 高危异常与 72h 封号前置归因摘要"
-              desc="仅在命中高危实锤事件（封号 / 验证受限 / 地区封锁 / 跨号连坐 / 退出回传 403）时低频上报类型摘要与 72h 6 维匿名因子，普通提醒（如 Free/KYC 403、529）仅记本地不发网"
-              badge={{ text: "按需开启", tone: "neutral" }}
-              checked={config.telemetryClaudeSummaryEnabled ?? true}
-              onToggle={handleToggle}
-            />
-          </div>
-          <div style={{ marginTop: 6 }}>
-            <button
-              type="button"
-              data-testid="btn-preview-telemetry-sample"
-              className="guard-text-link"
-              onClick={async () => {
-                setSampleOpen(true);
-                setSampleLoading(true);
-                try {
-                  const text = await ipc.previewAnonymousFeedbackPayload();
-                  setSampleJson(text);
-                } catch (err) {
-                  setSampleJson(`读取示例失败：${String(err)}`);
-                } finally {
-                  setSampleLoading(false);
-                }
-              }}
-            >
-              查看实际上传的脱敏数据结构示例 ↗
-            </button>
-          </div>
-        </div>
-
-        <div>
-          <div style={sectionHeaderStyle}>
             <span>开机启动项风险监测（只读检测，绝不擅自删除你的启动项）</span>
           </div>
           <div className="guard-card">
@@ -622,130 +549,6 @@ export function SettingsPage() {
           </div>
         </div>
       </div>
-
-      {/* T-302：标准 496px 三段式脱敏遥测样本只读预览窗 */}
-      {sampleOpen && (
-        <div
-          data-testid="telemetry-sample-modal"
-          onClick={() => setSampleOpen(false)}
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 90,
-            background: "rgba(0, 0, 0, 0.62)",
-            backdropFilter: "blur(5px)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 16,
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              width: 496,
-              maxWidth: "96vw",
-              background: "var(--bg-card)",
-              border: "1px solid var(--border-strong)",
-              borderRadius: 14,
-              overflow: "hidden",
-              boxShadow: "0 24px 64px rgba(0, 0, 0, 0.45)",
-            }}
-          >
-            <div
-              style={{
-                padding: "18px 20px 14px",
-                display: "flex",
-                alignItems: "flex-start",
-                justifyContent: "space-between",
-                gap: 12,
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <div
-                  style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: 10,
-                    background: "var(--primary-soft)",
-                    color: "var(--primary)",
-                    display: "grid",
-                    placeItems: "center",
-                    flexShrink: 0,
-                  }}
-                >
-                  <Activity size={18} strokeWidth={1.85} />
-                </div>
-                <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 15.5, fontWeight: 600 }}>脱敏遥测数据结构示例</span>
-                    <span className="guard-chip guard-chip-ok">只读零隐私</span>
-                  </div>
-                  <div style={{ fontSize: 12, color: "var(--text-2)", marginTop: 2 }}>
-                    所有邮箱、Token、机场订阅 URL、公网 IP 与完整 orgId 均已剥离
-                  </div>
-                </div>
-              </div>
-              <button
-                type="button"
-                aria-label="关闭弹窗"
-                onClick={() => setSampleOpen(false)}
-                style={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: 7,
-                  border: "none",
-                  background: "transparent",
-                  color: "var(--text-2)",
-                  cursor: "pointer",
-                  display: "grid",
-                  placeItems: "center",
-                }}
-              >
-                <X size={15} strokeWidth={1.85} />
-              </button>
-            </div>
-            <div style={{ padding: "0 20px 18px" }}>
-              <pre
-                className="font-mono-code"
-                style={{
-                  margin: 0,
-                  background: "var(--bg-subtle)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "var(--r-btn)",
-                  padding: "10px 12px",
-                  fontSize: 11.5,
-                  color: "var(--text-2)",
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-all",
-                  maxHeight: 280,
-                  overflowY: "auto",
-                  lineHeight: 1.55,
-                }}
-              >
-                {sampleLoading ? "正在生成本机实时脱敏载荷示例..." : sampleJson}
-              </pre>
-            </div>
-            <div
-              style={{
-                padding: "12px 20px",
-                borderTop: "1px solid var(--border)",
-                background: "rgba(128, 128, 140, 0.03)",
-                display: "flex",
-                justifyContent: "flex-end",
-              }}
-            >
-              <button
-                type="button"
-                className="guard-btn guard-btn-primary guard-btn-sm"
-                onClick={() => setSampleOpen(false)}
-              >
-                我知道了
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </section>
   );
 }

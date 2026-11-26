@@ -141,6 +141,12 @@ pub struct AppState {
     pub injected_logs: RwLock<Vec<LogEvent>>,
     pub hud_move_seq: AtomicU64,
     pub alert_dedup: RwLock<HashMap<String, Instant>>,
+    /// 是否已完成至少一轮真实启动体检（与 `last_preflight_at` 缓存 TTL 解耦，防止撤回/急救清空缓存后防裸奔失明）
+    pub initial_preflight_done: std::sync::atomic::AtomicBool,
+    /// 熔断通道是否已持有事务级 Kill-Hold 锁（防止并发或重复触发熔断导致 tx_lock_count 引用计数泄漏）
+    pub killswitch_tx_held: std::sync::atomic::AtomicBool,
+    /// 用户在「实时流量监控」中点击「全部标为已处理」的异常连接 ID 集合（同步清零侧边栏与 HUD 报警灯）
+    pub acked_flow_ids: RwLock<std::collections::HashSet<String>>,
 }
 
 impl AppState {
@@ -159,6 +165,9 @@ impl AppState {
             injected_logs: RwLock::new(Vec::new()),
             hud_move_seq: AtomicU64::new(0),
             alert_dedup: RwLock::new(HashMap::new()),
+            initial_preflight_done: std::sync::atomic::AtomicBool::new(false),
+            killswitch_tx_held: std::sync::atomic::AtomicBool::new(false),
+            acked_flow_ids: RwLock::new(std::collections::HashSet::new()),
         }
     }
 }
