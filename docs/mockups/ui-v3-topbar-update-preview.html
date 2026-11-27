@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FD Claude 安全启动器 · 顶栏更新微标与 Toast 效果预览</title>
+  <style>
+    @font-face {
+      font-family: "FD-Fine";
+      src: local("SF Pro Text Light"), local("Segoe UI Variable Text Semilight"), local("Noto Sans SC DemiLight"), local("HarmonyOS Sans SC Light");
+      font-weight: 400;
+    }
+    @font-face {
+      font-family: "FD-Fine";
+      src: local("SF Pro Text"), local("Segoe UI Variable Text"), local("Noto Sans SC"), local("HarmonyOS Sans SC");
+      font-weight: 500;
+    }
+
+    :root {
+      --font-sans: "FD-Fine", "SF Pro Text", "Segoe UI Variable Text", "Noto Sans SC", "HarmonyOS Sans SC", -apple-system, sans-serif;
+      --r-card: 10px;
+      --r-btn: 7px;
+      --ease: cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    :root, [data-theme="dark"] {
+      --bg-chrome: #111115;
+      --bg-sidebar: #111115;
+      --bg-header: #0f0f13;
+      --bg-canvas: #0c0c0f;
+      --bg-card: #15151a;
+      --bg-subtle: #1d1d24;
+      --bg-nav-active: #1b1b22;
+      --border-card: rgba(255, 255, 255, 0.082);
+      --border-card-hover: rgba(255, 255, 255, 0.14);
+      --divider: rgba(255, 255, 255, 0.056);
+      --divider-strong: rgba(255, 255, 255, 0.105);
+      --text-strong: #c9ced8;
+      --text-1: #b4bac6;
+      --text-2: #7d8494;
+      --text-3: #646c7c;
+      --text-4: #4a5160;
+      --primary: #3b93fa;
+      --primary-hi: #55a3ff;
+      --primary-soft: rgba(59, 147, 250, 0.105);
+      --primary-border: rgba(59, 147, 250, 0.25);
+      --ok-dot: #449c69;
+      --ok-fg: #4f9b70;
+      --ok-bg: rgba(74, 158, 108, 0.062);
+      --ok-border: rgba(74, 158, 108, 0.145);
+      --warning-dot: #c28f3e;
+      --warning-fg: #bf9148;
+      --warning-soft: rgba(194, 143, 62, 0.075);
+      --warning-border: rgba(194, 143, 62, 0.175);
+      --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.24);
+      --shadow-toast: 0 12px 32px rgba(0, 0, 0, 0.42);
+      --tooltip-bg: #22232b;
+      --tooltip-fg: #d5d9e2;
+    }
+
+    [data-theme="light"] {
+      --bg-chrome: #fbfbfd;
+      --bg-sidebar: #fbfbfd;
+      --bg-header: #f8f9fb;
+      --bg-canvas: #f5f6f8;
+      --bg-card: #ffffff;
+      --bg-subtle: #f2f4f7;
+      --bg-nav-active: #eef0f4;
+      --border-card: rgba(15, 23, 42, 0.072);
+      --border-card-hover: rgba(15, 23, 42, 0.13);
+      --divider: rgba(15, 23, 42, 0.056);
+      --divider-strong: rgba(15, 23, 42, 0.10);
+      --text-strong: #2b303b;
+      --text-1: #3d4350;
+      --text-2: #727a8a;
+      --text-3: #8991a2;
+      --text-4: #b4bcc9;
+      --primary: #006ce0;
+      --primary-hi: #1a84f5;
+      --primary-soft: rgba(0, 108, 224, 0.068);
+      --primary-border: rgba(0, 108, 224, 0.20);
+      --ok-dot: #4c9e6e;
+      --ok-fg: #3e8c60;
+      --ok-bg: rgba(76, 158, 110, 0.065);
+      --ok-border: rgba(76, 158, 110, 0.18);
+      --warning-dot: #df952e;
+      --warning-fg: #b87419;
+      --warning-soft: rgba(223, 149, 46, 0.075);
+      --warning-border: rgba(223, 149, 46, 0.20);
+      --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.022), 0 4px 10px -2px rgba(15, 23, 42, 0.026);
+      --shadow-toast: 0 10px 28px rgba(15, 23, 42, 0.12);
+      --tooltip-bg: #262b35;
+      --tooltip-fg: #eef1f6;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      height: 100%;
+      background: var(--bg-canvas);
+      color: var(--text-1);
+      font-family: var(--font-sans);
+      font-synthesis: none;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .app-shell {
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* 38px 自定义无边框顶栏（1:1 复刻 WindowChrome.tsx） */
+    .chrome {
+      height: 38px;
+      flex-shrink: 0;
+      background: var(--bg-chrome);
+      border-bottom: 1px solid var(--divider);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-left: 16px;
+      user-select: none;
+    }
+
+    .chrome-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .app-ico {
+      width: 17px;
+      height: 17px;
+      border-radius: 4px;
+      background: linear-gradient(135deg, #d97757, #c25b3d);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 10px;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+
+    .brand-title {
+      font-size: 12.5px;
+      font-weight: 400;
+      letter-spacing: -0.005em;
+      color: var(--text-1);
+      white-space: nowrap;
+    }
+
+    .brand-sub {
+      font-size: 11px;
+      color: var(--text-3);
+      white-space: nowrap;
+      padding: 2px 4px;
+    }
+
+    /* 新版极简顶栏更新微标：✨ 新版本发布！！ */
+    .topbar-update-pill {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      height: 22px;
+      padding: 0 9px;
+      margin-left: 2px;
+      border-radius: 999px;
+      border: 1px solid var(--primary-border);
+      background: var(--primary-soft);
+      color: var(--primary);
+      font-family: var(--font-sans);
+      font-size: 11px;
+      font-weight: 500;
+      line-height: 1;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 150ms var(--ease), border-color 150ms var(--ease), transform 120ms var(--ease);
+    }
+    .topbar-update-pill:hover {
+      background: rgba(59, 147, 250, 0.16);
+      border-color: var(--primary);
+    }
+    .topbar-update-pill:active {
+      transform: scale(0.98);
+    }
+    .topbar-update-tip {
+      position: absolute;
+      top: calc(100% + 7px);
+      left: 0;
+      padding: 6px 10px;
+      border-radius: 7px;
+      background: var(--tooltip-bg);
+      color: var(--tooltip-fg);
+      border: 1px solid var(--divider-strong);
+      font-size: 11px;
+      font-weight: 400;
+      white-space: nowrap;
+      box-shadow: 0 10px 26px rgba(0, 0, 0, 0.32);
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(-2px);
+      transition: opacity 130ms var(--ease), transform 130ms var(--ease);
+      z-index: 200;
+    }
+    .topbar-update-pill:hover .topbar-update-tip {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .chrome-right {
+      display: flex;
+      align-items: center;
+      height: 100%;
+    }
+    .chrome-icons {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      padding-right: 8px;
+    }
+    .ico-btn {
+      width: 28px;
+      height: 25px;
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--text-2);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background 140ms var(--ease), color 140ms var(--ease);
+    }
+    .ico-btn:hover {
+      background: var(--bg-subtle);
+      color: var(--text-strong);
+    }
+    .chrome-sep {
+      width: 1px;
+      height: 13px;
+      background: var(--divider-strong);
+    }
+    .win-ctl {
+      width: 38px;
+      height: 100%;
+      border: none;
+      background: transparent;
+      color: var(--text-2);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .win-ctl:hover { background: var(--bg-subtle); color: var(--text-strong); }
+    .win-ctl.close:hover { background: #dc2626; color: #fff; }
+
+    /* 主体骨架 */
+    .body {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+    }
+
+    .sidebar {
+      width: 212px;
+      flex-shrink: 0;
+      background: var(--bg-sidebar);
+      border-right: 1px solid var(--divider);
+      padding: 12px 10px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .nav-list {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .nav-item {
+      height: 33px;
+      padding: 0 10px;
+      border-radius: 7px;
+      border: none;
+      background: transparent;
+      color: var(--text-2);
+      font-family: var(--font-sans);
+      font-size: 12.5px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      text-align: left;
+    }
+    .nav-item.active {
+      background: var(--bg-nav-active);
+      color: var(--text-strong);
+      font-weight: 500;
+    }
+    .chip-ok {
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 5px;
+      background: var(--ok-bg);
+      color: var(--ok-fg);
+      border: 1px solid var(--ok-border);
+    }
+
+    .sidebar-foot {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .side-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-card);
+      border-radius: 9px;
+      padding: 10px 11px;
+      font-size: 11.5px;
+      color: var(--text-2);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .side-card-hd {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--text-1);
+      font-weight: 500;
+    }
+    .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--ok-dot);
+      display: inline-block;
+      flex-shrink: 0;
+    }
+    .dot.warn { background: var(--warning-dot); }
+
+    /* 主工作区 */
+    .main {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .page-hd {
+      height: 58px;
+      padding: 0 24px;
+      background: var(--bg-header);
+      border-bottom: 1px solid var(--divider);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .page-title-wrap {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+    }
+    .page-title {
+      font-size: 16.5px;
+      font-weight: 500;
+      color: var(--text-strong);
+    }
+    .page-sub {
+      font-size: 11.5px;
+      color: var(--text-3);
+    }
+    .hd-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn {
+      height: 31px;
+      padding: 0 12px;
+      border-radius: var(--r-btn);
+      border: 1px solid var(--divider-strong);
+      background: var(--bg-card);
+      color: var(--text-1);
+      font-family: var(--font-sans);
+      font-size: 12px;
+      cursor: pointer;
+      white-space: nowrap;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: border-color 140ms var(--ease), background 140ms var(--ease);
+    }
+    .btn:hover { border-color: var(--border-card-hover); }
+    .btn-primary {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fff;
+      font-weight: 500;
+    }
+    .btn-primary:hover { background: var(--primary-hi); border-color: var(--primary-hi); }
+    .btn-xs {
+      height: 25px;
+      padding: 0 10px;
+      font-size: 11px;
+      border-radius: 6px;
+    }
+
+    .canvas {
+      flex: 1;
+      padding: 20px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      overflow-y: auto;
+    }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-card);
+      border-radius: var(--r-card);
+      box-shadow: var(--shadow-card);
+      padding: 16px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .card-hd {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .card-title {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-strong);
+    }
+    .card-desc {
+      font-size: 12px;
+      color: var(--text-2);
+      line-height: 1.55;
+    }
+    .demo-bar {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--divider);
+    }
+    .pill-note {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 5px;
+      background: var(--bg-subtle);
+      color: var(--text-2);
+    }
+
+    .update-card-highlight {
+      border-color: var(--primary-border);
+      transition: box-shadow 200ms var(--ease);
+    }
+    .update-card-highlight.flash {
+      box-shadow: 0 0 0 2px var(--primary-border), var(--shadow-card);
+    }
+
+    /* 1:1 复刻 ToastStack.tsx 右下角悬浮 Toast */
+    .toast-stack {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      z-index: 160;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .toast-item {
+      width: 356px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-card);
+      border-radius: var(--r-card);
+      padding: 11px 13px;
+      box-shadow: var(--shadow-toast);
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      cursor: pointer;
+      animation: toastIn 200ms var(--ease);
+    }
+    @keyframes toastIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .toast-title {
+      font-size: 12.5px;
+      font-weight: 500;
+      color: var(--text-strong);
+      line-height: 1.35;
+    }
+    .toast-body {
+      font-size: 11.5px;
+      color: var(--text-2);
+      margin-top: 3px;
+      line-height: 1.5;
+    }
+    .toast-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .toast-close {
+      color: var(--text-4);
+      font-size: 13px;
+      line-height: 1;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <!-- 38px 顶栏 -->
+    <header class="chrome">
+      <div class="chrome-left">
+        <span class="app-ico">✦</span>
+        <span class="brand-title">FD Claude 安全启动器</span>
+        <span class="brand-sub">Fuck Dario！！！</span>
+
+        <!-- 新版极简顶栏更新微标（可点击跳转守卫配置更新卡） -->
+        <button
+          id="topbarUpdateBtn"
+          type="button"
+          class="topbar-update-pill"
+          onclick="jumpToUpdateCard()"
+        >
+          <span>✨ 新版本发布！！</span>
+          <span class="topbar-update-tip">发现新版本 v0.3.8 · 点击前往「守卫配置」一键更新</span>
+        </button>
+      </div>
+
+      <div class="chrome-right">
+        <div class="chrome-icons">
+          <button class="ico-btn" title="售后支持">🎧</button>
+          <button class="ico-btn" title="桌面悬浮窗">▢</button>
+          <button class="ico-btn" title="消息提醒">🔔</button>
+          <button class="ico-btn" id="themeToggleBtn" title="切换深浅主题" onclick="toggleTheme()">☀</button>
+        </div>
+        <span class="chrome-sep"></span>
+        <button class="win-ctl" title="最小化">─</button>
+        <button class="win-ctl" title="最大化">□</button>
+        <button class="win-ctl close" title="关闭">✕</button>
+      </div>
+    </header>
+
+    <div class="body">
+      <aside class="sidebar">
+        <div class="nav-list">
+          <button class="nav-item active" id="navConsole" onclick="switchTab('console')">
+            <span>控制台</span>
+            <span class="chip-ok">OK</span>
+          </button>
+          <button class="nav-item" id="navAudit" onclick="switchTab('audit')">
+            <span>账户审计</span>
+          </button>
+          <button class="nav-item" id="navNodes" onclick="switchTab('nodes')">
+            <span>节点流量</span>
+          </button>
+          <button class="nav-item" id="navMaint" onclick="switchTab('maint')">
+            <span>环境维护</span>
+          </button>
+          <button class="nav-item" id="navConfig" onclick="switchTab('config')">
+            <span>守卫配置</span>
+          </button>
+        </div>
+
+        <div class="sidebar-foot">
+          <div class="side-card">
+            <div class="side-card-hd">
+              <span style="display:inline-flex;align-items:center;gap:6px;"><span class="dot"></span>Claude 进程</span>
+              <span style="color:var(--ok-fg);">0 残留</span>
+            </div>
+            <div>已彻底退出，可安全操作</div>
+          </div>
+          <div class="side-card">
+            <div class="side-card-hd">
+              <span style="display:inline-flex;align-items:center;gap:6px;"><span class="dot"></span>Clash Verge</span>
+              <span style="color:var(--ok-fg);">在线</span>
+            </div>
+            <div>Mihomo v1.19.33 · TUN 已接管</div>
+          </div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <div class="page-hd">
+          <div class="page-title-wrap">
+            <h1 class="page-title" id="pageTitle">控制台</h1>
+            <span class="page-sub" id="pageSub">启动前 19 项环境体检与单号防封守护</span>
+          </div>
+          <div class="hd-actions">
+            <button class="btn" onclick="toggleTheme()">切换深浅主题</button>
+            <button class="btn" id="toggleToastBtn" onclick="toggleDemoToast()">显示 / 隐藏右下角旧 Toast 效果</button>
+            <button class="btn btn-primary" onclick="jumpToUpdateCard()">点击模拟打开更新页</button>
+          </div>
+        </div>
+
+        <div class="canvas">
+          <!-- 预览交互说明卡 -->
+          <div class="card">
+            <div class="card-hd">
+              <div class="card-title">视觉效果对比与交互体验</div>
+              <span class="pill-note" id="currentModeTag">暗色主题 · 右下角旧 Toast 已展示</span>
+            </div>
+            <div class="card-desc">
+              1. <strong>左上角顶栏</strong>：新版极简微标 <strong>✨ 新版本发布！！</strong>（已去掉实心蓝 <code>NEW</code> 色块与冗长版本号，鼠标悬停可看新版本详情，点击直接跳转到「守卫配置 → 客户端版本与自动更新」）。<br />
+              2. <strong>右下角悬浮卡片</strong>：即之前代码里静默检查到新版时会弹出 7 秒的 <strong>自动更新 Toast 弹窗</strong> 真实效果；你可以点击「显示 / 隐藏右下角旧 Toast 效果」感受有无弹窗的区别。
+            </div>
+            <div class="demo-bar">
+              <button class="btn btn-xs" onclick="toggleTopbarBadge()">切换顶栏有/无新版本态</button>
+              <button class="btn btn-xs" onclick="showDemoToast()">重新弹出右下角 Toast</button>
+              <button class="btn btn-xs" onclick="hideDemoToast()">关闭右下角 Toast（模拟取消）</button>
+            </div>
+          </div>
+
+          <!-- 守卫配置里的版本与更新卡（点击顶栏微标或 Toast 后聚焦此处） -->
+          <div class="card update-card-highlight" id="updateSectionCard">
+            <div class="card-hd">
+              <div>
+                <div class="card-title">客户端版本与自动更新</div>
+                <div class="card-desc" style="margin-top:3px;">
+                  当前版本 v0.3.7 · 后台每 4 小时静默自检并持久化状态（点击「检查更新」可立即穿透刷新）
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span class="pill-note" style="background:var(--primary-soft);color:var(--primary);border:1px solid var(--primary-border);">
+                  发现新版本 v0.3.8
+                </span>
+                <button class="btn btn-primary" onclick="alert('正式环境中将校验 Ed25519 签名并自动下载安装 v0.3.8')">
+                  立即更新 v0.3.8
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- 右下角旧版自动更新 Toast 真实效果预览（1:1 复刻 ToastStack.tsx） -->
+  <div class="toast-stack" id="toastStack">
+    <div class="toast-item" id="demoToast" onclick="hideDemoToast()">
+      <span class="dot warn" style="margin-top:5px;"></span>
+      <div style="flex:1;min-width:0;">
+        <div class="toast-head">
+          <div class="toast-title">发现新版本 v0.3.8</div>
+          <span class="toast-close">✕</span>
+        </div>
+        <div class="toast-body">
+          已通过 GitHub Releases 官方更新通道检测到新版本，可点击顶栏更新标签或前往「守卫配置」一键验签升级。
+        </div>
+        <div style="margin-top:8px;">
+          <button
+            type="button"
+            class="btn btn-xs"
+            onclick="event.stopPropagation(); jumpToUpdateCard(); hideDemoToast();"
+          >
+            前往更新
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let toastVisible = true;
+    let badgeVisible = true;
+
+    function updateStatusTag() {
+      const theme = document.documentElement.getAttribute("data-theme") === "light" ? "浅色主题" : "暗色主题";
+      const toastStr = toastVisible ? "右下角旧 Toast 已展示" : "已关闭右下角 Toast（仅留顶栏 ✨ 新版本发布！！）";
+      document.getElementById("currentModeTag").textContent = `${theme} · ${toastStr}`;
+    }
+
+    function toggleTheme() {
+      const root = document.documentElement;
+      const next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
+      root.setAttribute("data-theme", next);
+      document.getElementById("themeToggleBtn").textContent = next === "dark" ? "☀" : "☾";
+      updateStatusTag();
+    }
+
+    function showDemoToast() {
+      toastVisible = true;
+      document.getElementById("demoToast").style.display = "flex";
+      updateStatusTag();
+    }
+
+    function hideDemoToast() {
+      toastVisible = false;
+      document.getElementById("demoToast").style.display = "none";
+      updateStatusTag();
+    }
+
+    function toggleDemoToast() {
+      if (toastVisible) hideDemoToast();
+      else showDemoToast();
+    }
+
+    function toggleTopbarBadge() {
+      badgeVisible = !badgeVisible;
+      document.getElementById("topbarUpdateBtn").style.display = badgeVisible ? "inline-flex" : "none";
+    }
+
+    function switchTab(tab) {
+      document.querySelectorAll(".nav-item").forEach((el) => el.classList.remove("active"));
+      if (tab === "config") {
+        document.getElementById("navConfig").classList.add("active");
+        document.getElementById("pageTitle").textContent = "守卫配置";
+        document.getElementById("pageSub").textContent = "开机自启、热熔断参数与客户端版本更新";
+      } else {
+        document.getElementById("navConsole").classList.add("active");
+        document.getElementById("pageTitle").textContent = "控制台";
+        document.getElementById("pageSub").textContent = "启动前 19 项环境体检与单号防封守护";
+      }
+    }
+
+    function jumpToUpdateCard() {
+      switchTab("config");
+      const card = document.getElementById("updateSectionCard");
+      card.scrollIntoView({ behavior: "smooth", block: "center" });
+      card.classList.add("flash");
+      setTimeout(() => card.classList.remove("flash"), 1200);
+    }
+  </script>
+</body>
+</html>

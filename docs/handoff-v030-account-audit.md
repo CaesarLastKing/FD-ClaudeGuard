@@ -307,7 +307,7 @@ src-tauri/src/account_audit/
 ## 6. 后续任务 `T-059`（方案 A 自动更新）交接要点
 
 待 `T-058` 全部验收通过后立即执行 `T-059`：
-- **已就绪公钥**（位于 `C:\Users\xujun\.tauri\fd-claude-guard.key.pub`，Key ID `524DD4CBF003E3FD`，**严禁读取或提交私钥**）：
+- **已就绪公钥**（位于 `<USER_HOME>\.tauri\fd-claude-guard.key.pub`，Key ID `524DD4CBF003E3FD`，**严禁读取或提交私钥**）：
   ```
   dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDUyNERENENCRjAwM0UzRkQKUldUOTR3UHd5OVJOVW1UdFBTTGN3R2h1L2FNZEx4aXFFT0xEYjcreDZ5aEhFeXhna1VoeUdGbTQK
   ```

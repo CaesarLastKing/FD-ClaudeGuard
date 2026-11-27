@@ -1,6 +1,6 @@
 [package]
 name = "fd-claude-guard"
-version = "0.3.7"
+version = "0.4.0"
 license = "GPL-3.0"
 description = "FD Claude 安全启动器 (FD Claude Guard)"
 authors = ["FDtools"]
@@ -35,7 +35,10 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 winreg = "0.55"
 windows-sys = { version = "0.59", features = [
   "Win32_Foundation",
+  "Win32_NetworkManagement_IpHelper",
+  "Win32_NetworkManagement_Ndis",
   "Win32_Networking_WinInet",
+  "Win32_Networking_WinSock",
   "Win32_Security_Cryptography",
   "Win32_System_Diagnostics_ToolHelp",
   "Win32_System_Memory",

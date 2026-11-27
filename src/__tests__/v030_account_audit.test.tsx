@@ -42,18 +42,18 @@ describe("v0.3.0 账户审计（v12 1:1 交互、单开互斥、云端核验与�
     cleanup();
   });
 
-  it("主导航顺序严格为 控制台 → 账户审计 → 节点流量 → 环境维护 → 守卫配置", () => {
+  it("主导航顺序严格为 控制台 → 账户审计 → 节点流量 → AI 工具箱，并在左下角提供系统设置入口", () => {
     render(<Sidebar />);
     const navButtons = Array.from(
       document.querySelectorAll('nav[aria-label="主导航"] button')
     ).map((btn) => btn.textContent ?? "");
 
-    expect(navButtons.length).toBe(5);
+    expect(navButtons.length).toBe(4);
     expect(navButtons[0]).toContain("控制台");
     expect(navButtons[1]).toContain("账户审计");
     expect(navButtons[2]).toContain("节点流量");
-    expect(navButtons[3]).toContain("环境维护");
-    expect(navButtons[4]).toContain("守卫配置");
+    expect(navButtons[3]).toContain("AI 工具箱");
+    expect(screen.getByTestId("sidebar-settings-trigger")).toHaveTextContent("系统设置");
   });
 
   it("渲染双层档案卡、顶部 4 格、订阅天数原地切换与上下两段 7 项严格单开互斥", async () => {
@@ -68,13 +68,13 @@ describe("v0.3.0 账户审计（v12 1:1 交互、单开互斥、云端核验与�
     expect(screen.getByText("Persona 实名 KYC")).toBeInTheDocument();
     expect(screen.getByText("Portal 风控门户")).toBeInTheDocument();
 
-    // 点击订阅天数原地切换预计到期日
+    // 点击订阅周期原地切换预计到期/续费日（按月计费周期展示 Pro 订阅 · 第 X 天）
     const subBtn = screen.getByTestId("btn-sub-toggle");
-    expect(subBtn.textContent).toContain("订阅 33 天");
+    expect(subBtn.textContent).toContain("Pro 订阅 · 第 3 天");
     fireEvent.click(subBtn);
     expect(subBtn.textContent).toContain("预计续费");
     fireEvent.click(subBtn);
-    expect(subBtn.textContent).toContain("订阅 33 天");
+    expect(subBtn.textContent).toContain("Pro 订阅 · 第 3 天");
 
     // 默认全部折叠，单开互斥展开：点第一项展开 1 项，再点另一项前一项自动收起，再点同一项收起
     expect(document.querySelectorAll(".audit-group.is-open").length).toBe(0);

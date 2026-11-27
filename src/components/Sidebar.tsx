@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Globe, Home, Loader2, Shield, ShieldCheck, SlidersHorizontal, Wrench } from "lucide-react";
-import { ipc } from "@/lib/ipc";
+import { Globe, Home, Loader2, Settings, Shield, ShieldCheck, Sparkles } from "lucide-react";
+import { ipc, isTauriRuntime } from "@/lib/ipc";
 import { useGuardStore } from "@/stores/guardStore";
 import type { NavTab } from "@/types/guard";
 
@@ -16,7 +16,7 @@ const NAV_ITEMS: Array<{
       <Home
         size={15}
         strokeWidth={active ? 1.55 : 1.4}
-        style={{ color: active ? "var(--text-strong)" : "var(--text-3)", flexShrink: 0 }}
+        style={{ color: active ? "var(--nav-active-fg, var(--text-strong))" : "var(--text-3)", flexShrink: 0 }}
       />
     ),
   },
@@ -27,7 +27,7 @@ const NAV_ITEMS: Array<{
       <ShieldCheck
         size={15}
         strokeWidth={active ? 1.55 : 1.4}
-        style={{ color: active ? "var(--text-strong)" : "var(--text-3)", flexShrink: 0 }}
+        style={{ color: active ? "var(--nav-active-fg, var(--text-strong))" : "var(--text-3)", flexShrink: 0 }}
       />
     ),
   },
@@ -38,29 +38,18 @@ const NAV_ITEMS: Array<{
       <Globe
         size={15}
         strokeWidth={active ? 1.55 : 1.4}
-        style={{ color: active ? "var(--text-strong)" : "var(--text-3)", flexShrink: 0 }}
+        style={{ color: active ? "var(--nav-active-fg, var(--text-strong))" : "var(--text-3)", flexShrink: 0 }}
       />
     ),
   },
   {
-    id: "maintain",
-    label: "环境维护",
+    id: "aitools",
+    label: "AI 工具箱",
     renderIcon: (active) => (
-      <Wrench
+      <Sparkles
         size={15}
         strokeWidth={active ? 1.55 : 1.4}
-        style={{ color: active ? "var(--text-strong)" : "var(--text-3)", flexShrink: 0 }}
-      />
-    ),
-  },
-  {
-    id: "config",
-    label: "守卫配置",
-    renderIcon: (active) => (
-      <SlidersHorizontal
-        size={15}
-        strokeWidth={active ? 1.55 : 1.4}
-        style={{ color: active ? "var(--text-strong)" : "var(--text-3)", flexShrink: 0 }}
+        style={{ color: active ? "var(--nav-active-fg, var(--text-strong))" : "var(--text-3)", flexShrink: 0 }}
       />
     ),
   },
@@ -69,6 +58,10 @@ const NAV_ITEMS: Array<{
 export function Sidebar() {
   const activeTab = useGuardStore((s) => s.activeTab);
   const setActiveTab = useGuardStore((s) => s.setActiveTab);
+  const settingsModalOpen = useGuardStore((s) => s.settingsModalOpen);
+  const openSettingsModal = useGuardStore((s) => s.openSettingsModal);
+  const networkRescueAlert = useGuardStore((s) => s.networkRescueAlert);
+  const setNetworkRescueAlert = useGuardStore((s) => s.setNetworkRescueAlert);
   const preflight = useGuardStore((s) => s.preflight);
   const snapshot = useGuardStore((s) => s.snapshot);
   const accountAudit = useGuardStore((s) => s.accountAudit);
@@ -89,16 +82,35 @@ export function Sidebar() {
   const mustAll = preflight.items.filter((x) => x.part === "must");
   const mustFail = mustAll.filter((x) => x.status !== "ok").length;
 
-  // 节点流量侧边栏角标双重兜底：同步关联 snapshot 唯一真源（含 nodeDown / activeFlowAnomalies / 漂移）与控制台 node_geo（硬可达性）
+  // 节点流量侧边栏角标双重兜底
   const nodeGeoItem = preflight.items.find((x) => x.id === "node_geo");
   const hasNodeFail = Boolean(snapshot.nodeDown) || nodeGeoItem?.status === "fail";
   const hasNodeIssue =
     hasNodeFail || snapshot.activeFlowAnomalies > 0 || nodeGeoItem?.status === "warn";
 
-  // Clash Verge 指示灯仅纯粹反映代理内核连接本身：在线恒定绿灯，仅离线时红灯提示
   const sideDotClass = snapshot.clashOnline ? "guard-dot" : "guard-dot danger";
 
-  // 每次拦截到 Claude 非安全启动（拦截次数递增），触发边框脉冲闪烁提醒
+  // 真实 Tauri 客户端静默探测死 DNS / 异常防火墙残留，点亮左下角「需急救」红点（仅真实变化时写 store，零多余渲染）
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    let cancelled = false;
+    void ipc
+      .inspectRollbackStatus()
+      .then((overview) => {
+        if (cancelled) return;
+        const hasLoopbackDns = (overview.loopbackDnsAdapters?.length ?? 0) > 0;
+        const hasResidualFw = Boolean(overview.activeFirewallRules) && !snapshot.killSwitchActive;
+        const nextAlert = hasLoopbackDns || hasResidualFw;
+        if (nextAlert !== useGuardStore.getState().networkRescueAlert) {
+          setNetworkRescueAlert(nextAlert);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [snapshot.killSwitchActive, setNetworkRescueAlert]);
+
   const [interceptFlash, setInterceptFlash] = useState(false);
   const prevBlockedRef = useRef(holdBlocked);
   const flashTimerRef = useRef<number | null>(null);
@@ -123,10 +135,13 @@ export function Sidebar() {
     };
   }, []);
 
+  const appVersionLabel =
+    typeof __APP_VERSION__ === "string" && __APP_VERSION__ ? `v${__APP_VERSION__}` : "v0.4.0";
+
   return (
     <aside
       style={{
-        width: 212,
+        width: "clamp(220px, 16.5vw, 248px)",
         flexShrink: 0,
         background: "var(--bg-sidebar)",
         borderRight: "1px solid var(--divider)",
@@ -229,8 +244,7 @@ export function Sidebar() {
       </nav>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {/* Claude 进程雷达 & Kill-Hold 防复活持续盯防卡
-            红线（ISS-056）：绝不可混用 border 简写与 borderColor 细分属性 */}
+        {/* Claude 进程雷达 & Kill-Hold 防复活持续盯防卡 */}
         <div
           data-testid="sidebar-proc-card"
           className={`guard-card ${interceptFlash ? "guard-intercept-flash" : ""}`.trim()}
@@ -290,10 +304,8 @@ export function Sidebar() {
           <div
             style={{
               display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 6,
-              minHeight: 22,
+              flexDirection: "column",
+              gap: 7,
             }}
           >
             <span
@@ -321,13 +333,13 @@ export function Sidebar() {
             >
               {holdActive
                 ? holdBlocked > 0
-                  ? `已拦截 ${holdBlocked} 次`
+                  ? `防复活生效中 · 已拦截 ${holdBlocked} 次`
                   : ksLinkedHold
-                  ? "熔断护航中"
-                  : "防复活中"
+                  ? "随防火墙熔断联动护航中"
+                  : "250ms 防复活盯防中"
                 : snapshot.bgClaudeProcs > 0
-                ? "运行中"
-                : "已彻底退出"}
+                ? "运行中 · 切代理前建议清退"
+                : "已彻底退出，可安全操作"}
             </span>
 
             {holdActive ? (
@@ -335,7 +347,8 @@ export function Sidebar() {
                 type="button"
                 data-testid="btn-release-kill-hold"
                 disabled={busyKill}
-                className={`sidebar-hold-pill ${ksLinkedHold ? "is-danger" : "is-active"}`}
+                className={ksLinkedHold ? "guard-btn guard-btn-danger-soft guard-btn-xs" : "guard-btn guard-btn-flat guard-btn-xs"}
+                style={{ width: "100%", height: 28, justifyContent: "center" }}
                 title={ksLinkedHold ? "解除防火墙熔断并释放防复活盯防锁" : "解除当前防复活盯防锁"}
                 onClick={async () => {
                   if (ksLinkedHold) {
@@ -403,15 +416,24 @@ export function Sidebar() {
                   }
                 }}
               >
-                {busyKill && <Loader2 size={10.5} strokeWidth={1.9} className="guard-spin" />}
-                <span>{ksLinkedHold ? "解除熔断" : "解除盯防"}</span>
+                {busyKill && <Loader2 size={11.5} strokeWidth={1.9} className="guard-spin" />}
+                <span>{ksLinkedHold ? "解除熔断与盯防锁" : "解除防复活盯防锁"}</span>
               </button>
             ) : snapshot.bgClaudeProcs > 0 ? (
               <button
                 type="button"
                 data-testid="btn-kill-and-hold"
                 disabled={busyKill}
-                className="sidebar-hold-pill is-active"
+                className="guard-btn guard-btn-xs"
+                style={{
+                  width: "100%",
+                  height: 28,
+                  justifyContent: "center",
+                  background: "var(--hold-btn-bg)",
+                  border: "1px solid var(--hold-btn-border)",
+                  color: "var(--hold-btn-fg)",
+                  boxShadow: "none",
+                }}
                 title={`强杀全部 Claude 进程并开启 ${defaultHoldSecs}s 防复活盯防`}
                 onClick={async () => {
                   setBusyKill(true);
@@ -433,18 +455,27 @@ export function Sidebar() {
                 }}
               >
                 {busyKill ? (
-                  <Loader2 size={10.5} strokeWidth={1.9} className="guard-spin" />
+                  <Loader2 size={11.5} strokeWidth={1.9} className="guard-spin" />
                 ) : (
-                  <Shield size={10.5} strokeWidth={1.55} />
+                  <Shield size={11.5} strokeWidth={1.55} />
                 )}
-                <span>{busyKill ? "强杀中..." : `清退盯防 ${defaultHoldSecs}s`}</span>
+                <span>{busyKill ? "强杀中..." : `强杀防复活盯防 (${defaultHoldSecs}s)`}</span>
               </button>
             ) : (
               <button
                 type="button"
                 data-testid="btn-start-kill-hold"
                 disabled={busyKill}
-                className="sidebar-hold-pill"
+                className="guard-btn guard-btn-xs"
+                style={{
+                  width: "100%",
+                  height: 28,
+                  justifyContent: "center",
+                  background: "var(--hold-btn-bg)",
+                  border: "1px solid var(--hold-btn-border)",
+                  color: "var(--hold-btn-fg)",
+                  boxShadow: "none",
+                }}
                 title={`开启 ${defaultHoldSecs}s 防复活盯防锁，防止切代理期间 Claude 后台自启`}
                 onClick={async () => {
                   setBusyKill(true);
@@ -472,17 +503,17 @@ export function Sidebar() {
                 }}
               >
                 {busyKill ? (
-                  <Loader2 size={10.5} strokeWidth={1.9} className="guard-spin" />
+                  <Loader2 size={11.5} strokeWidth={1.9} className="guard-spin" />
                 ) : (
-                  <Shield size={10.5} strokeWidth={1.5} />
+                  <Shield size={11.5} strokeWidth={1.55} />
                 )}
-                <span>{`盯防 ${defaultHoldSecs}s`}</span>
+                <span>{`强杀防复活盯防 (${defaultHoldSecs}s)`}</span>
               </button>
             )}
           </div>
         </div>
 
-        {/* Clash Verge 内核连接状态卡 */}
+        {/* Clash Verge 内核连接状态卡（右上显示应用在线/离线状态，右下显示端口号且不带冒号） */}
         <div
           className="guard-card"
           style={{
@@ -505,8 +536,14 @@ export function Sidebar() {
               <span className={sideDotClass} />
               <span>Clash Verge</span>
             </span>
-            <span className="tabular" style={{ fontSize: 11, color: "var(--text-3)" }}>
-              :{snapshot.clashPort}
+            <span
+              style={{
+                fontSize: 11,
+                color: snapshot.clashOnline ? "var(--ok-fg)" : "var(--bad-fg)",
+                flexShrink: 0,
+              }}
+            >
+              {snapshot.clashOnline ? "在线" : "离线"}
             </span>
           </div>
           <div style={statusRowStyle}>
@@ -523,15 +560,61 @@ export function Sidebar() {
               {snapshot.clashVersion}
             </span>
             <span
-              style={{
-                fontSize: 11,
-                color: snapshot.clashOnline ? "var(--ok-fg)" : "var(--bad-fg)",
-                flexShrink: 0,
-              }}
+              className="tabular"
+              title={`混合代理端口 ${snapshot.clashPort}`}
+              style={{ fontSize: 11, color: "var(--text-3)", flexShrink: 0 }}
             >
-              {snapshot.clashOnline ? "在线" : "离线"}
+              {snapshot.clashPort}
             </span>
           </div>
+        </div>
+
+        {/* 左下角「系统设置」触发项（marginTop 10px 与上方 Clash 卡片拉开呼吸距；分割线以下 10+38+12=61px 保持与右侧虚线框 0px 齐平） */}
+        <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--divider)" }}>
+          <button
+            type="button"
+            data-testid="sidebar-settings-trigger"
+            className={`c-nav-item ${settingsModalOpen ? "active" : ""}`}
+            title="打开系统设置（Ctrl+,）"
+            onClick={() => openSettingsModal(networkRescueAlert ? "recovery" : undefined)}
+          >
+            <span style={{ display: "flex", alignItems: "center", gap: 9 }}>
+              <Settings
+                size={15}
+                strokeWidth={settingsModalOpen ? 1.55 : 1.4}
+                style={{ color: settingsModalOpen ? "var(--text-strong)" : "var(--text-3)", flexShrink: 0 }}
+              />
+              <span>系统设置</span>
+            </span>
+            <span
+              data-testid="sidebar-settings-meta"
+              className="tabular"
+              style={{
+                fontSize: 10.5,
+                color: networkRescueAlert ? "var(--bad-fg)" : "var(--text-3)",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+              }}
+            >
+              {networkRescueAlert ? (
+                <>
+                  <span
+                    style={{
+                      width: 5.5,
+                      height: 5.5,
+                      borderRadius: "50%",
+                      background: "var(--bad-dot)",
+                      display: "inline-block",
+                    }}
+                  />
+                  <span>需急救</span>
+                </>
+              ) : (
+                appVersionLabel
+              )}
+            </span>
+          </button>
         </div>
       </div>
     </aside>

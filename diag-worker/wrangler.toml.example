@@ -1,0 +1,18 @@
+# 复制本文件为 wrangler.toml（已加入 .gitignore，不提交私有 database_id 与个人域名）
+name = "fd-claude-guard-diag"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+
+# 绑定你在 Cloudflare 托管的自定义子域名（部署时 CF 自动签发 HTTPS 与路由）
+routes = [
+  { pattern = "diag.your-domain.com", custom_domain = true }
+]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "fd_diag_db"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+[triggers]
+# 每日 UTC 03:00 自动清理超过 14 天的历史诊断记录，防止 D1 膨胀
+crons = ["0 3 * * *"]

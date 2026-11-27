@@ -118,18 +118,20 @@ export function SettingsPage() {
   const updateInstalling = useGuardStore((s) => s.updateInstalling);
   const updateProgress = useGuardStore((s) => s.updateProgress);
   const updateError = useGuardStore((s) => s.updateError);
+  const hydrateCachedUpdateInfo = useGuardStore((s) => s.hydrateCachedUpdateInfo);
   const checkForAppUpdate = useGuardStore((s) => s.checkForAppUpdate);
   const installAppUpdate = useGuardStore((s) => s.installAppUpdate);
 
-  const autoUpdateCheckedRef = useRef(false);
+  const hydratedCacheRef = useRef(false);
 
   useEffect(() => {
-    if (autoUpdateCheckedRef.current) return;
+    if (hydratedCacheRef.current) return;
     if (!updateInfo && !updateChecking && !updateError) {
-      autoUpdateCheckedRef.current = true;
-      void checkForAppUpdate(true);
+      hydratedCacheRef.current = true;
+      // 仅零网络恢复本地持久化更新状态；不再每次打开配置页重复发网络请求（用户可手动点击「检查更新」强制穿透刷新）
+      void hydrateCachedUpdateInfo();
     }
-  }, [updateInfo, updateChecking, updateError, checkForAppUpdate]);
+  }, [updateInfo, updateChecking, updateError, hydrateCachedUpdateInfo]);
 
   const handleToggle = (key: BoolConfigKey, next: boolean, label: string) => {
     void updateConfig({ [key]: next }, label);

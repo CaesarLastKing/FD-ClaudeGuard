@@ -41,25 +41,30 @@ describe("免费开源无锁门禁与核心交互回归（T-057 + 增量 17/18/1
     expect(screen.queryByTestId("nav-lock-maintain")).not.toBeInTheDocument();
     expect(screen.queryByTestId("nav-lock-config")).not.toBeInTheDocument();
 
-    // 4 个副页面全部直接可进，无付费墙门禁
+    // 其余主导航与系统设置弹窗 4 子页全部直接可进，无付费墙门禁
     fireEvent.click(screen.getByRole("button", { name: /账户审计/ }));
     expect(screen.queryByTestId("locked-gate-audit")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /节点流量/ }));
     expect(screen.queryByTestId("locked-gate-nodes")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /环境维护/ }));
-    expect(screen.queryByTestId("locked-gate-maintain")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /AI 工具箱/ }));
+    expect(screen.getByTestId("ai-tools-page")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /守卫配置/ }));
+    fireEvent.click(screen.getByTestId("sidebar-settings-trigger"));
+    expect(await screen.findByTestId("settings-modal")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("settings-tab-policy"));
     expect(screen.queryByTestId("locked-gate-config")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("settings-tab-recovery"));
+    expect(screen.queryByTestId("locked-gate-maintain")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("settings-tab-update"));
     await waitFor(() => {
       expect(useGuardStore.getState().initialized).toBe(true);
       expect(useGuardStore.getState().updateChecking).toBe(false);
     });
   });
 
-  it("主窗口顶栏耳机支持按钮弹出开源交流支持弹窗（不含商业激活跳转按钮）", async () => {
+  it("主窗口顶栏耳机图标按钮弹出全新 X（Twitter）联系作者弹窗（不含旧 QQ 与商业激活按钮）", async () => {
     render(<App />);
     await waitFor(() => {
       expect(useGuardStore.getState().initialized).toBe(true);
@@ -69,7 +74,8 @@ describe("免费开源无锁门禁与核心交互回归（T-057 + 增量 17/18/1
     fireEvent.click(supportBtn);
     const supportModal = await screen.findByTestId("support-modal");
     expect(supportModal).toBeInTheDocument();
-    expect(screen.getByTestId("support-qq-number")).toHaveTextContent("2568515327");
+    expect(screen.getByTestId("support-x-handle")).toHaveTextContent("@Caesar_LastKing");
+    expect(screen.queryByTestId("support-qq-number")).not.toBeInTheDocument();
     expect(screen.queryByTestId("btn-support-to-activate")).not.toBeInTheDocument();
   });
 

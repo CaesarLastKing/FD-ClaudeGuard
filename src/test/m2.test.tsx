@@ -114,6 +114,6 @@ describe("FD Claude Guard M2 真实探针与一键修复闭环", () => {
     fireEvent.click(screen.getByRole("button", { name: "关闭弹窗" }));
     fireEvent.click(switchBtns[1]);
     expect(await screen.findByRole("dialog", { name: "节点切换风险评估" })).toBeInTheDocument();
-    expect(screen.getByText("跨洲切换")).toBeInTheDocument();
+    expect(screen.getByText(/跨地区\/跨洲切换/)).toBeInTheDocument();
   });
 });

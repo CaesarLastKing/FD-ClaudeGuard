@@ -64,6 +64,7 @@
 | `T-057` | 需求 (P0) | 产品定位转型：免费开源（全面移除买断制与激活锁相关代码） | **改**：移除激活门禁/付费墙/锁图标/未激活脱敏，全量免费开放；**待确认**：后续轻量赞助/致谢形态 | 全仓前后端与开源发布 | `去锁已发布（赞助待定）` | 已随 `v0.2.9`（`f92e0b7`）落地 |
 | `T-058` | 需求 (P0) | 落地文档 01：账户审计双层融合体系（本地只读 + 按需 `sk` 核验 + 100 分评分 + 控制台同源联动） | **改**：落地 `account_audit/`、403 消歧、100 分评分、防封宝典、控制台与维护同源改造；**不动**：保持向多账户复用的 `ProfileContext` 底座 | 账户审计、控制台、环境维护、悬浮窗 | `已发布关闭` | 已随 `v0.3.0`（`0f68374`）发布 |
 | `T-059` | 需求 (P1) | 客户端自动检查新版本与 Ed25519 签名一键更新（`tauri-plugin-updater` + GitHub Releases） | **改**：接入 `tauri-plugin-updater`、Ed25519 公钥验签、代理优先/直连回退与 `.github/workflows/release.yml` | 守卫配置、顶栏提醒、发布流水线 | `已发布关闭` | 已随 `v0.3.0` 发布，并在 `v0.3.2` 修复下载阶段直连回退与离线重检死循环 |
+| `T-060` | 升级 (P0) | `v0.4.0` 重大升级：UI v3.0 极简雪白与清透冰蓝视觉重构、居中双栏「系统设置」弹窗、毫秒级 Win32 内核热熔断、72h 节点性质缓存、Cloudflare Worker + D1 脱敏诊断上报（`diag.rookiebird.org`）与大/小版本更新降噪 | **改**：`theme.css`/`account-audit.css`、`SettingsModal.tsx`/`SupportModal.tsx`（`@Caesar_LastKing`）/`AiToolsPage.tsx`/`WindowChrome.tsx`/`ConsolePage.tsx`/`AccountAuditPage.tsx`/`NodesTrafficPage.tsx`/`HudCard.tsx`、`src-tauri/src/{process,lib,mihomo,telemetry,account_audit}`、`diag-worker/`、`docs/` 全量隐私路径清洗 | 全站 UI、热熔断引擎、节点缓存、云端排障单号、自动更新降噪 | `打包验收中` | 前端 18/18 文件 81/81 用例 + Rust 139/139 用例 0 警 + Gate 2 真机探针全过，正在构建 `v0.4.0` NSIS 包并执行 Gate 5 安全核验 |
 
 ---
 

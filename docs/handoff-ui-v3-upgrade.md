@@ -191,7 +191,7 @@
 ---
 
 ```markdown
-你现在接手「FD Claude 安全启动器（FDTools）」的 **UI v3.0 商业级视觉升级工程落地任务**（工作区：`c:\Users\xujun\Documents\ProgramProject\FDtools`）。
+你现在接手「FD Claude 安全启动器（FDTools）」的 **UI v3.0 商业级视觉升级工程落地任务**（工作区：`<WORKSPACE>`）。
 
 ### 一、开工前必读真源（先完整阅读后再写任何代码）
 1. 全局 UI 规范 v3.0：`docs/ui-design-system.md`

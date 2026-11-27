@@ -1,5 +1,6 @@
 export type ThemeMode = "dark" | "light";
-export type NavTab = "console" | "audit" | "nodes" | "maintain" | "config" | "logs";
+export type NavTab = "console" | "audit" | "nodes" | "aitools" | "maintain" | "config" | "logs";
+export type SettingsModalTab = "general" | "policy" | "recovery" | "update";
 export type AuditSubTab = "audit" | "logs";
 export type CheckStatus = "ok" | "fail" | "warn";
 export type CheckPart = "must" | "opt";
@@ -102,6 +103,7 @@ export interface GuardSnapshot {
   clashVersion: string;
   clashPort: number;
   clashOnline: boolean;
+  clashInstalled?: boolean;
   anthropicStatusIndicator: string;
   anthropicStatusDesc: string;
   unreadLogAnomalies: number;
@@ -723,6 +725,7 @@ export interface ArchivedAccountSummary {
   orgPrefix8: string;
   emailMasked: string;
   plan: string;
+  merchantChannel?: string;
   workspaceGeo?: string | null;
   exitCountry?: string | null;
   score: number;

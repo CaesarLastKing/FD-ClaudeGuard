@@ -567,6 +567,7 @@ pub async fn run_all_preflight_checks(cfg: &AppConfig, bg_claude_procs: u32) -> 
         clash_version,
         clash_port: mixed_port,
         clash_online,
+        clash_installed: clash_online || is_clash_verge_installed(),
         anthropic_status_indicator: anthropic_status.indicator,
         anthropic_status_desc: anthropic_status.description,
         unread_log_anomalies: 0,
@@ -1112,8 +1113,8 @@ async fn probe_exit_geo(
                 status: CheckStatus::Fail,
                 summary: format!("[{FD_ERR_PROXY_OFFLINE}] 本地代理未就绪，无法经代理探测真实出口 IP 与 Anthropic 可达性"),
                 evidence: format!("Proxy: http://127.0.0.1:{mixed_port} (Offline)"),
-                guide: "请先确保 Clash Verge 在线后再重测出口可达性。".into(),
-                fix_label: None,
+                guide: "请先确保 Clash Verge 在线后再重测出口可达性，或前往节点流量查看可用节点。".into(),
+                fix_label: Some("前往「节点流量」查看与切换节点 →".into()),
                 is_kill_item: false,
                 is_failover: false,
             },
@@ -6600,6 +6601,29 @@ async fn enable_clash_tun_safely_without_kill(wait_tun: bool) -> bool {
 /// 严禁再对第三方代理客户端执行 `taskkill /F` 强制硬杀，避免跳过退出钩子残留物理网卡 127.0.0.1 DNS。
 async fn restart_clash_and_wait_online(wait_tun: bool) -> bool {
     enable_clash_tun_safely_without_kill(wait_tun).await
+}
+
+/// 检测本机是否已安装 Clash Verge Rev 客户端（供前端精准决定是否显示「下载安装」或「启动 Clash」）
+pub(crate) fn is_clash_verge_installed() -> bool {
+    #[cfg(windows)]
+    {
+        let mut candidates: Vec<PathBuf> = Vec::new();
+        if let Ok(pf) = std::env::var("ProgramFiles") {
+            candidates.push(PathBuf::from(pf).join(r"Clash Verge\clash-verge.exe"));
+        }
+        if let Ok(pf86) = std::env::var("ProgramFiles(x86)") {
+            candidates.push(PathBuf::from(pf86).join(r"Clash Verge\clash-verge.exe"));
+        }
+        if let Some(local_app) = dirs::data_local_dir() {
+            candidates.push(local_app.join(r"Programs\Clash Verge\clash-verge.exe"));
+            candidates.push(local_app.join(r"Clash Verge\clash-verge.exe"));
+        }
+        candidates.into_iter().any(|p| p.exists())
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
 }
 
 /// 真正启动或唤起已安装的 Clash Verge 主窗口到前台（绝不空弹窗欺骗用户）

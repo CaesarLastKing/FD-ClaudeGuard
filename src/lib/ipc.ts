@@ -93,6 +93,7 @@ export const FALLBACK_SNAPSHOT: GuardSnapshot = {
   clashVersion: "待探测",
   clashPort: 7890,
   clashOnline: false,
+  clashInstalled: false,
   anthropicStatusIndicator: "none",
   anthropicStatusDesc: "All Systems Operational",
   unreadLogAnomalies: 0,
@@ -127,8 +128,8 @@ export const FALLBACK_PREFLIGHT: PreflightReport = {
       status: "fail",
       summary: "等待直连 Clash Verge Mihomo 命名管道与端口冲突检测",
       evidence: "Endpoint: Named Pipe \\\\.\\pipe\\verge-mihomo-*",
-      guide: "请启动 Clash Verge Rev 并确保本地代理端口无多客户端冲突。",
-      fixLabel: null,
+      guide: "请启动 Clash Verge Rev 并确保本地代理端口无多客户端冲突；若尚未安装请先安装 Clash Verge Rev。",
+      fixLabel: "启动 / 重启 Clash Verge 并探测端口状态",
       isKillItem: false,
       isFailover: false,
     },
@@ -188,7 +189,7 @@ export const FALLBACK_PREFLIGHT: PreflightReport = {
       summary: "尚未探测出口是否避开禁区、ASN 安全底线与 Anthropic 真实可达性",
       evidence: "Proxy Exit GeoIP & Anthropic Stateless Probe: 待探测",
       guide: "强制经本地代理探测出口国家（非禁区）、非高危滥用节点与 api.anthropic.com 无状态可达性（筛除 CF 403）。",
-      fixLabel: null,
+      fixLabel: "前往「节点流量」查看与切换节点 →",
       isKillItem: false,
       isFailover: false,
     },
@@ -1437,6 +1438,11 @@ export const ipc = {
     );
   },
 
+  async listenUpdateAvailable(cb: (info: AppUpdateInfo) => void): Promise<UnlistenFn> {
+    if (!isTauriRuntime()) return () => {};
+    return listen<AppUpdateInfo>("guard://update-available", (e) => cb(e.payload));
+  },
+
   async getDeepAuditStatus(): Promise<DeepAuditProgress> {
     if (!isTauriRuntime()) {
       return {
@@ -1725,7 +1731,14 @@ export const ipc = {
     });
   },
 
-  async checkAppUpdate(): Promise<AppUpdateInfo> {
+  async getCachedAppUpdate(): Promise<AppUpdateInfo | null> {
+    if (!isTauriRuntime()) {
+      return null;
+    }
+    return invoke<AppUpdateInfo | null>("get_cached_app_update");
+  },
+
+  async checkAppUpdate(force = true): Promise<AppUpdateInfo> {
     if (!isTauriRuntime()) {
       return {
         currentVersion: __APP_VERSION__,
@@ -1737,7 +1750,7 @@ export const ipc = {
         message: `当前已是最新版本 v${__APP_VERSION__}（浏览器预览模式）。`,
       };
     }
-    return invoke<AppUpdateInfo>("check_app_update");
+    return invoke<AppUpdateInfo>("check_app_update", { force });
   },
 
   async installAppUpdate(): Promise<string> {
@@ -1768,7 +1781,8 @@ function buildMockArchivedSummaries(): ArchivedAccountSummary[] {
     {
       orgPrefix8: "a4722ea6",
       emailMasked: "jaso***11@gmail.com",
-      plan: "Free",
+      plan: "Pro",
+      merchantChannel: "Stripe 直付",
       workspaceGeo: "US",
       exitCountry: "US",
       score: 96,
@@ -1792,6 +1806,7 @@ function buildMockArchivedSummaries(): ArchivedAccountSummary[] {
       orgPrefix8: "0ffb0302",
       emailMasked: "star***at@outlook.com",
       plan: "Free",
+      merchantChannel: "Free 无订阅",
       workspaceGeo: "US",
       exitCountry: "US",
       score: 88,
@@ -1825,11 +1840,11 @@ function buildMockHistoryReportByOrg(orgKey: string): AccountAuditReport | null 
       auditedAtMs: Date.now() - 3 * 3600_000,
       emailMasked: "jaso***11@gmail.com",
       orgIdPrefix8: "a4722ea6",
-      plan: "Free",
-      merchantChannel: "Free 无订阅",
+      plan: "Pro",
+      merchantChannel: "Stripe 直付",
       accountAgeDays: 85,
-      subscriptionAgeDays: null,
-      subscriptionRenewLabel: "Free 无订阅",
+      subscriptionAgeDays: 19,
+      subscriptionRenewLabel: "到期 2026-12-08",
       workspaceGeo: "US",
       exitCountry: "US",
       exitColo: "SJC",
@@ -1843,14 +1858,14 @@ function buildMockHistoryReportByOrg(orgKey: string): AccountAuditReport | null 
         checkedAtIso: new Date(Date.now() - 3 * 3600_000).toISOString(),
         emailMasked: "jaso***11@gmail.com",
         orgIdPrefix8: "a4722ea6",
-        plan: "Free",
-        merchantChannel: "Free 无订阅",
+        plan: "Pro",
+        merchantChannel: "Stripe 直付",
         workspaceGeo: "US",
         edgeCountry: "US",
         edgeColo: "SJC",
         accountAgeDays: 85,
-        subscriptionAgeDays: null,
-        subscriptionEndsAt: null,
+        subscriptionAgeDays: 19,
+        subscriptionEndsAt: "2026-12-08",
         chatAvailable: true,
         isBanned: false,
         appealsRedirectEnabled: false,

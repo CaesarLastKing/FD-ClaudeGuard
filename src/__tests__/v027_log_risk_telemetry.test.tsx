@@ -200,7 +200,7 @@ describe("v0.2.7 日志风险/异常分开统计、OAuth v2 拆分折叠与匿�
       msixPackages: [],
       telemetryExists: false,
     });
-    vi.spyOn(ipc, "checkAppUpdate").mockResolvedValue({
+    vi.spyOn(ipc, "getCachedAppUpdate").mockResolvedValue({
       currentVersion: "0.3.3",
       available: false,
       latestVersion: "0.3.3",

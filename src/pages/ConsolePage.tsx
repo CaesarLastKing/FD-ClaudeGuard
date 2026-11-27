@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, ChevronDown, ChevronRight, Copy, ExternalLink, Loader2, Lock, Play, Power, RefreshCw } from "lucide-react";
+import { Check, ChevronRight, Copy, ExternalLink, Loader2, Lock, Play, Power, RefreshCw } from "lucide-react";
 import { CheckIcon } from "@/components/CheckIcon";
 import { ThinScrollArea } from "@/components/ThinScrollArea";
 import { ipc } from "@/lib/ipc";
@@ -13,10 +13,139 @@ interface EvidenceKvRow {
   tone?: "bad" | "warn" | "ok";
 }
 
+/** 将底层探针全部英文键名 100% 映射为自然易读的中文标签（覆盖 19 项预检与 Rust 真实探针） */
+function formatEvidenceKeyZh(rawKey: string): string {
+  const k = rawKey.trim();
+  const exactMap: Record<string, string> = {
+    Endpoint: "通信管道",
+    Kernel: "代理内核",
+    "Mihomo GET /proxies": "代理组接口",
+    "Mihomo tun.enable": "TUN 接管开关",
+    "Wintun Adapter": "虚拟网卡状态",
+    "Wintun / Mihomo Adapter": "虚拟网卡状态",
+    "Clash Verge Service": "Clash 系统服务",
+    "Real DNS Probe (claude.ai)": "Claude 真实 DNS",
+    "Proxy Exit GeoIP & Anthropic Stateless Probe": "出口属地与 API 连通",
+    "Windows ms_tcpip6 & External IPv6 Probe": "网卡 IPv6 与外网探针",
+    "Windows IPv6": "网卡 IPv6 绑定",
+    "CLI Proxy ENV & WinINET ProxyServer": "环境变量与系统代理",
+    "Windows Location ConsentStore & lfsvc Service": "定位权限与服务状态",
+    "Windows Location": "Windows 定位服务",
+    "Local Contamination Scan": "本地污染残留扫描",
+    "Bound Primary orgId & Cross-orgId Scan": "绑定主号与跨号扫描",
+    "ANTHROPIC_BASE_URL / API_URL": "官方 API 地址校验",
+    ANTHROPIC_BASE_URL: "官方 API 地址校验",
+    "CLI Env (HTTP/HTTPS/ALL_PROXY & NO_PROXY)": "CLI 代理环境变量",
+    WinINET: "系统代理 (WinINET)",
+    File: "配置文件",
+    "Claude Code CLI Installed": "Claude Code CLI",
+    "Telemetry Cache (~/.claude/telemetry)": "遥测待传缓存",
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "关闭非必要后台流量",
+    DISABLE_TELEMETRY: "关闭遥测统计",
+    DISABLE_ERROR_REPORTING: "关闭错误堆栈上报",
+    DISABLE_BUG_COMMAND: "关闭 /bug 上报",
+    "Read-only Startup Audit": "开机自启项审计",
+    "NTP Drift Probe": "NTP 时钟同步探针",
+    "NTP Server": "NTP 对时服务器",
+    "UTC Drift": "UTC 时钟偏差",
+    "SNTP Probe Error": "NTP 探测错误",
+    "Elevated Helper Task": "免 UAC 守护任务",
+    "Rule Prefix": "防火墙规则前缀",
+    "Browser WebRtcIPHandling Policy": "浏览器 WebRTC 策略",
+    "WebRTC Policy": "浏览器 WebRTC 策略",
+    "System Timezone vs Exit Region": "系统时区与出口比对",
+    "Exit Geo Compliance & 24h Drift": "出口合规与 24h 漂移",
+    "Browser Proxy Extensions Audit": "浏览器代理插件审计",
+    "Scanned Browser Profiles": "已扫描浏览器配置",
+    "Proxy / VPN Extensions Found": "检出代理插件数",
+    "Detected Proxy Extensions": "检出的代理插件",
+    "Scanned Log Files": "已扫描日志文件",
+    "Scanned Claude Log Files": "已扫描日志文件",
+    "Confirmed Ban / Region Contamination Hits": "封号/禁区污染命中",
+    "KYC / Permission-Pending (len=164) Notice": "KYC / 权限受限提示",
+    "Topology Hygiene State": "多端拓扑卫生状态",
+    "Desktop Accounts": "桌面端账号数",
+    "Bound Primary Account": "已绑定主号",
+    "Primary Candidate Label": "主号候选标识",
+    "Observed Unique orgIds": "观测到账号组织",
+    "Cross-orgId Race Hits": "跨号并发冲突数",
+    "CLI Stale / Cross-Polluted Reasons": "CLI 失效/跨号原因",
+    "Claude-Data Session Dir Orphans": "残留会话目录",
+    "Restricted / Portal-Verify Accounts": "受限/待核验账号",
+    "Latest Cross-Account Sample": "最近跨号样本",
+    "Clash Mode": "代理路由模式",
+    "Claude-Fixed": "Claude-Fixed 策略组",
+    Group: "锁定策略组",
+    "Node Safe": "节点安全基线",
+    "Claude Rules": "Claude 命中规则",
+    "Matched Claude Rules": "Claude 命中规则",
+    "Core/KYC": "核心与 KYC 分流",
+    "Exit Probe": "出口实时探针",
+    "Telemetry REJECT": "遥测拦截规则",
+    "CF Shield & Stripe": "CF 盾与 Stripe 分流",
+    "Cross-Group": "跨组冲突检查",
+    "Cross-Group CF/Stripe Advisory": "跨组冲突提示",
+    Processes: "进程兜底规则",
+    "find-process-mode": "进程识别模式",
+    ipv6: "内核 IPv6 开关",
+    "Mihomo ipv6": "内核 IPv6 开关",
+    "dns.ipv6": "DNS IPv6 开关",
+    "Reference Active Node": "当前活跃参考节点",
+    "Probe Status": "探针状态",
+    Proxy: "本地代理地址",
+    Source: "探测来源",
+    Latency: "实测延迟",
+    "Exit IP": "真实出口 IP",
+    "ASN / Org": "归属运营商 / ASN",
+    "Anthropic API (api.anthropic.com)": "Anthropic API 连通",
+    "Target Locked Node": "目标锁定节点",
+    "Deep Audit Running": "后台核验进度",
+    "Current Probing": "当前探测节点",
+    "Local Logs": "本地日志审计",
+    Timezone: "系统时区",
+    "24h Landing IP Drift": "24h 落地 IP 漂移",
+    "Bound Account Geo vs Exit": "账号属地与出口比对",
+    Error: "错误详情",
+  };
+  if (exactMap[k]) return exactMap[k];
+  if (/^Port\s+\d+/i.test(k)) return k.replace(/^Port\s+/i, "代理端口 ");
+  if (/^Conflict Ports/i.test(k)) return "冲突端口";
+  if (/^Observed(?: Unique)? orgIds/i.test(k)) return k.replace(/^Observed(?: Unique)? orgIds/i, "观测到组织数");
+  if (/^Mihomo GET /i.test(k)) return "代理组接口";
+  return k;
+}
+
+/** 将常见底层英文探针值转为温和易读中文（查看原始探针代码时仍保留 100% 原文） */
+function formatEvidenceValueZh(rawVal: string): string {
+  const v = rawVal.trim();
+  const exactValMap: Record<string, string> = {
+    "Not Installed": "未安装",
+    Inactive: "未激活",
+    "Default Official": "官方默认",
+    Yes: "已安装",
+    "No (Auto-Exempt)": "未安装（自动豁免）",
+    Missing: "未配置",
+    "Not Set": "未写入",
+    "Blocked / Unreachable (OK)": "已阻断 / 不可达（安全）",
+    "REACHABLE (LEAK!)": "可直连（存在泄漏）",
+    "All Physical Adapters Disabled (OK)": "全部物理网卡已禁用",
+    true: "已开启",
+    false: "已关闭",
+    None: "无",
+  };
+  if (exactValMap[v]) return exactValMap[v];
+  if (/^Named Pipe\s+/i.test(v)) return v.replace(/^Named Pipe\s+/i, "命名管道 ");
+  if (/^Online\s*\((.+)\)$/i.test(v)) return v.replace(/^Online\s*\((.+)\)$/i, "在线 ($1)");
+  if (/^Offline\b/i.test(v)) return v.replace(/^Offline\b/i, "离线");
+  if (/^Exempt\s*\((.+)\)$/i.test(v)) return v.replace(/^Exempt\s*\((.+)\)$/i, "已豁免 ($1)");
+  if (/^Enabled on:\s*/i.test(v)) return v.replace(/^Enabled on:\s*/i, "仍启用：");
+  return v;
+}
+
 /**
  * 安全可降级的实测证据键值解析器：
- * 仅当证据串拆出至少 2 条结构清晰的 Key: Value / Key=Value 时返回键值列表，
- * 避免对纯句段、长 URL 或报错堆栈误拆导致可读性下降。
+ * 支持单行及多行 Key: Value / Key=Value 解析，直接以中文结构化指标行清晰展示；
+ * 仅对无法解析的纯堆栈/长代码串降级由折叠代码框承载。
  */
 function parseEvidenceKv(evidence: string): EvidenceKvRow[] | null {
   if (!evidence) return null;
@@ -24,28 +153,38 @@ function parseEvidenceKv(evidence: string): EvidenceKvRow[] | null {
     .split(/\r?\n|\s+\|\s+/)
     .map((s) => s.trim())
     .filter(Boolean);
-  if (rawParts.length < 2) return null;
+  if (rawParts.length < 1) return null;
 
   const rows: EvidenceKvRow[] = [];
   for (const part of rawParts) {
-    const match = part.match(/^([^:=：]{1,28}?)\s*[:=：]\s*(.+)$/);
+    // 跳过纯中文提示说明行
+    if (/^说明[:：]/.test(part)) continue;
+    const match = part.match(/^([^:=：]{1,64}?)\s*[:=：]\s*(.+)$/);
     if (!match) return null;
-    const k = match[1].trim();
-    const v = match[2].trim();
-    if (!k || !v || /^https?$/i.test(k) || k.includes("\\") || k.includes("/")) {
+    const rawK = match[1].trim();
+    const rawV = match[2].trim();
+    if (
+      !rawK ||
+      !rawV ||
+      /^https?$/i.test(rawK) ||
+      rawK.includes("\\") ||
+      /^[A-Za-z]$/.test(rawK)
+    ) {
       return null;
     }
+    const k = formatEvidenceKeyZh(rawK);
+    const v = formatEvidenceValueZh(rawV);
     let tone: EvidenceKvRow["tone"];
-    if (/fail|error|blocked|leak|deny|offline|异常|失败|阻断|未通过|离线|冲突/i.test(v)) {
+    if (/fail|error|blocked|leak|deny|offline|not installed|inactive|missing|异常|失败|阻断|未通过|离线|冲突|未安装|未激活|未配置|泄漏/i.test(rawV)) {
       tone = "bad";
-    } else if (/warn|drift|待实测|待探测|待审计|待实查|警告/i.test(v)) {
+    } else if (/warn|drift|待实测|待探测|待审计|待实查|待检测|待核对|待扫描|警告/i.test(rawV)) {
       tone = "warn";
-    } else if (/^(ok|pass|true|enabled|online|clean|0|已通过|正常|在线|无泄漏)$/i.test(v)) {
+    } else if (/^(ok|pass|true|enabled|online|clean|0|已通过|正常|在线|无泄漏|官方默认)/i.test(rawV) || /\(OK\)|已阻断|安全|已开启降噪|已豁免/i.test(rawV)) {
       tone = "ok";
     }
     rows.push({ k, v, tone });
   }
-  return rows.length >= 2 ? rows : null;
+  return rows.length >= 1 ? rows : null;
 }
 
 const MUST_CATEGORIES = [
@@ -126,8 +265,8 @@ export function ConsolePage() {
         label: "已自动熔断",
         color: "var(--bad-fg)",
         cursor: "pointer" as const,
-        title: "防火墙已锁死 Claude 全部出站流量，点击前往环境维护页处理",
-        onClick: () => setActiveTab("maintain"),
+        title: "防火墙已锁死 Claude 全部出站流量，点击前往「安全策略」解除或处理",
+        onClick: () => useGuardStore.getState().openSettingsModal("policy"),
       }
     : snapshot.nodeDown
     ? {
@@ -464,8 +603,8 @@ export function ConsolePage() {
               type="button"
               className="guard-chip guard-chip-mode"
               style={{ cursor: "pointer", height: 20 }}
-              onClick={() => setActiveTab("config")}
-              title="已开启 24h 冷静保护期，点击前往守卫配置调整"
+              onClick={() => useGuardStore.getState().openSettingsModal("policy")}
+              title="已开启 24h 冷静保护期，点击前往「安全策略」调整"
             >
               24h 冷静期
             </button>
@@ -620,19 +759,19 @@ export function ConsolePage() {
         </div>
       </div>
 
-      {/* 黄金双栏 + 各自独立 3×46px ThinScrollArea */}
+      {/* 黄金双栏 + 各自独立 3×46px ThinScrollArea（收窄右栏让主列表更舒展） */}
       <div
         style={{
           flex: 1,
           minHeight: 0,
           display: "grid",
-          gridTemplateColumns: "minmax(0, 1fr) clamp(310px, 31.5%, 368px)",
+          gridTemplateColumns: "minmax(0, 1fr) clamp(292px, 27%, 340px)",
         }}
       >
         <ThinScrollArea style={{ borderRight: "1px solid var(--divider)" }}>
           <div
             style={{
-              padding: "16px 24px 22px",
+              padding: "14px 12px 20px",
               display: "flex",
               flexDirection: "column",
               gap: 20,
@@ -746,83 +885,96 @@ export function ConsolePage() {
         <ThinScrollArea>
           <aside
             style={{
-              padding: "16px 16px 22px",
+              padding: "14px 12px 20px",
               display: "flex",
               flexDirection: "column",
               gap: 10,
             }}
           >
             {selectedItem && (
-              <div
-                key={selectedItem.id}
-                className="insp-enter"
-                style={{ display: "flex", flexDirection: "column", gap: 10 }}
-              >
-                {/* 详情卡 1：干净图标 + 标题 + 精简副标题（已移除右上角重复状态胶囊） */}
-                <div className="guard-card" style={{ padding: "14px" }}>
-                  <div style={{ display: "flex", alignItems: "flex-start", gap: 11 }}>
-                    <div
-                      className={
-                        selectedItem.status === "fail"
-                          ? "guard-icon-box is-fail"
-                          : selectedItem.status === "warn"
-                          ? "guard-icon-box is-warn"
-                          : "guard-icon-box"
-                      }
-                      style={{ width: 32, height: 32, borderRadius: 8 }}
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {/* 右侧顶部无外框标题头：与左侧「一、必须通过 + 分类标题」水平齐平，使下方内容卡片与左侧列表卡片顶齐 */}
+                <div
+                  style={{
+                    minHeight: 42,
+                    padding: "2px 2px 4px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                  }}
+                >
+                  <div
+                    className={
+                      selectedItem.status === "fail"
+                        ? "guard-icon-box is-fail"
+                        : selectedItem.status === "warn"
+                        ? "guard-icon-box is-warn"
+                        : "guard-icon-box"
+                    }
+                    style={{ width: 32, height: 32, borderRadius: 8 }}
+                  >
+                    <CheckIcon name={selectedItem.icon} size={15} />
+                  </div>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <h2
+                      data-testid="detail-item-title"
+                      title={selectedItem.title}
+                      style={{
+                        fontSize: 13.5,
+                        fontWeight: 500,
+                        lineHeight: 1.3,
+                        color: "var(--text-strong)",
+                        margin: 0,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
                     >
-                      <CheckIcon name={selectedItem.icon} size={15} />
-                    </div>
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <h2
-                        data-testid="detail-item-title"
-                        style={{
-                          fontSize: 14,
-                          fontWeight: 500,
-                          lineHeight: 1.35,
-                          color: "var(--text-strong)",
-                          margin: 0,
-                        }}
-                      >
-                        {selectedItem.title}
-                      </h2>
-                      <div
-                        className="tabular"
-                        style={{
-                          marginTop: 4,
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 6,
-                          fontSize: 11,
-                          color: "var(--text-3)",
-                          flexWrap: "wrap",
-                        }}
-                      >
-                        <span>{selectedItem.part === "must" ? "启动必须项" : "建议优化"}</span>
-                        <span style={{ color: "var(--text-4)" }}>·</span>
-                        <span>{selectedItem.mode}</span>
-                        {preflight.checkedAt && (
-                          <>
-                            <span style={{ color: "var(--text-4)" }}>·</span>
-                            <span>{preflight.checkedAt}</span>
-                          </>
-                        )}
-                      </div>
+                      {selectedItem.title}
+                    </h2>
+                    <div
+                      className="tabular"
+                      style={{
+                        marginTop: 3,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                        fontSize: 11,
+                        color: "var(--text-3)",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      <span>{selectedItem.part === "must" ? "启动必须项" : "建议优化"}</span>
+                      <span style={{ color: "var(--text-4)" }}>·</span>
+                      <span>{selectedItem.mode}</span>
+                      {preflight.checkedAt && (
+                        <>
+                          <span style={{ color: "var(--text-4)" }}>·</span>
+                          <span>{preflight.checkedAt}</span>
+                        </>
+                      )}
                     </div>
                   </div>
+                </div>
+
+                {/* 详情卡 1：当前状态摘要（与左侧第一张卡片顶边齐平） */}
+                <div className="guard-card" style={{ padding: "12px 14px" }}>
                   <p
                     style={{
-                      fontSize: 11.5,
-                      color: "var(--text-2)",
-                      margin: "10px 0 0",
-                      lineHeight: 1.55,
+                      fontSize: 12,
+                      color: "var(--text-1)",
+                      margin: 0,
+                      lineHeight: 1.58,
+                      minHeight: 38,
                     }}
                   >
                     {selectedItem.summary}
                   </p>
                 </div>
 
-                {/* 详情卡 2：实测数据（优先展示结构化键值行 + 折叠原始日志；复杂文本平滑降级原样代码块） */}
+                {/* 详情卡 2：实测探针数据直接展示；原始代码探针日志点击折叠查看 */}
                 {(() => {
                   const kvRows = parseEvidenceKv(selectedItem.evidence);
                   const copyEvidenceText = async () => {
@@ -838,31 +990,12 @@ export function ConsolePage() {
                   };
                   return (
                     <div className="guard-card" style={{ padding: "12px 14px" }}>
-                      <div
-                        style={{
-                          ...detLblStyle,
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          gap: 8,
-                        }}
-                      >
-                        <span>真实探针实测数据</span>
+                      <div className="c-det-hd">
+                        <span className="c-det-title">真实探针实测数据</span>
                         <button
                           type="button"
+                          className={`c-copy-btn ${copiedEvidence ? "is-copied" : ""}`}
                           onClick={() => void copyEvidenceText()}
-                          style={{
-                            border: "none",
-                            background: "transparent",
-                            color: copiedEvidence ? "var(--ok-fg)" : "var(--text-3)",
-                            fontSize: 11,
-                            fontFamily: "var(--font-sans)",
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: 4,
-                            cursor: "pointer",
-                            padding: 0,
-                          }}
                         >
                           {copiedEvidence ? (
                             <Check size={11.5} strokeWidth={1.9} />
@@ -873,118 +1006,96 @@ export function ConsolePage() {
                         </button>
                       </div>
 
-                      {kvRows ? (
-                        <>
-                          <div className="c-kv-list tabular">
-                            {kvRows.map((row) => (
-                              <div key={`${row.k}-${row.v}`} className="c-kv-row">
-                                <span className="c-kv-k">{row.k}</span>
-                                <span
-                                  className={`c-kv-v ${
-                                    row.tone === "bad"
-                                      ? "is-bad"
-                                      : row.tone === "warn"
-                                      ? "is-warn"
-                                      : row.tone === "ok"
-                                      ? "is-ok"
-                                      : ""
-                                  }`}
-                                >
-                                  {row.v}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                          <div
-                            style={{
-                              marginTop: 8,
-                              paddingTop: 7,
-                              borderTop: "1px solid var(--divider)",
-                            }}
-                          >
-                            <button
-                              type="button"
-                              onClick={() => setShowRawEvidence((v) => !v)}
-                              style={{
-                                border: "none",
-                                background: "transparent",
-                                padding: 0,
-                                color: "var(--text-3)",
-                                fontSize: 11,
-                                fontFamily: "var(--font-sans)",
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: 4,
-                                cursor: "pointer",
-                              }}
-                            >
-                              <ChevronDown
-                                size={12}
-                                strokeWidth={1.6}
-                                style={{
-                                  transform: showRawEvidence ? "rotate(180deg)" : "none",
-                                  transition: "transform 140ms var(--ease)",
-                                }}
-                              />
-                              <span>{showRawEvidence ? "收起原始探针日志" : "查看原始探针日志"}</span>
-                            </button>
-                            {showRawEvidence && (
-                              <div
-                                className="font-mono-code tabular"
-                                style={{
-                                  marginTop: 7,
-                                  background: "var(--code-bg)",
-                                  border: "1px solid var(--divider)",
-                                  borderRadius: 6,
-                                  padding: "8px 10px",
-                                  fontSize: 10.5,
-                                  lineHeight: 1.58,
-                                  color: "var(--code-fg)",
-                                  whiteSpace: "pre-wrap",
-                                  wordBreak: "break-all",
-                                  userSelect: "text",
-                                }}
-                              >
-                                {selectedItem.evidence}
-                              </div>
-                            )}
-                          </div>
-                        </>
-                      ) : (
+                      {kvRows && (
                         <div
-                          className="font-mono-code tabular"
-                          style={{
-                            background: "var(--code-bg)",
-                            border: "1px solid var(--divider)",
-                            borderRadius: 6,
-                            padding: "9px 11px",
-                            fontSize: 11,
-                            lineHeight: 1.6,
-                            color: "var(--code-fg)",
-                            whiteSpace: "pre-wrap",
-                            wordBreak: "break-all",
-                            userSelect: "text",
-                          }}
+                          className="c-kv-list tabular"
+                          style={{ maxHeight: 196, overflowY: "auto" }}
                         >
-                          {selectedItem.evidence}
+                          {kvRows.map((row) => (
+                            <div key={`${row.k}-${row.v}`} className="c-kv-row">
+                              <span className="c-kv-k">{row.k}</span>
+                              <span
+                                className={`c-kv-v ${
+                                  row.tone === "bad"
+                                    ? "is-bad"
+                                    : row.tone === "warn"
+                                    ? "is-warn"
+                                    : row.tone === "ok"
+                                    ? "is-ok"
+                                    : ""
+                                }`}
+                              >
+                                {row.v}
+                              </span>
+                            </div>
+                          ))}
                         </div>
                       )}
+
+                      <div style={{ marginTop: kvRows ? 9 : 2 }}>
+                        <button
+                          type="button"
+                          data-testid="btn-toggle-probe-evidence"
+                          aria-expanded={showRawEvidence}
+                          onClick={() => setShowRawEvidence((v) => !v)}
+                          style={{
+                            border: "none",
+                            background: "transparent",
+                            padding: 0,
+                            color: "var(--text-3)",
+                            fontSize: 11,
+                            fontFamily: "var(--font-sans)",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 4,
+                            cursor: "pointer",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          <ChevronRight
+                            size={12}
+                            strokeWidth={1.65}
+                            style={{
+                              transform: showRawEvidence ? "rotate(90deg)" : "none",
+                              transition: "transform 140ms var(--ease)",
+                              flexShrink: 0,
+                            }}
+                          />
+                          <span>{showRawEvidence ? "收起原始探针代码" : "查看原始探针代码"}</span>
+                        </button>
+
+                        {showRawEvidence && (
+                          <div
+                            className="font-mono-code tabular"
+                            style={{
+                              marginTop: 7,
+                              maxHeight: 180,
+                              overflowY: "auto",
+                              background: "var(--code-bg)",
+                              border: "1px solid var(--divider)",
+                              borderRadius: 6,
+                              padding: "8px 10px",
+                              fontSize: 10.5,
+                              lineHeight: 1.58,
+                              color: "var(--code-fg)",
+                              whiteSpace: "pre-wrap",
+                              wordBreak: "break-all",
+                              userSelect: "text",
+                            }}
+                          >
+                            {selectedItem.evidence}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   );
                 })()}
 
-                {/* 详情卡 3：处理方式与验证说明（去除二次嵌套 .guide-box，直接清爽排版） */}
+                {/* 详情卡 3：处理方式与验证说明 */}
                 <div className="guard-card" style={{ padding: "12px 14px" }}>
-                  <div
-                    style={{
-                      ...detLblStyle,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                    }}
-                  >
-                    <span>处理方式与验证说明</span>
-                    <span>{selectedItem.mode}</span>
+                  <div className="c-det-hd">
+                    <span className="c-det-title">处理方式与验证说明</span>
+                    <span className="c-det-meta">{selectedItem.mode}</span>
                   </div>
                   <div
                     data-testid="guide-plaintext"
@@ -1166,11 +1277,4 @@ const partTitleStyle: React.CSSProperties = {
   color: "var(--text-strong)",
   whiteSpace: "nowrap",
   flexShrink: 0,
-};
-
-const detLblStyle: React.CSSProperties = {
-  fontSize: 11,
-  fontWeight: 400,
-  color: "var(--text-3)",
-  marginBottom: 7,
 };

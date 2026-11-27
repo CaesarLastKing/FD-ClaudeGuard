@@ -26,7 +26,7 @@ export function CleanConfirmModal() {
   const close = useGuardStore((s) => s.closeCleanModal);
   const pushToast = useGuardStore((s) => s.pushToast);
   const refreshPreflight = useGuardStore((s) => s.refreshPreflight);
-  const setActiveTab = useGuardStore((s) => s.setActiveTab);
+  const openSettingsModal = useGuardStore((s) => s.openSettingsModal);
 
   const [loading, setLoading] = useState(false);
   const [executing, setExecuting] = useState(false);
@@ -135,8 +135,8 @@ export function CleanConfirmModal() {
                 onClick: () => void ipc.openFileFolder(info.fullPath),
               }
             : {
-                label: "前往环境维护查看快照",
-                onClick: () => setActiveTab("maintain"),
+                label: "前往清理恢复查看快照",
+                onClick: () => openSettingsModal("recovery"),
               },
         }
       );

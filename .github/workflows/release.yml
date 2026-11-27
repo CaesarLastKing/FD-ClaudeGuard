@@ -57,7 +57,7 @@ jobs:
             ## FD Claude Guard v__VERSION__
 
             - 详见仓库 [CHANGELOG.md](https://github.com/CaesarLastKing/FD-ClaudeGuard/blob/main/CHANGELOG.md)
-            - 本发布包含 `latest.json` 与 Ed25519 签名文件（`.sig`），客户端可在「守卫配置 → 检查更新」一键验证升级。
+            - 本发布包含 `latest.json` 与 Ed25519 签名文件（`.sig`），客户端可在「系统设置 → 版本更新」一键验证升级。
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}

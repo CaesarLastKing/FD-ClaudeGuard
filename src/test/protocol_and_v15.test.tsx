@@ -114,7 +114,7 @@ describe("docs/protocol-constants.md 100% 协议常量与 v1.5 增量回归断�
       expect(notifyBtn).toHaveAttribute("aria-pressed", "false");
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /守卫配置/ }));
+    fireEvent.click(screen.getByTestId("sidebar-settings-trigger"));
     expect(await screen.findByRole("switch", { name: /显示桌面悬浮状态窗/ })).toHaveAttribute(
       "aria-checked",
       "false"

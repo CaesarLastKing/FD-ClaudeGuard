@@ -103,6 +103,8 @@ pub struct GuardSnapshot {
     pub clash_version: String,
     pub clash_port: u16,
     pub clash_online: bool,
+    #[serde(default)]
+    pub clash_installed: bool,
     pub anthropic_status_indicator: String, // "none" | "minor" | "major" | "critical" | "unknown"
     pub anthropic_status_desc: String,
     pub unread_log_anomalies: usize,
@@ -210,6 +212,7 @@ pub fn build_initial_snapshot(cfg: &AppConfig) -> GuardSnapshot {
         clash_version: "正在探测".to_string(),
         clash_port: 7890,
         clash_online: false,
+        clash_installed: false,
         anthropic_status_indicator: "unknown".to_string(),
         anthropic_status_desc: "检测官方状态中".to_string(),
         unread_log_anomalies: 0,

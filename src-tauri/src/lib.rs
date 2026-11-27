@@ -557,6 +557,36 @@ fn get_config(state: State<'_, AppState>) -> Result<AppConfig, String> {
     Ok(guard.clone())
 }
 
+/// 精简格式化配置变更摘要：仅输出真实发生变更的字段，避免 19 个 None 刷屏运行日志
+fn format_config_patch_compact(patch: &AppConfigPatch) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(ref v) = patch.theme { parts.push(format!("theme={v}")); }
+    if let Some(v) = patch.show_hud { parts.push(format!("show_hud={v}")); }
+    if let Some(v) = patch.notify_enabled { parts.push(format!("notify_enabled={v}")); }
+    if let Some(v) = patch.boot_start { parts.push(format!("boot_start={v}")); }
+    if let Some(v) = patch.boot_hud_only { parts.push(format!("boot_hud_only={v}")); }
+    if let Some(v) = patch.wake_preblock_guard { parts.push(format!("wake_preblock_guard={v}")); }
+    if let Some(v) = patch.anti_naked_guard { parts.push(format!("anti_naked_guard={v}")); }
+    if let Some(v) = patch.auto_kill_switch { parts.push(format!("auto_kill_switch={v}")); }
+    if let Some(v) = patch.anti_upload_flush { parts.push(format!("anti_upload_flush={v}")); }
+    if let Some(v) = patch.safe_exit_prompt { parts.push(format!("safe_exit_prompt={v}")); }
+    if let Some(v) = patch.calm_24h { parts.push(format!("calm_24h={v}")); }
+    if let Some(v) = patch.hud_pinned { parts.push(format!("hud_pinned={v}")); }
+    if let Some(v) = patch.hud_folded { parts.push(format!("hud_folded={v}")); }
+    if let Some(v) = patch.hud_edge_docked { parts.push(format!("hud_edge_docked={v}")); }
+    if let Some(ref v) = patch.hud_position { parts.push(format!("hud_position=({},{})", v.x, v.y)); }
+    if let Some(ref v) = patch.bound_primary_org_id { parts.push(format!("bound_primary_org_id={v:?}")); }
+    if let Some(v) = patch.kill_hold_seconds { parts.push(format!("kill_hold_seconds={v}")); }
+    if let Some(v) = patch.telemetry_tool_diag_enabled { parts.push(format!("telemetry_tool_diag={v}")); }
+    if let Some(v) = patch.telemetry_claude_summary_enabled { parts.push(format!("telemetry_claude_summary={v}")); }
+    if let Some(v) = patch.lock_cf_and_stripe_to_claude { parts.push(format!("lock_cf_and_stripe_to_claude={v}")); }
+    if parts.is_empty() {
+        "(无字段变更)".into()
+    } else {
+        parts.join(", ")
+    }
+}
+
 #[tauri::command]
 fn update_config(
     app: AppHandle,
@@ -568,7 +598,7 @@ fn update_config(
     let hud_pinned_changed = patch.hud_pinned;
     let hud_folded_changed = patch.hud_folded;
     let hud_docked_changed = patch.hud_edge_docked;
-    let patch_summary = format!("{patch:?}");
+    let patch_summary = format_config_patch_compact(&patch);
 
     // 若涉及开机自启变更，先通过 Windows 高权限计划任务真实注册/卸载，失败立即报错绝不静默假成功
     if let Some(enable) = boot_changed {
@@ -1644,7 +1674,7 @@ fn spawn_deep_node_audit_task(
                 current_node: String::new(),
                 original_node: original_node.clone(),
                 current_node_verified: get_fresh_verified_record(&original_node).is_some(),
-                message: "全部合规节点均在 24h 实测有效期内，无需重复核验".into(),
+                message: "全部合规节点均在 72h 实测有效期内，无需重复核验".into(),
             };
             set_deep_audit_progress(done.clone());
             let _ = app_bg.emit("guard://node-audit-progress", done);
@@ -2757,10 +2787,14 @@ fn open_file_folder(path: String) -> Result<(), String> {
     open_folder_and_select(&path)
 }
 
-/// 严格校验允许经系统浏览器打开的官方项目地址（防前缀拼接/userinfo 绕过与参数注入）
+/// 严格校验允许经系统浏览器打开的官方项目、作者 X 与 Clash Verge Rev 官方地址（防前缀拼接/userinfo 绕过与参数注入）
 pub(crate) fn is_allowed_official_github_url(url: &str) -> bool {
     let trimmed = url.trim();
-    const BASE: &str = "https://github.com/CaesarLastKing/FD-ClaudeGuard";
+    const ALLOWED_BASES: &[&str] = &[
+        "https://github.com/CaesarLastKing/FD-ClaudeGuard",
+        "https://github.com/clash-verge-rev/clash-verge-rev",
+        "https://x.com/Caesar_LastKing",
+    ];
     if trimmed.is_empty()
         || trimmed.chars().any(|c| c.is_whitespace() || c.is_control())
         || trimmed.contains('@')
@@ -2770,20 +2804,20 @@ pub(crate) fn is_allowed_official_github_url(url: &str) -> bool {
     {
         return false;
     }
-    if trimmed == BASE {
-        return true;
-    }
-    trimmed
-        .strip_prefix(BASE)
-        .is_some_and(|rest| rest.starts_with('/') || rest.starts_with('?') || rest.starts_with('#'))
+    ALLOWED_BASES.iter().any(|base| {
+        trimmed == *base
+            || trimmed
+                .strip_prefix(base)
+                .is_some_and(|rest| rest.starts_with('/') || rest.starts_with('?') || rest.starts_with('#'))
+    })
 }
 
-/// 白名单打开官方外部链接（仅允许项目 GitHub 官方仓库 URL，异步调度避免阻塞 UI 线程）
+/// 白名单打开官方外部链接（仅允许官方白名单地址，异步调度避免阻塞 UI 线程）
 #[tauri::command]
 async fn open_external_url(url: String) -> Result<(), String> {
     let trimmed = url.trim().to_string();
     if !is_allowed_official_github_url(&trimmed) {
-        return Err("仅允许打开项目官方 GitHub 仓库地址".into());
+        return Err("仅允许打开项目白名单内的官方地址".into());
     }
     tokio::task::spawn_blocking(move || {
         #[cfg(windows)]
@@ -3440,8 +3474,46 @@ fn spawn_background_engines(app: AppHandle) {
         }
     });
 
-    // 1. 休眠唤醒预阻断窗 + 实时日志变更 + 2 秒 Mihomo 状态哨兵（全路径非阻塞 + 轻量单组查询）
+    // 1. 毫秒级内核事件（Clash 进程退出句柄 + Windows 网卡变动）+ 1 秒高频策略雷达（全路径非阻塞）
+    let instant_radar_wake = std::sync::Arc::new(tokio::sync::Notify::new());
+
+    // 1.0A 零轮询内核句柄守望者：OpenProcess + WaitForSingleObject 监听 Clash / Mihomo 退出，<10ms 唤醒熔断检查
+    {
+        let wake_proc = instant_radar_wake.clone();
+        std::thread::spawn(move || loop {
+            let pids = crate::process::find_clash_kernel_pids();
+            if let Some((pid, name)) = pids.first() {
+                logger::log_info(
+                    "radar",
+                    format!("内核退出守望者已挂载至代理进程 {name} (PID={pid})，0 轮询等待退出事件"),
+                );
+                let exited = crate::process::wait_for_process_exit_blocking(*pid);
+                if exited {
+                    logger::log_warn(
+                        "radar",
+                        format!("内核守望者 <10ms 捕获代理进程 {name} (PID={pid}) 退出，立即唤醒热熔断检查！"),
+                    );
+                    wake_proc.notify_one();
+                    // 短暂避让 250ms 等待新内核或防止退出瞬间重复挂载
+                    std::thread::sleep(Duration::from_millis(250));
+                    continue;
+                }
+            }
+            // 未发现运行中的 Clash 进程时每 2 秒低频探测上线后再挂载零轮询句柄
+            std::thread::sleep(Duration::from_secs(2));
+        });
+    }
+
+    // 1.0B 零轮询网卡变更守望者：NotifyIpInterfaceChange 监听 Wintun 虚拟网卡掉线/切网，<10ms 唤醒热熔断检查
+    {
+        let wake_net = instant_radar_wake.clone();
+        crate::process::start_ip_interface_change_watcher(std::sync::Arc::new(move || {
+            wake_net.notify_one();
+        }));
+    }
+
     let app_radar = app.clone();
+    let wake_radar = instant_radar_wake.clone();
     tauri::async_runtime::spawn(async move {
         let (mut last_log_fp, mut seen_anomaly_ids): ((u64, u64), std::collections::HashSet<String>) =
             tokio::task::spawn_blocking(|| {
@@ -3457,10 +3529,13 @@ fn spawn_background_engines(app: AppHandle) {
             .await
             .unwrap_or(((0, 0), std::collections::HashSet::new()));
         let mut last_mihomo_sig: Option<(bool, bool, String, String, String)> = None;
-        let mut ticker = tokio::time::interval(Duration::from_secs(2));
+        let mut ticker = tokio::time::interval(Duration::from_secs(1));
         loop {
             let before_tick_wall = SystemTime::now();
-            ticker.tick().await;
+            tokio::select! {
+                _ = ticker.tick() => {}
+                _ = wake_radar.notified() => {}
+            }
 
             let Some(state) = app_radar.try_state::<AppState>() else {
                 continue;
@@ -3490,6 +3565,11 @@ fn spawn_background_engines(app: AppHandle) {
                                 delta.as_secs()
                             ),
                             Some(serde_json::json!({ "wallJumpSecs": delta.as_secs(), "firewallApplied": applied })),
+                        );
+                        // 休眠唤醒后延迟 60s 触发一次补偿更新自检（严格受 4h 持久化节流约束，未满 4h 零网络请求）
+                        spawn_delayed_silent_update_check(
+                            app_radar.clone(),
+                            crate::updater::UPDATE_WAKE_RECOVERY_DELAY_SECS,
                         );
                         // 等待 Clash 管道在线 + TUN 开启 + 非 Direct 模式就绪，最长保护 15 秒（防止超时裸放行）
                         let mut recovered = false;
@@ -4626,18 +4706,92 @@ async fn run_network_emergency_rescue_cmd(
     Ok(report)
 }
 
-/// 检查 GitHub Releases 自动更新（优先复用本机 Clash 动态代理，失败回退直连）
+/// 零网络秒读本地持久化更新状态（启动 0s 恢复顶栏微标，不发任何网络请求；走 spawn_blocking 杜绝阻塞 WebView2 主线程）
+#[tauri::command]
+async fn get_cached_app_update() -> Option<crate::updater::AppUpdateInfo> {
+    tokio::task::spawn_blocking(crate::updater::get_cached_update_info_for_current)
+        .await
+        .ok()
+        .flatten()
+}
+
+/// 检查 GitHub Releases 自动更新（优先复用本机 Clash 动态代理，失败回退直连；force=false 时严格遵守 4h 持久化节流）
 #[tauri::command]
 async fn check_app_update(
     app: AppHandle,
     state: State<'_, AppState>,
+    force: Option<bool>,
 ) -> Result<crate::updater::AppUpdateInfo, String> {
     let clash_port = state
         .snapshot
         .read()
         .ok()
         .and_then(|s| if s.clash_online { Some(s.clash_port) } else { None });
-    crate::updater::check_for_app_update(&app, clash_port).await
+    crate::updater::check_for_app_update(&app, clash_port, force.unwrap_or(true)).await
+}
+
+/// 后台延迟执行一次静默更新检查（受 4h 持久化节流控制，绝不阻塞启动或重复刷接口）
+fn spawn_delayed_silent_update_check(app: AppHandle, delay_secs: u64) {
+    tauri::async_runtime::spawn(async move {
+        if delay_secs > 0 {
+            tokio::time::sleep(Duration::from_secs(delay_secs)).await;
+        }
+        let clash_port = app.try_state::<AppState>().and_then(|st| {
+            st.snapshot
+                .read()
+                .ok()
+                .and_then(|s| if s.clash_online { Some(s.clash_port) } else { None })
+        });
+        let _ = crate::updater::check_for_app_update(&app, clash_port, false).await;
+    });
+}
+
+/// 智能更新后台守护调度器：
+/// 1. 启动后延迟 3 分钟首次静默自检（此时 Clash 代理已探测就绪，且受 4h 持久化节流约束）；
+/// 2. 常驻期间每 4 小时周期静默自检；
+/// 3. 监测代理从离线恢复在线后延迟 60 秒补偿自检（仍受 4h 持久化节流约束）。
+fn spawn_smart_update_scheduler(app: AppHandle) {
+    let startup_app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(
+            crate::updater::UPDATE_STARTUP_DELAY_SECS,
+        ))
+        .await;
+        loop {
+            let clash_port = startup_app.try_state::<AppState>().and_then(|st| {
+                st.snapshot
+                    .read()
+                    .ok()
+                    .and_then(|s| if s.clash_online { Some(s.clash_port) } else { None })
+            });
+            let _ = crate::updater::check_for_app_update(&startup_app, clash_port, false).await;
+            tokio::time::sleep(Duration::from_millis(
+                crate::updater::UPDATE_CHECK_INTERVAL_MS as u64,
+            ))
+            .await;
+        }
+    });
+
+    // 监测代理从离线恢复在线后的补偿检查（例如断网开机错过首检，连上网 60s 后补检，受 4h 节流约束）
+    let net_app = app;
+    tauri::async_runtime::spawn(async move {
+        let mut prev_online: Option<bool> = None;
+        loop {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            let cur_online = net_app.try_state::<AppState>().and_then(|st| {
+                st.snapshot.read().ok().map(|s| s.clash_online)
+            });
+            if let Some(online) = cur_online {
+                if prev_online == Some(false) && online {
+                    spawn_delayed_silent_update_check(
+                        net_app.clone(),
+                        crate::updater::UPDATE_WAKE_RECOVERY_DELAY_SECS,
+                    );
+                }
+                prev_online = Some(online);
+            }
+        }
+    });
 }
 
 /// 下载并校验 Ed25519 签名后安装最新版本
@@ -4741,6 +4895,7 @@ pub fn run() {
             });
 
             spawn_background_engines(handle.clone());
+            spawn_smart_update_scheduler(handle.clone());
 
             if let Some(hud_win) = handle.get_webview_window("hud") {
                 let w = hud_win.clone();
@@ -4907,6 +5062,7 @@ pub fn run() {
             clean_claude_telemetry_dir,
             restore_claude_official_endpoint,
             clean_claude_cli_credentials_with_backup,
+            get_cached_app_update,
             check_app_update,
             install_app_update,
         ])
@@ -5138,9 +5294,24 @@ mod window_size_tests {
         assert!(super::is_allowed_official_github_url(
             "https://github.com/CaesarLastKing/FD-ClaudeGuard?tab=readme-ov-file"
         ));
+        assert!(super::is_allowed_official_github_url(
+            "https://github.com/clash-verge-rev/clash-verge-rev"
+        ));
+        assert!(super::is_allowed_official_github_url(
+            "https://github.com/clash-verge-rev/clash-verge-rev/releases/latest"
+        ));
+        assert!(super::is_allowed_official_github_url(
+            "https://x.com/Caesar_LastKing"
+        ));
         // 防前缀拼接绕过、userinfo 劫持与命令行参数注入
         assert!(!super::is_allowed_official_github_url(
             "https://github.com/CaesarLastKing/FD-ClaudeGuard-evil"
+        ));
+        assert!(!super::is_allowed_official_github_url(
+            "https://github.com/clash-verge-rev/clash-verge-rev-evil"
+        ));
+        assert!(!super::is_allowed_official_github_url(
+            "https://x.com/Caesar_LastKingEvil"
         ));
         assert!(!super::is_allowed_official_github_url(
             "https://github.com/CaesarLastKing/FD-ClaudeGuard@evil.com/path"

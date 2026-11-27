@@ -157,6 +157,8 @@ pub struct ArchivedAccountSummary {
     pub org_prefix8: String,
     pub email_masked: String,
     pub plan: String,
+    #[serde(default)]
+    pub merchant_channel: String,
     pub workspace_geo: Option<String>,
     pub exit_country: Option<String>,
     pub score: i32,
@@ -529,6 +531,7 @@ fn summary_from_history_report(org_key: &str, r: &AccountAuditReport, has_full: 
         org_prefix8: org_key.to_string(),
         email_masked: r.email_masked.clone(),
         plan: r.plan.clone(),
+        merchant_channel: r.merchant_channel.clone(),
         workspace_geo: r.workspace_geo.clone(),
         exit_country: r.exit_country.clone(),
         score: r.score_result.score,

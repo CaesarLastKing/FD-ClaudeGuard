@@ -816,9 +816,9 @@ pub fn assemble_cloud_snapshot(
     } else {
         sub_data
             .and_then(|s| {
-                s.get("created_at")
+                s.get("current_period_start")
                     .or_else(|| s.get("start_date"))
-                    .or_else(|| s.get("current_period_start"))
+                    .or_else(|| s.get("created_at"))
                     .and_then(|v| v.as_str())
             })
             .or_else(|| {

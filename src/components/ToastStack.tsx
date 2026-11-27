@@ -16,7 +16,7 @@ export function ToastStack() {
         position: "fixed",
         right: 18,
         bottom: 18,
-        zIndex: 160,
+        zIndex: 180,
         display: "flex",
         flexDirection: "column",
         gap: 8,

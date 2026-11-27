@@ -182,6 +182,141 @@ pub fn list_claude_processes() -> Vec<ClaudeProcessInfo> {
     }
 }
 
+/// 扫描当前活跃的 Clash Verge / Mihomo 核心进程 PID（供零轮询内核退出守望者绑定句柄）
+pub fn find_clash_kernel_pids() -> Vec<(u32, String)> {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+        use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+            CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+            TH32CS_SNAPPROCESS,
+        };
+
+        let mut found: Vec<(u32, String)> = Vec::new();
+        unsafe {
+            let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+            if snapshot == INVALID_HANDLE_VALUE || snapshot.is_null() {
+                return found;
+            }
+            let mut entry: PROCESSENTRY32W = std::mem::zeroed();
+            entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+            if Process32FirstW(snapshot, &mut entry) != 0 {
+                loop {
+                    let len = entry
+                        .szExeFile
+                        .iter()
+                        .position(|&c| c == 0)
+                        .unwrap_or(entry.szExeFile.len());
+                    let exe = String::from_utf16_lossy(&entry.szExeFile[..len]);
+                    let low = exe.to_ascii_lowercase();
+                    if matches!(
+                        low.as_str(),
+                        "verge-mihomo.exe" | "clash-verge.exe" | "mihomo.exe" | "mihomo-alpha.exe"
+                    ) {
+                        found.push((entry.th32ProcessID, exe));
+                    }
+                    if Process32NextW(snapshot, &mut entry) == 0 {
+                        break;
+                    }
+                }
+            }
+            CloseHandle(snapshot);
+        }
+        // 优先监听代理内核 verge-mihomo.exe，其次 clash-verge.exe
+        found.sort_by_key(|(_, name)| {
+            let low = name.to_ascii_lowercase();
+            if low.contains("mihomo") { 0u8 } else { 1u8 }
+        });
+        found
+    }
+    #[cfg(not(windows))]
+    {
+        Vec::new()
+    }
+}
+
+/// 零轮询内核级等待指定 PID 退出（Win32 OpenProcess + WaitForSingleObject，0% CPU，<10ms 毫秒级唤醒）
+pub fn wait_for_process_exit_blocking(pid: u32) -> bool {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
+        use windows_sys::Win32::System::Threading::{
+            OpenProcess, WaitForSingleObject, INFINITE, PROCESS_SYNCHRONIZE,
+        };
+        unsafe {
+            let handle = OpenProcess(PROCESS_SYNCHRONIZE, 0, pid);
+            if handle.is_null() {
+                return false;
+            }
+            let wait_res = WaitForSingleObject(handle, INFINITE);
+            CloseHandle(handle);
+            wait_res == WAIT_OBJECT_0
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = pid;
+        false
+    }
+}
+
+/// 注册 Windows 原生 IP 网卡变动事件监听（NotifyIpInterfaceChange），Wintun 虚拟网卡下线或切网 <10ms 零轮询回调
+pub fn start_ip_interface_change_watcher(on_change: std::sync::Arc<dyn Fn() + Send + Sync + 'static>) {
+    #[cfg(windows)]
+    {
+        use std::ffi::c_void;
+        use windows_sys::Win32::Foundation::{HANDLE, NO_ERROR};
+        use windows_sys::Win32::NetworkManagement::IpHelper::{
+            NotifyIpInterfaceChange, MIB_IPINTERFACE_ROW, MIB_NOTIFICATION_TYPE,
+        };
+        use windows_sys::Win32::Networking::WinSock::AF_UNSPEC;
+
+        unsafe extern "system" fn ip_iface_callback(
+            caller_context: *const c_void,
+            _row: *const MIB_IPINTERFACE_ROW,
+            _notification_type: MIB_NOTIFICATION_TYPE,
+        ) {
+            if caller_context.is_null() {
+                return;
+            }
+            let cb = &*(caller_context as *const std::sync::Arc<dyn Fn() + Send + Sync + 'static>);
+            cb();
+        }
+
+        // 进程生命周期常驻回调上下文，避免被提前释放导致悬垂指针
+        let boxed = Box::new(on_change);
+        let raw_ctx = Box::into_raw(boxed) as *const c_void;
+        let mut notify_handle: HANDLE = std::ptr::null_mut();
+        let rc = unsafe {
+            NotifyIpInterfaceChange(
+                AF_UNSPEC,
+                Some(ip_iface_callback),
+                raw_ctx,
+                0,
+                &mut notify_handle,
+            )
+        };
+        if rc != NO_ERROR {
+            logger::log_warn(
+                "radar",
+                format!("注册 Windows NotifyIpInterfaceChange 网卡事件失败 (code={rc})，自动降级至 1s 高频策略雷达"),
+            );
+            unsafe {
+                let _ = Box::from_raw(raw_ctx as *mut std::sync::Arc<dyn Fn() + Send + Sync + 'static>);
+            }
+        } else {
+            logger::log_info(
+                "radar",
+                "已启用 Windows NotifyIpInterfaceChange 毫秒级零轮询网卡变动监听",
+            );
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = on_change;
+    }
+}
+
 #[cfg(windows)]
 fn list_claude_processes_win32() -> Vec<ClaudeProcessInfo> {
     use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};

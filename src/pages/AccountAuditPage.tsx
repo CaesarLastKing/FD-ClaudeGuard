@@ -433,11 +433,13 @@ export function AccountAuditPage() {
         : "Persona KYC 已过 3 天经验复核期"
       : "未触发实名抽检";
 
+    const subCycleDay =
+      subDays != null ? (subDays === 0 ? 1 : ((subDays - 1) % 30) + 1) : null;
     const subSummaryPart = isFreePlan
       ? "Free 无订阅"
-      : subDays != null
-      ? `订阅 ${subDays} 天`
-      : "订阅时间待核";
+      : subCycleDay != null
+      ? `本月订阅第 ${subCycleDay} 天`
+      : "订阅状态待核";
 
     const gWindow: AuditGroupView = {
       part: "user",
@@ -911,8 +913,8 @@ export function AccountAuditPage() {
       part: "tool",
       id: "g-disconnect",
       icon: <Shield size={15} strokeWidth={1.45} />,
-      prefix: "经验防护",
-      prefixCls: "warn-exp",
+      prefix: "官方红线",
+      prefixCls: "redline",
       title: "Clash 断连回传 Cookie 403 防护",
       status: disProxyBad || dis403Bad ? "danger" : disRuntimeGap ? "warn" : "ok",
       statusText: disHasIssue
@@ -1767,6 +1769,8 @@ export function AccountAuditPage() {
             <span>防封宝典</span>
           </button>
 
+          <span className="audit-hd-sep" aria-hidden="true" />
+
           <button
             type="button"
             data-testid="btn-rescan-account-audit"
@@ -1786,8 +1790,6 @@ export function AccountAuditPage() {
             <span>{loading ? "审计中..." : "重新审计"}</span>
           </button>
 
-          <span className="audit-hd-sep" aria-hidden="true" />
-
           <div className="audit-seg-wrap" role="tablist">
             <button
               type="button"
@@ -1797,7 +1799,7 @@ export function AccountAuditPage() {
               className={`audit-seg-btn ${subTab === "audit" ? "active" : ""}`}
               onClick={() => setSubTab("audit")}
             >
-              账号安全审计
+              安全审计
             </button>
             <button
               type="button"
@@ -1807,7 +1809,7 @@ export function AccountAuditPage() {
               className={`audit-seg-btn ${subTab === "logs" ? "active" : ""}`}
               onClick={() => setSubTab("logs")}
             >
-              <span>实时异常日志流</span>
+              <span>实时日志</span>
               {unreadLogsCount > 0 && (
                 <span
                   className="guard-chip guard-chip-warn tabular"
@@ -1834,17 +1836,6 @@ export function AccountAuditPage() {
                 <>
                   <div className="audit-pane-hd">
                     <span className="audit-pane-title tabular">当前档案 ({totalAccounts})</span>
-                    {totalAccounts > 1 ? (
-                      <span
-                        className="guard-chip guard-chip-warn"
-                        data-testid="audit-multi-account-chip"
-                        style={{ padding: "1px 6px", fontSize: 10.5 }}
-                      >
-                        {totalAccounts === 2 ? "双号" : `${totalAccounts} 号`}
-                      </span>
-                    ) : (
-                      <span style={{ fontSize: 11, color: "var(--text-3)" }}>本机激活</span>
-                    )}
                   </div>
 
                   <div
@@ -2035,7 +2026,6 @@ export function AccountAuditPage() {
                           <History size={11.5} strokeWidth={1.6} />
                           <span>历史归档 ({archivedAccounts.length})</span>
                         </span>
-                        <span style={{ fontSize: 10.5, color: "var(--text-3)" }}>点击切换</span>
                       </div>
 
                       {archivedAccounts.map((item) => {
@@ -2109,10 +2099,20 @@ export function AccountAuditPage() {
                               </div>
                             </div>
                             <div className="audit-acct-sub">
-                              <span>
-                                {item.workspaceGeo
-                                  ? `归属 ${item.workspaceGeo} · ${item.orgPrefix8}`
-                                  : `org ${item.orgPrefix8}`}
+                              <span
+                                style={{
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                  minWidth: 0,
+                                }}
+                              >
+                                {item.workspaceGeo ? `归属 ${item.workspaceGeo}` : `org ${item.orgPrefix8}`}
+                                {item.merchantChannel && !item.merchantChannel.includes("Free")
+                                  ? ` · ${item.merchantChannel}`
+                                  : item.plan.toLowerCase().includes("free")
+                                  ? " · Free 无订阅"
+                                  : ` · ${item.orgPrefix8}`}
                               </span>
                               <span
                                 style={{
@@ -2198,148 +2198,192 @@ export function AccountAuditPage() {
         {subTab === "audit" ? (
           <ThinScrollArea>
             <section className="audit-detail-pane" data-testid="audit-detail-view">
-            {isViewingHistory && (
-              <div className="audit-history-banner tabular" data-testid="audit-history-banner">
-                <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                  <History size={14} strokeWidth={1.65} style={{ color: "var(--primary)", flexShrink: 0 }} />
-                  <span>
-                    正在查看历史档案快照（记录于{" "}
-                    <strong>{formatHistoryTimestamp(viewReport.auditedAtMs)}</strong> ·
-                    只读回溯，非本机当前登录态）
-                  </span>
-                </div>
-                <div className="audit-history-banner-actions">
-                  <button
-                    type="button"
-                    data-testid="btn-back-current-account"
-                    className="guard-btn guard-btn-primary guard-btn-xs"
-                    onClick={handleSelectCurrentAccount}
-                  >
-                    返回本机当前账号
-                  </button>
-                  {viewingHistoryOrg && (
-                    <button
-                      type="button"
-                      data-testid="btn-delete-viewing-history"
-                      className="guard-btn guard-btn-flat guard-btn-xs"
-                      onClick={() => {
-                        const target = archivedAccounts.find(
-                          (a) => a.orgPrefix8.toLowerCase() === viewingHistoryOrg.toLowerCase()
-                        );
-                        if (target) handleDeleteHistoryAccount(target);
-                      }}
-                    >
-                      删除此记录
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
+            {/* 右侧顶部无外框标题行：与左侧「当前档案 (N)」水平齐平；查看历史时精简合并为右侧轻标 */}
+            <div className="audit-pane-hd" style={{ minHeight: 20 }}>
+              <span className="audit-pane-title">
+                {isViewingHistory ? "历史归档详情与风险快照" : "档案详情与风险体检"}
+              </span>
+              {isViewingHistory ? (
+                <span
+                  data-testid="audit-history-banner"
+                  className="tabular"
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 5,
+                    fontSize: 11,
+                    color: "var(--primary)",
+                  }}
+                >
+                  <History size={11.5} strokeWidth={1.6} />
+                  <span>历史快照 · 记录于 {formatHistoryTimestamp(viewReport.auditedAtMs)}</span>
+                </span>
+              ) : (
+                <span style={{ fontSize: 11, color: "var(--text-3)" }}>
+                  {viewReport.cloudVerified
+                    ? "云端已实证 · 本地实时监控"
+                    : "本地只读检测 · 可按需云端核验"}
+                </span>
+              )}
+            </div>
 
-            {/* 顶部双层档案总览卡 */}
             <div className="guard-card tabular">
               <div className="audit-profile-top">
-                <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
-                  <div className="audit-profile-id-line">
-                    <span className="audit-profile-email">{viewReport.emailMasked}</span>
-                    <span
-                      className="guard-chip guard-chip-neutral"
-                      style={{ padding: "1px 6px" }}
-                      title={
-                        viewReport.cloudVerified
-                          ? "云端实时核验套餐"
-                          : "来自本机配置文件缓存（若已到期降级为 Free，请点击右侧「云端核验」实时刷新）"
-                      }
+                {(() => {
+                  const isFreeAccount = viewReport.plan.toLowerCase().includes("free");
+                  const endsAtRaw = viewReport.cloudSnapshot?.subscriptionEndsAt;
+                  const isExpired = Boolean(
+                    endsAtRaw &&
+                      /^\d{4}-\d{2}-\d{2}/.test(endsAtRaw) &&
+                      Date.parse(endsAtRaw) < Date.now() - 86_400_000
+                  );
+                  const rawDays = viewReport.subscriptionAgeDays;
+                  const cycleDay =
+                    rawDays != null ? (rawDays === 0 ? 1 : ((rawDays - 1) % 30) + 1) : null;
+                  const planTag =
+                    viewReport.plan && viewReport.plan !== "未知" ? viewReport.plan : "订阅";
+                  const subPrimaryLabel = isExpired
+                    ? `${planTag} 已过期`
+                    : cycleDay != null
+                    ? `${planTag} 订阅 · 第 ${cycleDay} 天`
+                    : `${planTag} 订阅`;
+                  const channelLabel =
+                    viewReport.merchantChannel && viewReport.merchantChannel.trim()
+                      ? viewReport.merchantChannel.trim()
+                      : isFreeAccount
+                      ? "Free 无订阅"
+                      : "订阅方式未知";
+
+                  return (
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 6,
+                        minWidth: 0,
+                        flex: 1,
+                      }}
                     >
-                      {viewReport.cloudVerified ? viewReport.plan : `${viewReport.plan} · 缓存`}
-                    </span>
-                    {isViewingHistory ? (
-                      <span className="guard-chip guard-chip-mode" style={{ padding: "1px 6px" }}>
-                        历史归档快照
-                      </span>
-                    ) : (
-                      viewReport.primarySource &&
-                      viewReport.primarySource !== "none" && (
-                        <span
-                          className={`guard-chip ${
-                            viewReport.primarySource === "cli_stale"
-                              ? "guard-chip-warn"
-                              : "guard-chip-mode"
-                          }`}
-                          style={{ padding: "1px 6px" }}
-                          title="当前顶部主档案的识别来源"
-                        >
-                          {viewReport.primarySource === "desktop_web"
-                            ? "桌面/网页主号"
-                            : viewReport.primarySource === "cli_and_desktop"
-                            ? "桌面+CLI 同号"
-                            : viewReport.primarySource === "cli_stale"
-                            ? "CLI 残留 · 凭据失效/跨号"
-                            : "仅 CLI 账号"}
-                        </span>
-                      )
-                    )}
-                    {!viewReport.plan.toLowerCase().includes("free") && (
-                      <button
-                        type="button"
-                        data-testid="btn-sub-toggle"
-                        className="audit-sub-toggle"
-                        title="点击切换「已订阅天数」与「预计到期/续费日」"
-                        onClick={() => setSubShowExpire((v) => !v)}
+                      {/* 第 1 行：邮箱 + 来源/快照标 + 订阅周期胶囊紧密自然排布，彻底消除两列错位空洞 */}
+                      <div className="audit-profile-id-line">
+                        <span className="audit-profile-email">{viewReport.emailMasked}</span>
+                        {isViewingHistory ? (
+                          <span className="guard-chip guard-chip-mode" style={{ padding: "0 7px" }}>
+                            历史归档快照
+                          </span>
+                        ) : (
+                          viewReport.primarySource &&
+                          viewReport.primarySource !== "none" && (
+                            <span
+                              className={`guard-chip ${
+                                viewReport.primarySource === "cli_stale"
+                                  ? "guard-chip-warn"
+                                  : "guard-chip-mode"
+                              }`}
+                              style={{ padding: "0 7px" }}
+                              title="当前顶部主档案的识别来源"
+                            >
+                              {viewReport.primarySource === "desktop_web"
+                                ? "桌面/网页主号"
+                                : viewReport.primarySource === "cli_and_desktop"
+                                ? "桌面+CLI 同号"
+                                : viewReport.primarySource === "cli_stale"
+                                ? "CLI 残留 · 凭据失效/跨号"
+                                : "仅 CLI 账号"}
+                            </span>
+                          )
+                        )}
+                        {isFreeAccount ? (
+                          <span
+                            className="guard-chip guard-chip-neutral"
+                            style={{ height: 21, padding: "0 7.5px", fontSize: 11 }}
+                            title={
+                              viewReport.cloudVerified
+                                ? "云端实时核验为 Free 免费套餐"
+                                : "来自本机配置文件缓存，点击「云端核验」可实时刷新"
+                            }
+                          >
+                            Free 免费版
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            data-testid="btn-sub-toggle"
+                            className="audit-sub-toggle"
+                            style={
+                              isExpired
+                                ? {
+                                    color: "var(--bad-fg)",
+                                    background: "var(--bad-bg)",
+                                    borderColor: "var(--bad-border)",
+                                  }
+                                : undefined
+                            }
+                            title={
+                              viewReport.cloudVerified
+                                ? "云端实时核验 · 点击切换「本月周期天数」与「到期/续费日」"
+                                : "本机缓存套餐（点击「云端核验」可刷新）· 点击切换「本月周期天数」与「预计续费日」"
+                            }
+                            onClick={() => setSubShowExpire((v) => !v)}
+                          >
+                            <span>
+                              {subShowExpire ? viewReport.subscriptionRenewLabel : subPrimaryLabel}
+                            </span>
+                            <span style={{ opacity: 0.55, fontSize: 10 }}>⇄</span>
+                          </button>
+                        )}
+                      </div>
+
+                      {/* 第 2 行：组织 · 属地 · 订阅方式（主号与历史号统一记录展示） · 注册 · 本机 */}
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 7,
+                          fontSize: 11.5,
+                          color: "var(--text-3)",
+                          flexWrap: "wrap",
+                          minHeight: 20,
+                        }}
                       >
                         <span>
-                          {subShowExpire
-                            ? viewReport.subscriptionRenewLabel
-                            : viewReport.subscriptionAgeDays != null
-                            ? `订阅 ${viewReport.subscriptionAgeDays} 天`
-                            : "订阅时长未知"}
+                          组织{" "}
+                          <span className="font-mono-code" style={{ color: "var(--text-2)" }}>
+                            {viewReport.orgIdPrefix8 ?? "未知"}
+                          </span>
                         </span>
-                        <span style={{ opacity: 0.55, fontSize: 10 }}>⇄</span>
-                      </button>
-                    )}
-                  </div>
-
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 7,
-                      fontSize: 11.5,
-                      color: "var(--text-3)",
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    <span>
-                      组织{" "}
-                      <span className="font-mono-code" style={{ color: "var(--text-2)" }}>
-                        {viewReport.orgIdPrefix8 ?? "未知"}
-                      </span>
-                    </span>
-                    <span style={{ opacity: 0.55 }}>·</span>
-                    <span
-                      className={`audit-geo-pill ${viewReport.workspaceGeo ? "is-verified" : ""}`}
-                    >
-                      {viewReport.workspaceGeo ? `属地 ${viewReport.workspaceGeo}` : "属地 待核"}
-                    </span>
-                    {viewReport.merchantChannel && (
-                      <>
                         <span style={{ opacity: 0.55 }}>·</span>
-                        <span style={{ color: "var(--text-2)" }}>{viewReport.merchantChannel}</span>
-                      </>
-                    )}
-                    <span style={{ opacity: 0.55 }}>·</span>
-                    <span>
-                      注册 {viewReport.accountAgeDays != null ? `${viewReport.accountAgeDays} 天` : "未知"}
-                    </span>
-                    <span style={{ opacity: 0.55 }}>·</span>
-                    <span>
-                      本机{" "}
-                      {viewReport.localDeviceAgeDays != null
-                        ? `${viewReport.localDeviceAgeDays} 天`
-                        : "未知"}
-                    </span>
-                  </div>
-                </div>
+                        <span
+                          className={`audit-geo-pill ${viewReport.workspaceGeo ? "is-verified" : ""}`}
+                        >
+                          {viewReport.workspaceGeo ? `属地 ${viewReport.workspaceGeo}` : "属地 待核"}
+                        </span>
+                        <span style={{ opacity: 0.55 }}>·</span>
+                        <span
+                          data-testid="audit-merchant-channel"
+                          style={{ color: "var(--text-2)" }}
+                          title="账号订阅支付方式（云端核验优先，未核验时读取本机 ~/.claude.json 缓存；历史归档同步记录）"
+                        >
+                          {channelLabel}
+                        </span>
+                        <span style={{ opacity: 0.55 }}>·</span>
+                        <span>
+                          注册{" "}
+                          {viewReport.accountAgeDays != null
+                            ? `${viewReport.accountAgeDays} 天`
+                            : "未知"}
+                        </span>
+                        <span style={{ opacity: 0.55 }}>·</span>
+                        <span>
+                          本机{" "}
+                          {viewReport.localDeviceAgeDays != null
+                            ? `${viewReport.localDeviceAgeDays} 天`
+                            : "未知"}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 <div className="audit-profile-actions">
                   {isViewingHistory ? (
@@ -2952,10 +2996,10 @@ export function AccountAuditPage() {
                   </div>
                 </div>
 
-                <div className="audit-doc-entry is-mid">
+                <div className="audit-doc-entry is-high">
                   <div className="audit-doc-title">
                     <span>3. 防止代理断连瞬间裸奔回传（Cookie 403）</span>
-                    <span className="audit-w-pill w-mid">经验防护</span>
+                    <span className="audit-w-pill w-high">官方红线</span>
                   </div>
                   <div className="audit-doc-body">
                     Clash 断开或切换节点瞬间，后台残留的 Claude

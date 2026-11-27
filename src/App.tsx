@@ -2,16 +2,16 @@ import { useEffect } from "react";
 import { CleanConfirmModal } from "@/components/CleanConfirmModal";
 import { PlaybookDrawer } from "@/components/PlaybookDrawer";
 import { RiskModal } from "@/components/RiskModal";
+import { SettingsModal } from "@/components/SettingsModal";
 import { Sidebar } from "@/components/Sidebar";
 import { SupportModal } from "@/components/SupportModal";
 import { ToastStack } from "@/components/ToastStack";
 import { WindowChrome } from "@/components/WindowChrome";
 import { ipc, isTauriRuntime } from "@/lib/ipc";
 import { AccountAuditPage } from "@/pages/AccountAuditPage";
+import { AiToolsPage } from "@/pages/AiToolsPage";
 import { ConsolePage } from "@/pages/ConsolePage";
-import { MaintenancePage } from "@/pages/MaintenancePage";
 import { NodesTrafficPage } from "@/pages/NodesTrafficPage";
-import { SettingsPage } from "@/pages/SettingsPage";
 import { useGuardStore } from "@/stores/guardStore";
 
 export function App() {
@@ -29,18 +29,61 @@ export function App() {
   const setPlaybookOpen = useGuardStore((s) => s.setPlaybookOpen);
   const openRiskModal = useGuardStore((s) => s.openRiskModal);
   const pushToast = useGuardStore((s) => s.pushToast);
-  const checkForAppUpdate = useGuardStore((s) => s.checkForAppUpdate);
+  const hydrateCachedUpdateInfo = useGuardStore((s) => s.hydrateCachedUpdateInfo);
+  const setUpdateInfo = useGuardStore((s) => s.setUpdateInfo);
   const setUpdateProgress = useGuardStore((s) => s.setUpdateProgress);
+  const toggleSettingsModal = useGuardStore((s) => s.toggleSettingsModal);
+  const openSettingsModal = useGuardStore((s) => s.openSettingsModal);
+
+  useEffect(() => {
+    const onGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === ",") {
+        e.preventDefault();
+        toggleSettingsModal();
+      }
+    };
+    window.addEventListener("keydown", onGlobalKeyDown);
+    return () => window.removeEventListener("keydown", onGlobalKeyDown);
+  }, [toggleSettingsModal]);
 
   useEffect(() => {
     void bootstrap();
 
-    // T-059：仅真实桌面端在启动 3.5s 后静默检查一次更新，写入全局 updateInfo 点亮顶栏徽章与配置页按钮
-    let updateTimer: number | null = null;
+    // 启动 0s 零网络秒读本地持久化 update-state.json 恢复顶栏微标；并检测升级后首次启动弹轻确认提示（E-04）
     if (isTauriRuntime()) {
-      updateTimer = window.setTimeout(() => {
-        void checkForAppUpdate(true);
-      }, 3500);
+      void hydrateCachedUpdateInfo();
+      void ipc
+        .getCachedAppUpdate()
+        .then((info) => {
+          const clean = (info?.currentVersion || "").replace(/^v/i, "").trim();
+          if (!clean) return;
+          try {
+            const prev = window.localStorage.getItem("fd_last_launched_version");
+            if (prev && prev !== clean) {
+              const parse = (s: string) => s.split(".").map((n) => parseInt(n, 10) || 0);
+              const a = parse(prev);
+              const b = parse(clean);
+              const upgraded =
+                (b[0] ?? 0) > (a[0] ?? 0) ||
+                ((b[0] ?? 0) === (a[0] ?? 0) && (b[1] ?? 0) > (a[1] ?? 0)) ||
+                ((b[0] ?? 0) === (a[0] ?? 0) &&
+                  (b[1] ?? 0) === (a[1] ?? 0) &&
+                  (b[2] ?? 0) > (a[2] ?? 0));
+              if (upgraded) {
+                pushToast(
+                  `已成功升级至 v${clean}`,
+                  `已从 v${prev} 平滑更新，原有安全策略与账号归档均已保留。`,
+                  "ok",
+                  { durationMs: 5000 }
+                );
+              }
+            }
+            window.localStorage.setItem("fd_last_launched_version", clean);
+          } catch {
+            // 忽略受限环境 localStorage 异常
+          }
+        })
+        .catch(() => {});
     }
 
     const onWindowError = (e: ErrorEvent) => {
@@ -70,6 +113,14 @@ export function App() {
     register(ipc.listenNodeAuditProgress((prog) => setDeepAuditFromEvent(prog)));
     register(
       ipc.listenNavigate((nav) => {
+        if (nav.tab === "config") {
+          openSettingsModal("general");
+          return;
+        }
+        if (nav.tab === "maintain") {
+          openSettingsModal("recovery");
+          return;
+        }
         setActiveTab(nav.tab);
         if (nav.tab === "audit" && (nav.subTab === "audit" || nav.subTab === "logs")) {
           setAuditSubTab(nav.subTab);
@@ -120,6 +171,7 @@ export function App() {
       })
     );
     register(ipc.listenUpdateProgress((prog) => setUpdateProgress(prog)));
+    register(ipc.listenUpdateAvailable((info) => setUpdateInfo(info)));
     register(
       ipc.listenNakedLaunchIntercepted((count) => {
         pushToast(
@@ -133,18 +185,17 @@ export function App() {
 
     return () => {
       disposed = true;
-      if (updateTimer !== null) {
-        window.clearTimeout(updateTimer);
-      }
       window.removeEventListener("error", onWindowError);
       window.removeEventListener("unhandledrejection", onUnhandledRejection);
       unsubs.forEach((fn) => fn());
     };
   }, [
     bootstrap,
-    checkForAppUpdate,
+    hydrateCachedUpdateInfo,
+    setUpdateInfo,
     focusFirstUnhealthyCheck,
     openRiskModal,
+    openSettingsModal,
     pushToast,
     setActiveTab,
     setAuditSubTab,
@@ -177,10 +228,10 @@ export function App() {
           {activeTab === "console" && <ConsolePage />}
           {(activeTab === "audit" || activeTab === "logs") && <AccountAuditPage />}
           {activeTab === "nodes" && <NodesTrafficPage />}
-          {activeTab === "maintain" && <MaintenancePage />}
-          {activeTab === "config" && <SettingsPage />}
+          {activeTab === "aitools" && <AiToolsPage />}
         </main>
       </div>
+      <SettingsModal />
       <PlaybookDrawer />
       <RiskModal />
       <CleanConfirmModal />

@@ -25,12 +25,13 @@ afterEach(() => {
 });
 
 describe("FD Claude Guard M1 核心功能与设计红线验收", () => {
-  it("渲染 5 大导航且必须项默认诚实锁定启动（绝不伪造绿灯）", async () => {
+  it("渲染 4 大主导航与左下角系统设置，且必须项默认诚实锁定启动（绝不伪造绿灯）", async () => {
     render(<App />);
 
-    for (const label of ["控制台", "账户审计", "节点流量", "环境维护", "守卫配置"]) {
+    for (const label of ["控制台", "账户审计", "节点流量", "AI 工具箱"]) {
       expect(screen.getByRole("button", { name: new RegExp(label) })).toBeInTheDocument();
     }
+    expect(screen.getByTestId("sidebar-settings-trigger")).toHaveTextContent("系统设置");
 
     await waitFor(() => {
       expect(screen.getByText(/一键处理全部 \(12\)/)).toBeInTheDocument();
@@ -41,19 +42,17 @@ describe("FD Claude Guard M1 核心功能与设计红线验收", () => {
     expect(screen.getByRole("button", { name: /导出脱敏问题包给 AI 分析/ })).toBeInTheDocument();
   });
 
-  it("守卫配置支持全 Toggle 开关，关闭开机自启联动关闭开机仅显悬浮窗，开启 24h 保护同步点亮安全守则", async () => {
+  it("系统设置支持全 Toggle 开关，关闭开机自启联动关闭开机仅显悬浮窗，开启 24h 保护同步点亮安全守则", async () => {
     render(<App />);
 
-    fireEvent.click(screen.getByRole("button", { name: /守卫配置/ }));
-    expect(await screen.findByText(/所有自动防护策略默认开启/)).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("sidebar-settings-trigger"));
+    expect(await screen.findByTestId("settings-modal")).toBeInTheDocument();
 
     const bootSwitch = screen.getByRole("switch", { name: /开机自动启动/ });
     const hudOnlySwitch = screen.getByRole("switch", { name: /开机时仅显示桌面悬浮窗/ });
-    const calm24hSwitch = screen.getByRole("switch", { name: /24h 冷静保护模式/ });
 
     expect(bootSwitch).toHaveAttribute("aria-checked", "true");
     expect(hudOnlySwitch).toHaveAttribute("aria-checked", "true");
-    expect(calm24hSwitch).toHaveAttribute("aria-checked", "false");
 
     // 关闭开机自启 → 自动联动关闭并禁用开机仅显悬浮窗
     fireEvent.click(bootSwitch);
@@ -63,7 +62,10 @@ describe("FD Claude Guard M1 核心功能与设计红线验收", () => {
       expect(hudOnlySwitch).toBeDisabled();
     });
 
-    // 开启 24h 冷静保护 → 同步命中安全守则 #1
+    // 切至安全策略并开启 24h 冷静保护 → 同步命中安全守则 #1
+    fireEvent.click(screen.getByTestId("settings-tab-policy"));
+    const calm24hSwitch = await screen.findByRole("switch", { name: /24h 冷静保护/ });
+    expect(calm24hSwitch).toHaveAttribute("aria-checked", "false");
     fireEvent.click(calm24hSwitch);
     await waitFor(() => {
       expect(calm24hSwitch).toHaveAttribute("aria-checked", "true");

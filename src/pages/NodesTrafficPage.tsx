@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, Loader2, RefreshCw, Search } from "lucide-react";
+import { Check, Loader2, Radar, RefreshCw } from "lucide-react";
 import { HoverTooltip, useHoverTooltip } from "@/components/HoverTooltip";
 import { ThinScrollArea } from "@/components/ThinScrollArea";
 import { ipc } from "@/lib/ipc";
@@ -547,20 +547,8 @@ export function NodesTrafficPage() {
               >
                 {n.name}
               </span>
-              {isSame && (
-                <span
-                  style={{
-                    fontSize: 10,
-                    padding: "0.5px 5px",
-                    borderRadius: 4,
-                    background: "var(--bg-subtle)",
-                    color: "var(--text-3)",
-                    flexShrink: 0,
-                  }}
-                >
-                  同区
-                </span>
-              )}
+              {n.isCurrent && <span className="node-inline-tag is-current">当前</span>}
+              {isSame && <span className="node-inline-tag is-same">同区</span>}
             </div>
             <div
               className="row-sub"
@@ -786,35 +774,6 @@ export function NodesTrafficPage() {
             </button>
           )}
 
-          {subTab === "quality" &&
-            (deepAudit.running ? (
-              <button
-                type="button"
-                data-testid="btn-cancel-deep-audit"
-                className="guard-btn guard-btn-flat tabular"
-                style={{ color: "var(--warning-fg)", borderColor: "var(--warning-border)" }}
-                onClick={() => void cancelDeepNodeAudit()}
-                title={deepAudit.message}
-              >
-                <Loader2 size={12.5} strokeWidth={1.9} className="guard-spin" />
-                <span>
-                  核验中 {deepAudit.currentIndex}/{deepAudit.total || "?"} · 停止
-                </span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                data-testid="btn-start-deep-audit"
-                disabled={refreshingNodes || fixing}
-                className="guard-btn guard-btn-flat"
-                onClick={() => void startDeepNodeAudit(true)}
-                title="在 Claude 0 进程时慢速逐个实测全部节点的真实 IP 类型、CF 盾与 AGY 限区并永久缓存 24h"
-              >
-                <Search size={13} strokeWidth={1.45} style={{ color: "var(--text-2)" }} />
-                <span>深度核验全部</span>
-              </button>
-            ))}
-
           <button
             type="button"
             disabled={refreshingNodes || loadingConns}
@@ -859,6 +818,35 @@ export function NodesTrafficPage() {
             style={{ width: 1, height: 16, background: "var(--divider-strong)", margin: "0 2px" }}
           />
 
+          {subTab === "quality" &&
+            (deepAudit.running ? (
+              <button
+                type="button"
+                data-testid="btn-cancel-deep-audit"
+                className="guard-btn guard-btn-flat tabular"
+                style={{ color: "var(--warning-fg)", borderColor: "var(--warning-border)" }}
+                onClick={() => void cancelDeepNodeAudit()}
+                title={deepAudit.message}
+              >
+                <Loader2 size={12.5} strokeWidth={1.9} className="guard-spin" />
+                <span>
+                  核验中 {deepAudit.currentIndex}/{deepAudit.total || "?"} · 停止
+                </span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                data-testid="btn-start-deep-audit"
+                disabled={refreshingNodes || fixing}
+                className="guard-btn guard-btn-flat"
+                onClick={() => void startDeepNodeAudit(true)}
+                title="在 Claude 0 进程时慢速逐个实测全部节点的真实 IP 类型、CF 盾与 AGY 限区并永久缓存 24h"
+              >
+                <Radar size={13} strokeWidth={1.45} style={{ color: "var(--text-2)" }} />
+                <span>重新核验</span>
+              </button>
+            ))}
+
           <div className="in-seg" role="tablist">
             <button
               type="button"
@@ -867,7 +855,7 @@ export function NodesTrafficPage() {
               className={`in-seg-btn ${subTab === "quality" ? "active" : ""}`}
               onClick={() => setSubTab("quality")}
             >
-              节点质量与容灾
+              节点质量
             </button>
             <button
               type="button"
@@ -876,7 +864,7 @@ export function NodesTrafficPage() {
               className={`in-seg-btn ${subTab === "traffic" ? "active" : ""}`}
               onClick={() => setSubTab("traffic")}
             >
-              实时流量分析
+              实时连接
             </button>
           </div>
         </div>
@@ -1067,7 +1055,7 @@ export function NodesTrafficPage() {
 
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: 11, color: "var(--text-3)" }}>
-                    悬停标签可看说明 · 核验缓存 24h
+                    悬停标签可看说明 · 性质缓存 72h
                   </span>
                   {nodeFilter === "quarantine" && (
                     <button

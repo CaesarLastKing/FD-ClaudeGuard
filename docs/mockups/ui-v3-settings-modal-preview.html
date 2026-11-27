@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>FD Claude 安全启动器 · 工具设置交互预览（UI v3.0 · 4 项扁平重组版）</title>
+  <title>FD Claude 安全启动器 · 工具设置交互预览（UI v3.0 精修终版）</title>
   <style>
     @font-face {
       font-family: "FD-Fine";
@@ -94,6 +94,8 @@
       --bad-fg: #C04D4D;
       --bad-bg: rgba(206, 90, 90, 0.062);
       --bad-border: rgba(206, 90, 90, 0.185);
+      --bad-solid: #C95656;
+      --bad-solid-hi: #D86464;
 
       --warning-dot: #DF952E;
       --warning-fg: #B87419;
@@ -103,11 +105,17 @@
       --thumb-idle: rgba(15, 23, 42, 0.072);
       --thumb-active: rgba(15, 23, 42, 0.16);
       --switch-off: rgba(15, 23, 42, 0.14);
+      /* 灰蓝色锁定开启态（一眼看出是“开启但不可点”，绝不与关闭灰混淆） */
+      --switch-locked-blue: #8EB2D9;
+      --switch-locked-knob: #F8FAFD;
       --switch-knob: #FFFFFF;
 
       --promo-bg: linear-gradient(135deg, rgba(0, 108, 224, 0.042) 0%, #FFFFFF 70%);
       --promo-border: rgba(0, 108, 224, 0.15);
-      --code-bg: #F3F5F8;
+      --flow-bg: linear-gradient(180deg, rgba(0, 108, 224, 0.032) 0%, #FFFFFF 100%);
+      --tooltip-bg: #262B35;
+      --tooltip-fg: #EEF1F6;
+      --tooltip-sub: #B7BFC9;
       --toast-bg: #262B35;
       --toast-fg: #F5F7FA;
     }
@@ -167,6 +175,8 @@
       --bad-fg: #C56B66;
       --bad-bg: rgba(196, 102, 97, 0.075);
       --bad-border: rgba(196, 102, 97, 0.175);
+      --bad-solid: #A84F4B;
+      --bad-solid-hi: #B85A56;
 
       --warning-dot: #C28F3E;
       --warning-fg: #BF9148;
@@ -176,11 +186,17 @@
       --thumb-idle: rgba(255, 255, 255, 0.072);
       --thumb-active: rgba(255, 255, 255, 0.17);
       --switch-off: rgba(255, 255, 255, 0.14);
+      /* 灰蓝色锁定开启态（柔和克制，一眼可辨为“已开启·不可点”） */
+      --switch-locked-blue: #2F5178;
+      --switch-locked-knob: #B9CDE6;
       --switch-knob: #E5E8EF;
 
       --promo-bg: linear-gradient(135deg, rgba(74, 158, 255, 0.07) 0%, rgba(21, 21, 26, 0.96) 65%);
       --promo-border: rgba(74, 158, 255, 0.19);
-      --code-bg: #101015;
+      --flow-bg: linear-gradient(180deg, rgba(59, 147, 250, 0.055) 0%, #15151A 100%);
+      --tooltip-bg: #22232C;
+      --tooltip-fg: #E1E5EE;
+      --tooltip-sub: #A2AAB8;
       --toast-bg: #22222A;
       --toast-fg: #D5D9E2;
     }
@@ -338,7 +354,7 @@
       transition: background-color 140ms var(--ease), border-color 140ms var(--ease), color 140ms var(--ease);
     }
     .c-btn:hover:not(:disabled) { background: var(--bg-row-hover); color: var(--text-strong); border-color: var(--border-card-hover); }
-    .c-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .c-btn:disabled { opacity: 0.42; cursor: not-allowed; }
 
     .c-btn-xs {
       height: 25px; padding: 0 9px; border: 1px solid var(--divider-strong); border-radius: 6px;
@@ -348,7 +364,8 @@
       white-space: nowrap; flex-shrink: 0;
     }
     .c-btn-xs:hover:not(:disabled) { background: var(--bg-row-hover); color: var(--text-strong); border-color: var(--border-card-hover); }
-    .c-btn-xs:disabled { opacity: 0.45; cursor: not-allowed; }
+    .c-btn-xs:disabled { opacity: 0.36; cursor: not-allowed; box-shadow: none; }
+    .c-btn-xs.fixed-w { min-width: 48px; }
 
     .c-btn-primary {
       height: 31px; padding: 0 13px; border: none; border-radius: var(--r-btn);
@@ -359,6 +376,18 @@
       box-shadow: 0 1px 2px rgba(0, 108, 224, 0.25), 0 4px 10px -3px rgba(0, 108, 224, 0.22);
     }
     .c-btn-primary:hover:not(:disabled) { filter: brightness(1.06); }
+
+    /* 与一键网络急救同级别的高级柔和危险主按钮（用于安全策略顶部「立即紧急熔断」） */
+    .c-btn-danger-hero {
+      height: 31px; padding: 0 13px; border: none; border-radius: var(--r-btn);
+      background: linear-gradient(180deg, var(--bad-solid-hi) 0%, var(--bad-solid) 100%);
+      color: #FFFFFF; font-family: var(--font-sans); font-size: 12px; font-weight: 500;
+      display: inline-flex; align-items: center; justify-content: center; gap: 5.5px; cursor: pointer;
+      white-space: nowrap; flex-shrink: 0;
+      box-shadow: 0 1px 2px rgba(168, 79, 75, 0.28), 0 4px 10px -3px rgba(168, 79, 75, 0.24);
+      transition: filter 140ms var(--ease);
+    }
+    .c-btn-danger-hero:hover { filter: brightness(1.07); }
 
     .c-btn-danger {
       height: 31px; padding: 0 11px; border-radius: var(--r-btn);
@@ -384,6 +413,9 @@
     .c-pill-warn { color: var(--warning-fg); background: var(--warning-soft); border: 1px solid var(--warning-border); }
     .c-pill-fail { color: var(--bad-fg); background: var(--bad-bg); border: 1px solid var(--bad-border); }
     .c-pill-neutral { color: var(--text-2); background: var(--bg-subtle); border: 1px solid var(--divider); }
+    .c-pill-muted { color: var(--text-3); background: var(--bg-subtle); border: 1px solid var(--divider); }
+    .c-pill-fixed { min-width: 52px; }
+    .c-pill-policy { min-width: 66px; }
 
     .c-icon-box {
       width: 28px; height: 28px; border-radius: var(--r-icon);
@@ -395,21 +427,21 @@
     .c-icon-box.is-bad { background: var(--bad-bg); color: var(--bad-fg); border-color: var(--bad-border); }
 
     /* ==============================================================
-       居中双栏「工具设置」模态弹窗（点弹窗外任意处关闭）
+       居中双栏「工具设置」模态弹窗
     ============================================================== */
     .modal-scrim {
       position: absolute; inset: 0; z-index: 60;
       background: var(--backdrop-scrim);
       backdrop-filter: blur(2.5px);
       display: flex; align-items: center; justify-content: center;
-      padding: 28px 24px;
+      padding: 24px 28px;
       cursor: pointer;
       transition: opacity 160ms var(--ease);
     }
     .modal-scrim.is-hidden { opacity: 0; pointer-events: none; }
 
     .settings-modal {
-      width: 900px; max-width: 100%; height: min(614px, 100%);
+      width: min(920px, 100%); height: min(640px, 100%);
       border-radius: var(--r-hud);
       background: var(--bg-canvas);
       border: 1px solid var(--divider-strong);
@@ -421,9 +453,8 @@
     }
     .modal-scrim.is-hidden .settings-modal { transform: translateY(6px) scale(0.988); opacity: 0; }
 
-    /* 弹窗左栏：扁平 4 项，去掉大分组标题；主标题 16px > 右侧子页标题 13.5px */
     .modal-aside {
-      width: 196px; flex-shrink: 0; padding: 14px 10px 12px;
+      width: 190px; flex-shrink: 0; padding: 14px 10px 12px;
       background: var(--bg-sidebar); border-right: 1px solid var(--divider);
       display: flex; flex-direction: column; justify-content: space-between;
     }
@@ -437,7 +468,6 @@
       background: var(--bg-subtle); color: var(--text-3); border: 1px solid var(--divider);
     }
     .modal-nav-list { display: flex; flex-direction: column; gap: 3px; }
-    .modal-nav-sep { height: 1px; background: var(--divider); margin: 8px 8px; }
 
     .s-nav-item {
       height: 33px; padding: 0 10px 0 13px; border: none; border-radius: var(--r-btn);
@@ -453,11 +483,8 @@
       width: 2.5px; height: 16px; border-radius: 99px; background: var(--sel-bar-color);
     }
     .s-nav-left { display: flex; align-items: center; gap: 8px; }
-    .s-nav-badge {
-      font-size: 10px; padding: 0 5.5px; height: 16px; border-radius: 4px;
-      display: inline-flex; align-items: center; justify-content: center;
-      background: var(--bg-subtle); color: var(--text-3);
-    }
+    .nav-alert-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--bad-dot); display: none; }
+    .nav-alert-dot.is-show { display: inline-block; }
 
     .modal-aside-foot {
       padding: 10px 10px 2px; border-top: 1px solid var(--divider);
@@ -479,19 +506,28 @@
     .modal-hd-left { display: flex; align-items: baseline; gap: 9px; min-width: 0; }
     .modal-hd-title { margin: 0; font-size: 13.5px; font-weight: 500; color: var(--text-strong); letter-spacing: -0.005em; flex-shrink: 0; }
     .modal-hd-sub { font-size: 11px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .modal-hd-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+    .modal-hd-right { display: flex; align-items: center; gap: 7px; flex-shrink: 0; }
     .modal-close-btn {
       width: 28px; height: 28px; border: none; border-radius: 7px; background: transparent;
       color: var(--text-2); display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
     }
     .modal-close-btn:hover { background: var(--bg-subtle); color: var(--text-strong); }
 
+    .anchor-links { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: var(--text-3); }
+    .anchor-btn {
+      border: none; background: transparent; padding: 2px 5px; border-radius: 4px;
+      font-family: var(--font-sans); font-size: 11px; color: var(--text-3); cursor: pointer;
+      transition: color 120ms, background-color 120ms;
+    }
+    .anchor-btn:hover { color: var(--text-strong); background: var(--bg-subtle); }
+
     /* 自定义 3×46px 细滑块滚动区 */
     .thin-scroll-host { position: relative; min-height: 0; flex: 1; display: flex; flex-direction: column; }
     .thin-scroll-body {
-      flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none;
-      padding: 15px 20px 20px; display: flex; flex-direction: column; gap: 15px;
+      flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; scroll-behavior: smooth;
+      padding: 15px 20px 20px; display: flex; flex-direction: column; gap: 14px;
     }
+    .thin-scroll-body > * { flex-shrink: 0; }
     .thin-scroll-body::-webkit-scrollbar { display: none; }
     .thin-scroll-track { position: absolute; top: 10px; bottom: 10px; right: 4px; width: 6px; pointer-events: none; z-index: 20; }
     .thin-scroll-thumb {
@@ -501,6 +537,97 @@
     }
     .thin-scroll-host:hover .thin-scroll-thumb,
     .thin-scroll-host.is-scrolling .thin-scroll-thumb { background: var(--thumb-active); }
+
+    /* 安全策略顶部：介绍卡（流程图）与下方独立「用户紧急措施」卡分离 */
+    .flow-card {
+      background: var(--flow-bg);
+      border: 1px solid var(--border-card);
+      border-radius: var(--r-card);
+      padding: 12px 14px;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .flow-hd { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .flow-title { font-size: 12px; font-weight: 500; color: var(--text-strong); display: flex; align-items: center; gap: 6px; }
+    .flow-sub { font-size: 11px; color: var(--text-3); }
+    .flow-steps {
+      display: grid;
+      grid-template-columns: 1fr 14px 1fr 14px 1fr 14px 1fr;
+      align-items: center;
+      gap: 4px;
+    }
+    .flow-step {
+      padding: 8px 9px; border-radius: 8px;
+      background: var(--bg-card); border: 1px solid var(--divider); min-width: 0;
+    }
+    .flow-step.is-accent { border-color: var(--bad-border); background: var(--bad-bg); }
+    .flow-step-top {
+      display: flex; align-items: center; gap: 5px;
+      font-size: 11.5px; font-weight: 500; color: var(--text-strong); white-space: nowrap;
+    }
+    .flow-step-num {
+      font-size: 9.5px; padding: 0.5px 4.5px; border-radius: 3.5px;
+      background: var(--bg-subtle); color: var(--text-2); border: 1px solid var(--divider);
+    }
+    .flow-step.is-accent .flow-step-num { background: var(--bad-bg); color: var(--bad-fg); border-color: var(--bad-border); }
+    .flow-step-desc {
+      margin-top: 3px; font-size: 10.5px; color: var(--text-2); line-height: 1.4;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .flow-arrow { color: var(--text-4); display: grid; place-items: center; }
+
+    /* 全新 UI 3.0 联系作者（X / Twitter）精致名片弹窗 */
+    .contact-scrim {
+      position: absolute; inset: 0; z-index: 90;
+      background: var(--backdrop-scrim);
+      backdrop-filter: blur(4px);
+      display: flex; align-items: center; justify-content: center;
+      padding: 24px;
+      cursor: pointer;
+      transition: opacity 150ms var(--ease);
+    }
+    .contact-scrim.is-hidden { opacity: 0; pointer-events: none; }
+    .contact-modal {
+      width: 444px; max-width: 100%;
+      border-radius: var(--r-hud);
+      background: var(--bg-card);
+      border: 1px solid var(--divider-strong);
+      box-shadow: var(--shadow-modal);
+      overflow: hidden;
+      cursor: default;
+      transition: transform 170ms var(--ease), opacity 150ms var(--ease);
+    }
+    .contact-scrim.is-hidden .contact-modal { transform: translateY(6px) scale(0.985); opacity: 0; }
+    .contact-hd {
+      padding: 16px 18px 14px;
+      display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+    }
+    .contact-avatar {
+      width: 36px; height: 36px; border-radius: 10px;
+      background: var(--bg-subtle); border: 1px solid var(--divider-strong);
+      color: var(--text-strong); display: grid; place-items: center; flex-shrink: 0;
+    }
+    .contact-body { padding: 0 18px 16px; display: flex; flex-direction: column; gap: 11px; }
+    .x-profile-card {
+      padding: 13px 14px; border-radius: 10px;
+      background: var(--flow-bg); border: 1px solid var(--border-card);
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    }
+    .x-handle { font-size: 14.5px; font-weight: 500; color: var(--text-strong); letter-spacing: -0.01em; }
+    .x-url { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+    .contact-kv {
+      border-radius: 9px; border: 1px solid var(--divider);
+      background: var(--bg-card-band); overflow: hidden;
+    }
+    .contact-kv-row {
+      padding: 9px 13px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      border-bottom: 1px solid var(--divider); font-size: 11.5px;
+    }
+    .contact-kv-row:last-child { border-bottom: none; }
+    .contact-ft {
+      padding: 11px 18px; border-top: 1px solid var(--divider);
+      background: var(--bg-card-band);
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    }
 
     /* 内容区块与列表行 */
     .sec-hd {
@@ -517,7 +644,7 @@
     .sec-note { font-size: 11px; color: var(--text-3); }
 
     .s-row {
-      padding: 10.5px 14px;
+      padding: 10px 14px;
       display: flex; align-items: center; justify-content: space-between; gap: 14px;
       border-bottom: 1px solid var(--divider);
       transition: background-color 120ms var(--ease);
@@ -525,40 +652,43 @@
     .s-row:last-child { border-bottom: none; }
     .s-row.is-clickable { cursor: pointer; }
     .s-row.is-clickable:hover { background: var(--bg-row-hover); }
-    .s-row.is-sub { padding-left: 32px; background: var(--bg-card-band); }
-    .s-row.is-disabled { opacity: 0.5; cursor: not-allowed; }
+    .s-row.is-disabled { opacity: 0.52; cursor: not-allowed; }
+    .s-row.is-builtin { background: var(--bg-card-band); }
+    .s-row.is-builtin .s-row-title { color: var(--text-1); }
     .s-row-info { min-width: 0; flex: 1; }
-    .s-row-top { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+    .s-row-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
     .s-row-title { font-size: 12.5px; color: var(--text-1); line-height: 1.38; }
-
-    /* 单行精简说明 + 超长折叠展开 */
-    .desc-line {
-      margin-top: 2.5px;
-      display: flex; align-items: baseline; gap: 6px; min-width: 0;
-    }
-    .desc-text {
-      font-size: 11px; color: var(--text-2); line-height: 1.48;
+    .s-row-desc {
+      margin-top: 2px; font-size: 11px; color: var(--text-2); line-height: 1.48;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-      min-width: 0; flex: 0 1 auto;
     }
-    .desc-line.is-expanded { display: block; }
-    .desc-line.is-expanded .desc-text { white-space: normal; overflow: visible; text-overflow: clip; }
-    .desc-more-btn {
-      border: none; background: transparent; padding: 0 2px;
-      font-family: var(--font-sans); font-size: 10.5px; color: var(--text-3);
-      display: inline-flex; align-items: center; gap: 2px; cursor: pointer;
-      white-space: nowrap; flex-shrink: 0;
-      transition: color 120ms var(--ease);
-    }
-    .desc-more-btn:hover { color: var(--primary); }
-    .desc-extra {
-      margin-top: 5px; padding: 7px 10px; border-radius: 7px;
-      background: var(--bg-card-band); border: 1px solid var(--divider);
-      font-size: 11px; color: var(--text-2); line-height: 1.55;
-      white-space: normal;
-    }
+    .s-row.is-builtin .s-row-desc { color: var(--text-3); }
 
-    /* 右侧操作组：推荐标签紧贴开关左侧 */
+    /* 全站统一 0ms 浮层详情图标 */
+    .info-trigger {
+      width: 16px; height: 16px; border: none; border-radius: 50%; padding: 0;
+      background: transparent; color: var(--text-4);
+      display: inline-flex; align-items: center; justify-content: center;
+      cursor: help; flex-shrink: 0;
+      transition: color 120ms var(--ease), background-color 120ms var(--ease);
+    }
+    .info-trigger:hover { color: var(--primary); background: var(--primary-soft); }
+
+    .hover-popover {
+      position: fixed; z-index: 9999; width: 308px; max-width: calc(100vw - 32px);
+      padding: 10px 12px; border-radius: 9px;
+      background: var(--tooltip-bg); color: var(--tooltip-fg);
+      border: 1px solid rgba(255, 255, 255, 0.11);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.42);
+      pointer-events: none; opacity: 0;
+      transform: translateY(3px);
+      transition: opacity 90ms var(--ease), transform 90ms var(--ease);
+    }
+    .hover-popover.is-open { opacity: 1; transform: translateY(0); }
+    .hover-popover-hd { font-size: 11.5px; font-weight: 500; color: var(--tooltip-fg); margin-bottom: 4px; }
+    .hover-popover-body { font-size: 11px; color: var(--tooltip-sub); line-height: 1.58; }
+
+    /* 右侧操作组 */
     .s-row-ctrl { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
     .s-switch {
@@ -577,6 +707,17 @@
     .s-switch.on { background: var(--primary); }
     .s-switch.on::after { transform: translateX(14px); background: #FFFFFF; }
 
+    /* 常驻开启锁定态开关：灰蓝色（明确表示已开启，仅锁定不可点击） */
+    .s-switch.is-locked {
+      background: var(--switch-locked-blue);
+      cursor: not-allowed;
+    }
+    .s-switch.is-locked::after {
+      transform: translateX(14px);
+      background: var(--switch-locked-knob);
+      box-shadow: none;
+    }
+
     .hero-card { padding: 13px 15px; display: flex; flex-direction: column; gap: 10px; }
     .hero-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
     .hero-left { display: flex; align-items: center; gap: 11px; min-width: 0; flex: 1; }
@@ -592,7 +733,7 @@
     .bak-head, .bak-row {
       padding: 9px 14px;
       display: grid;
-      grid-template-columns: minmax(150px, 196px) 84px 128px 56px 118px;
+      grid-template-columns: minmax(150px, 204px) 84px 128px 56px 118px;
       justify-content: space-between;
       column-gap: 8px;
       align-items: center;
@@ -625,9 +766,10 @@
     <div class="toolbar-group">
       <div class="seg-bar">
         <button type="button" id="btn-toggle-modal" class="seg-item active">工具设置：已打开</button>
+        <button type="button" id="btn-open-contact" class="seg-item">预览「联系作者」弹窗</button>
         <button type="button" id="btn-sim-alert" class="seg-item">模拟死 DNS 告警</button>
       </div>
-      <span class="toolbar-tip">点弹窗外任意区域可关闭，点左下角「工具设置」可重新弹出</span>
+      <span class="toolbar-tip">悬停 ⓘ 查看完整详解 · 点弹窗外或按 Esc 关闭 · 快捷键 Ctrl+, 切换</span>
     </div>
 
     <div class="toolbar-group">
@@ -649,7 +791,8 @@
       </div>
       <div class="chrome-right">
         <div class="chrome-ico-group">
-          <button type="button" title="开源交流与技术支持" class="chrome-btn" onclick="showToast('点击打开「开源交流与技术支持」弹窗')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/></svg></button>
+          <!-- 保留原版耳机客服符号，点击打开全新 X (Twitter) 联系作者弹窗 -->
+          <button id="chrome-x-btn" type="button" title="联系作者 · X (Twitter)" class="chrome-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/></svg></button>
           <button type="button" title="桌面悬浮窗" class="chrome-btn" onclick="showToast('切换桌面悬浮窗显隐')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="15" rx="2.8"/><rect x="12" y="8" width="6" height="4.5" rx="1" fill="currentColor" stroke="none"/></svg></button>
           <button type="button" title="桌面预警消息提醒" class="chrome-btn" onclick="showToast('切换普通预警静音状态')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg></button>
           <button id="chrome-theme-btn" type="button" title="切换深浅主题" class="chrome-btn"><svg width="13.5" height="13.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg></button>
@@ -662,7 +805,6 @@
     </header>
 
     <div class="shell-body">
-      <!-- 212px 左侧导航栏：4 主页面（含 AI 工具箱） + 底部状态卡 + 最左下角「工具设置」 -->
       <aside class="sidebar">
         <div>
           <nav class="nav-list">
@@ -726,7 +868,6 @@
             </div>
           </div>
 
-          <!-- 最左下角「工具设置」弹窗入口 -->
           <div style="padding-top: 6px; border-top: 1px solid var(--divider);">
             <button id="sidebar-settings-trigger" type="button" class="c-nav-item is-settings-open">
               <span class="nav-item-left">
@@ -739,7 +880,6 @@
         </div>
       </aside>
 
-      <!-- 背景控制台主工作区 -->
       <main class="main-bg">
         <div class="page-hd">
           <div class="page-hd-left">
@@ -784,7 +924,7 @@
           <div class="bg-console-right">
             <div class="c-card" style="padding: 16px;">
               <div style="font-size: 14px; font-weight: 500; color: var(--text-strong);">Clash Verge 代理与 TUN 模式</div>
-              <div style="font-size: 11.5px; color: var(--text-2); margin-top: 6px; line-height: 1.55;">所有必须项已全部通过，点击左下角「工具设置」可随时打开急救恢复与安全策略弹窗。</div>
+              <div style="font-size: 11.5px; color: var(--text-2); margin-top: 6px; line-height: 1.55;">所有必须项已全部通过，点击左下角「工具设置」可随时打开配置与清理恢复弹窗。</div>
               <div class="sub-box" style="margin-top: 12px;">
                 <div style="display: flex; justify-content: space-between; margin-bottom: 5px;"><span style="color: var(--text-3);">内核管道</span><span style="color: var(--text-1);">管道已连接</span></div>
                 <div style="display: flex; justify-content: space-between;"><span style="color: var(--text-3);">锁定策略组</span><span style="color: var(--text-1);">Claude-Fixed</span></div>
@@ -796,11 +936,7 @@
     </div>
 
     <!-- ==============================================================
-         居中双栏「工具设置」模态弹窗（去掉两大分组标题，扁平 4 项！）
-         顺序：1. 急救与恢复（急救/撤回/清理/快照/诊断）
-              2. 常规与自启（悬浮窗/通知/开机自启）
-              3. 安全策略（所有自动触发防护 + 手动紧急熔断）
-              4. 版本与更新
+         居中双栏「工具设置」模态弹窗
     ============================================================== -->
     <div id="settings-scrim" class="modal-scrim">
       <div class="settings-modal" role="dialog" aria-modal="true" aria-label="工具设置">
@@ -826,12 +962,13 @@
                 </span>
               </button>
 
+              <!-- 平时去掉数字 3 角标，仅死 DNS 故障时亮极克制红点 -->
               <button type="button" class="s-nav-item" data-stab="recovery">
                 <span class="s-nav-left">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5"/><line x1="5.6" y1="5.6" x2="9.5" y2="9.5"/><line x1="18.4" y1="5.6" x2="14.5" y2="9.5"/><line x1="18.4" y1="18.4" x2="14.5" y2="14.5"/><line x1="5.6" y1="18.4" x2="9.5" y2="14.5"/></svg>
-                  <span>急救撤回</span>
+                  <span>清理恢复</span>
                 </span>
-                <span id="nav-rescue-badge" class="s-nav-badge tabular">3</span>
+                <span id="nav-rescue-dot" class="nav-alert-dot"></span>
               </button>
 
               <button type="button" class="s-nav-item" data-stab="update">
@@ -852,8 +989,8 @@
         <section class="modal-main">
           <div class="modal-hd">
             <div class="modal-hd-left">
-              <h2 id="modal-panel-title" class="modal-hd-title">急救与恢复</h2>
-              <span id="modal-panel-sub" class="modal-hd-sub">网络急救、系统改动撤回、本地清理与历史快照</span>
+              <h2 id="modal-panel-title" class="modal-hd-title">安全策略</h2>
+              <span id="modal-panel-sub" class="modal-hd-sub">全链路 4 层纵深防护 · 悬停 ⓘ 查看详解</span>
             </div>
             <div class="modal-hd-right">
               <div id="modal-panel-actions" style="display: flex; align-items: center; gap: 6px;"></div>
@@ -871,7 +1008,68 @@
       </div>
     </div>
 
+    <!-- ==============================================================
+         全新 UI 3.0 「联系作者（X / Twitter）」名片弹窗（取代旧 QQ 弹窗）
+    ============================================================== -->
+    <div id="contact-scrim" class="contact-scrim is-hidden">
+      <div class="contact-modal" role="dialog" aria-modal="true" aria-label="联系作者">
+        <div class="contact-hd">
+          <div style="display: flex; align-items: center; gap: 11px; min-width: 0;">
+            <div class="contact-avatar">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+            </div>
+            <div style="min-width: 0;">
+              <div style="display: flex; align-items: center; gap: 7px;">
+                <span style="font-size: 14.5px; font-weight: 500; color: var(--text-strong);">联系作者</span>
+                <span class="c-pill c-pill-ok">免费开源</span>
+              </div>
+              <div style="font-size: 11px; color: var(--text-3); margin-top: 2px;">问题反馈、功能建议与版本动态</div>
+            </div>
+          </div>
+          <button id="contact-close-btn" type="button" aria-label="关闭联系作者" class="modal-close-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+          </button>
+        </div>
+
+        <div class="contact-body">
+          <div class="x-profile-card">
+            <div style="min-width: 0;">
+              <div style="font-size: 10.5px; color: var(--text-3); margin-bottom: 2px;">X（Twitter）官方账号</div>
+              <div class="x-handle">@CaesarLastKing</div>
+              <div class="x-url">x.com/CaesarLastKing</div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+              <button type="button" class="c-btn" onclick="showToast('已复制作者 X 账号：@CaesarLastKing')">复制账号</button>
+              <button type="button" class="c-btn-primary" onclick="showToast('正在浏览器打开 x.com/CaesarLastKing')">前往主页 ↗</button>
+            </div>
+          </div>
+
+          <div class="contact-kv">
+            <div class="contact-kv-row">
+              <span style="color: var(--text-3); flex-shrink: 0;">排障反馈</span>
+              <span style="color: var(--text-2); text-align: right;">可在「常规开关」导出脱敏诊断包后附带说明反馈</span>
+            </div>
+            <div class="contact-kv-row">
+              <span style="color: var(--text-3); flex-shrink: 0;">开源仓库</span>
+              <button type="button" class="c-btn-xs" onclick="showToast('正在打开 GitHub 仓库 CaesarLastKing/FD-ClaudeGuard')">GitHub · FD-ClaudeGuard ↗</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="contact-ft">
+          <span style="font-size: 11px; color: var(--text-3);">感谢使用与关注更新</span>
+          <button id="contact-close-ft" type="button" class="c-btn-xs">关闭</button>
+        </div>
+      </div>
+    </div>
+
     <div id="toast-anchor" class="toast-anchor"></div>
+  </div>
+
+  <!-- 全站统一 0ms 浮层解释气泡 -->
+  <div id="hover-popover" class="hover-popover" role="tooltip">
+    <div id="hover-popover-hd" class="hover-popover-hd"></div>
+    <div id="hover-popover-body" class="hover-popover-body"></div>
   </div>
 
   <script>
@@ -882,12 +1080,12 @@
       simulateAlert: false,
       killSwitchActive: false,
       rescueRan: false,
-      expanded: {},
       config: {
         showHud: true,
         notifyEnabled: true,
         bootStart: true,
         bootHudOnly: true,
+        autoUploadDiagLog: true,
         wakePreblockGuard: true,
         antiNakedGuard: true,
         autoKillSwitch: true,
@@ -898,10 +1096,10 @@
         killHoldSeconds: 45,
       },
       rollbackItems: [
-        { id: 'clash_rules', cat: 'Clash 规则', title: 'Claude-Fixed 策略组与分流规则', touched: true, cur: '已锁定 us美国1|流媒体AI', orig: '原始订阅默认分流', detail: '撤回时只移除本工具注入的分流段，100% 保留你后续新导入的机场订阅。' },
-        { id: 'ipv6_nic', cat: '系统网卡', title: '物理网卡 IPv6 防泄漏', touched: true, cur: '已关闭 IPv6（Ethernet）', orig: '系统默认开启', detail: '按首次修改前记录的网卡原始快照精准还原，不影响其他网络设置。' },
-        { id: 'browser_quic', cat: '浏览器', title: '禁用浏览器 QUIC 旁路', touched: true, cur: '已关闭 QUIC 协议', orig: '未写入该策略', detail: '仅删除本工具写入的注册表项，不触碰浏览器其他企业策略或书签数据。' },
-        { id: 'dns_doh', cat: '系统 DNS', title: '物理网卡 DNS 基线', touched: false, cur: '自动获取（DHCP）', orig: '自动获取（DHCP）', detail: '当前状态与原始基线一致，无需撤回。' },
+        { id: 'clash_rules', cat: 'Clash 规则', title: 'Claude-Fixed 策略组与分流规则', touched: true, cur: '已锁定 us美国1|流媒体AI', orig: '原始订阅默认分流', full: '当前已锁定至「us美国1|流媒体AI」，原始基线为订阅默认分流。撤回时仅移除本工具写入的分流注入段与 14 条遥测拦截，100% 保留你后续新导入的所有机场订阅与个人规则。' },
+        { id: 'ipv6_nic', cat: '系统网卡', title: '物理网卡 IPv6 防泄漏', touched: true, cur: '已关闭 IPv6（Ethernet）', orig: '系统默认开启', full: '当前物理网卡（Ethernet）已禁用 IPv6 绑定以防绕过代理泄漏真实地址；撤回将按首次修改前锁定的系统基线精准恢复原状，不影响其他网卡设置。' },
+        { id: 'browser_quic', cat: '浏览器', title: '禁用浏览器 QUIC 旁路', touched: true, cur: '已关闭 QUIC 协议', orig: '未写入该策略', full: '当前已写入 Chromium QuicAllowed=0 防止 UDP 绕过代理；撤回时只清理本工具写入的单个键值，绝不触碰浏览器书签、密码或其他企业策略。' },
+        { id: 'dns_doh', cat: '系统 DNS', title: '物理网卡 DNS 基线', touched: false, cur: '自动获取（DHCP）', orig: '自动获取（DHCP）', full: '当前物理网卡 DNS 与首次基线一致（自动获取 DHCP），未产生任何改动，无需撤回。' },
       ],
       backups: [
         { file: 'claude-clean-20261126-194218.zip', kind: '清理前备份', time: '2026-11-26 19:42:18', size: '18.4 MB' },
@@ -911,11 +1109,13 @@
     };
 
     const PANEL_META = {
-      general: { title: '常规开关', sub: '悬浮窗、系统通知与开机自启检查' },
-      policy: { title: '安全策略', sub: '按 4 层纵深防护排列：入口拦截 → 出口锁定 → 异常熔断 → 防回传防复活' },
-      recovery: { title: '急救撤回', sub: '网络急救、系统改动撤回、本地清理与历史快照' },
+      general: { title: '常规开关', sub: '悬浮窗、开机自启与诊断日志隐私设置' },
+      policy: { title: '安全策略', sub: '全链路 4 层纵深防护 · 悬停 ⓘ 查看详解' },
+      recovery: { title: '清理恢复', sub: '' },
       update: { title: '版本更新', sub: '官方签名更新通道，优先走本机代理' },
     };
+
+    const TIP_MAP = {};
 
     function showToast(msg) {
       const anchor = document.getElementById('toast-anchor');
@@ -924,20 +1124,13 @@
       window.__toastT = setTimeout(() => { anchor.innerHTML = ''; }, 2400);
     }
 
-    function descBlockHtml(id, shortText, extraText) {
-      const isOpen = !!state.expanded[id];
-      const hasExtra = !!extraText;
+    function infoIconHtml(id, title, fullText) {
+      if (!fullText) return '';
+      TIP_MAP[id] = { title, body: fullText };
       return `
-        <div class="desc-line ${isOpen ? 'is-expanded' : ''}" data-desc-wrap="${id}">
-          <span class="desc-text" data-desc-text="${id}">${shortText}</span>
-          ${hasExtra ? `
-            <button type="button" class="desc-more-btn" data-expand-id="${id}">
-              <span>${isOpen ? '收起' : '详情'}</span>
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="transform: rotate(${isOpen ? 180 : 0}deg); transition: transform 140ms;"><polyline points="6 9 12 15 18 9"/></svg>
-            </button>
-          ` : `<button type="button" class="desc-more-btn" data-expand-id="${id}" data-auto-overflow="true" style="display:none;"><span>${isOpen ? '收起' : '展开'}</span></button>`}
-        </div>
-        ${hasExtra && isOpen ? `<div class="desc-extra">${extraText}</div>` : ''}
+        <button type="button" class="info-trigger" data-tip-id="${id}" aria-label="查看「${title}」详细说明">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.5"/><line x1="12" y1="16" x2="12" y2="11.5"/><circle cx="12" cy="8.2" r="0.6" fill="currentColor"/></svg>
+        </button>
       `;
     }
 
@@ -945,13 +1138,16 @@
       const checked = !!state.config[key];
       const disabled = !!opts.disabled;
       const badgeEl = badge
-        ? `<span class="c-pill ${badge.tone === 'ok' ? 'c-pill-ok' : badge.tone === 'warn' ? 'c-pill-warn' : 'c-pill-neutral'}">${badge.text}</span>`
+        ? `<span class="c-pill c-pill-policy ${badge.tone === 'ok' ? 'c-pill-ok' : badge.tone === 'warn' ? 'c-pill-warn' : 'c-pill-neutral'}">${badge.text}</span>`
         : '';
       return `
-        <div class="s-row ${disabled ? 'is-disabled' : 'is-clickable'} ${opts.sub ? 'is-sub' : ''}" data-toggle-key="${key}" data-toggle-label="${title}" data-disabled="${disabled}">
+        <div class="s-row ${disabled ? 'is-disabled' : 'is-clickable'}" data-toggle-key="${key}" data-toggle-label="${title}" data-disabled="${disabled}">
           <div class="s-row-info">
-            <div class="s-row-title">${title}</div>
-            ${descBlockHtml('sw_' + key, shortDesc, opts.extra)}
+            <div class="s-row-top">
+              <span class="s-row-title">${title}</span>
+              ${infoIconHtml('sw_' + key, title, opts.full)}
+            </div>
+            <div class="s-row-desc">${shortDesc}</div>
           </div>
           <div class="s-row-ctrl">
             ${badgeEl}
@@ -961,24 +1157,268 @@
       `;
     }
 
+    // 常驻开启项：灰蓝色锁定开关（一眼识别为已开启但不可点击）
+    function builtinRowHtml(id, title, shortDesc, fullDesc) {
+      return `
+        <div class="s-row is-builtin">
+          <div class="s-row-info">
+            <div class="s-row-top">
+              <span class="s-row-title">${title}</span>
+              ${infoIconHtml('bi_' + id, title + '（系统常驻开启）', fullDesc)}
+            </div>
+            <div class="s-row-desc">${shortDesc}</div>
+          </div>
+          <div class="s-row-ctrl">
+            <span class="c-pill c-pill-muted c-pill-policy">常驻开启</span>
+            <button type="button" role="switch" aria-checked="true" disabled title="系统核心防线，常驻开启不可关闭" class="s-switch is-locked"></button>
+          </div>
+        </div>
+      `;
+    }
+
+    function scrollToBlock(blockId) {
+      const el = document.getElementById(blockId);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
     function renderPanel() {
       const meta = PANEL_META[state.tab];
       document.getElementById('modal-panel-title').textContent = meta.title;
-      document.getElementById('modal-panel-sub').textContent = meta.sub;
-
+      const subEl = document.getElementById('modal-panel-sub');
       const actionsEl = document.getElementById('modal-panel-actions');
       const bodyEl = document.getElementById('modal-scroll-body');
       actionsEl.innerHTML = '';
 
       if (state.tab === 'recovery') {
-        const touchedCount = state.rollbackItems.filter(x => x.touched).length;
-        actionsEl.innerHTML = `
-          <button type="button" class="c-btn-xs" onclick="showToast('已打开本地运行日志目录')">日志目录</button>
-          <button type="button" class="c-btn-xs" onclick="showToast('已导出脱敏 AI 诊断包并复制排障提示词')">导出 AI 诊断包</button>
+        subEl.innerHTML = `
+          <span class="anchor-links">
+            <button type="button" class="anchor-btn" onclick="scrollToBlock('blk-rescue')">网络急救</button>·
+            <button type="button" class="anchor-btn" onclick="scrollToBlock('blk-rollback')">配置撤回</button>·
+            <button type="button" class="anchor-btn" onclick="scrollToBlock('blk-clean')">本地清理</button>·
+            <button type="button" class="anchor-btn" onclick="scrollToBlock('blk-backup')">历史快照</button>
+          </span>
         `;
+      } else {
+        subEl.textContent = meta.sub;
+      }
+
+      if (state.tab === 'general') {
         bodyEl.innerHTML = `
-          <!-- 区块 1：网络急救（已融合原防自锁救援） -->
           <div>
+            <div class="sec-hd">
+              <span class="sec-title">悬浮窗、通知与开机自启</span>
+              <span class="sec-note">苔绿标建议保持开启</span>
+            </div>
+            <div class="c-card">
+              ${switchHtml('showHud', '显示桌面悬浮状态窗', '桌面常驻小卡片看节点与流量，支持拖拽和靠右贴边', { text: '推荐开启', tone: 'ok' }, { full: '开启后在桌面显示轻量悬浮状态窗，实时查看出口节点、日志与流量异常；支持任意位置拖拽、靠右贴边隐藏和双击顶栏折叠，与主窗口顶栏及托盘开关实时同步。' })}
+              ${switchHtml('notifyEnabled', '桌面预警消息提醒', '悬浮窗隐藏时发系统通知提醒，危急熔断不受静音影响', { text: '推荐开启', tone: 'ok' }, { full: '当悬浮窗隐藏或贴边收起时，通过 Windows 原生通知推送预警；关闭此开关仅静音普通预警，遇到防火墙熔断或防裸奔拦截仍会强制强提醒。' })}
+              ${switchHtml('bootStart', '开机自动启动 FD Claude 安全启动器', '随系统开机在后台静默启动，先于 Claude 建立代理保护', { text: '推荐开启', tone: 'ok' }, { full: '通过 Windows 高权限计划任务随开机静默启动守护引擎，确保在打开 Claude 之前就已建立防裸奔与网络监听。' })}
+              ${switchHtml('bootHudOnly', '开机时仅显示桌面悬浮窗', state.config.bootStart ? '开机不弹出大窗口，只在桌面安静显示悬浮状态卡（依赖开机自启）' : '需先开启上方「开机自动启动」后才可配置此项', { text: '推荐开启', tone: 'ok' }, { disabled: !state.config.bootStart })}
+            </div>
+          </div>
+
+          <div>
+            <div class="sec-hd">
+              <span class="sec-title">开机启动项检查</span>
+              <span class="sec-note">仅只读检测，绝不擅自删除你的系统启动项</span>
+            </div>
+            <div class="c-card">
+              <div class="s-row">
+                <div class="s-row-info">
+                  <div class="s-row-title">Clash Verge</div>
+                  <div class="s-row-desc">建议开启 · 让代理早于 Claude 启动，避免开机直连</div>
+                </div>
+                <span class="c-pill c-pill-ok c-pill-fixed">已开启</span>
+              </div>
+              <div class="s-row">
+                <div class="s-row-info">
+                  <div class="s-row-title">Claude Desktop</div>
+                  <div class="s-row-desc">建议关闭 · 防止早于代理抢跑启动导致真实 IP 暴露</div>
+                </div>
+                <span class="c-pill c-pill-ok c-pill-fixed">未开启</span>
+              </div>
+              <div class="s-row">
+                <div class="s-row-info">
+                  <div class="s-row-title">FD Claude 安全启动器</div>
+                  <div class="s-row-desc">建议开启 · 随系统后台静默守护，第一时间拦截风险</div>
+                </div>
+                <span class="c-pill c-pill-ok c-pill-fixed">已开启</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 新增：诊断日志与隐私（集中承载日志上传开关、主动上传、脱敏规则、导出AI诊断包与日志目录） -->
+          <div>
+            <div class="sec-hd">
+              <span class="sec-title">诊断日志与隐私</span>
+              <span class="sec-note">上报与导出前自动全量脱敏，绝不碰对话与代码</span>
+            </div>
+            <div class="c-card">
+              ${switchHtml('autoUploadDiagLog', '允许自动上传脱敏诊断日志', '异常报错或命中风控特征时自动上报脱敏摘要，协助持续优化防封规则', { text: '默认开启', tone: 'ok' }, { full: '开启后仅在发生程序异常、规则漂移或风控特征命中时上传匿名脱敏摘要。脱敏规则：强制打码邮箱、账号 Cookie、sk 密钥、本机用户名与完整路径，绝不采集任何对话正文、项目代码或节点订阅链接；可随时关闭。' })}
+              ${builtinRowHtml('diag_mask', '敏感信息自动脱敏处理', '自动打码邮箱、Cookie、密钥与本机路径，不采集对话与代码', '所有日志上传与 AI 诊断包导出均强制经过本地脱敏引擎，自动替换邮箱、sk-ant 密钥、Session Cookie、组织 ID 原文与 Windows 用户名路径，无法关闭。')}
+              <div class="s-row">
+                <div class="s-row-info">
+                  <div class="s-row-top">
+                    <span class="s-row-title">手动排查与日志工具</span>
+                    ${infoIconHtml('diag_tools', '手动排查与日志工具', '主动上传：立即将最近脱敏运行日志提交给开发者定位问题；导出 AI 诊断包：打包近 7 天脱敏日志并复制排障提示词；日志目录：打开本机结构化 JSONL 日志文件夹。')}
+                  </div>
+                  <div class="s-row-desc">遇到疑难排障时可手动上传脱敏日志、导出诊断包或查看本机日志</div>
+                </div>
+                <div class="s-row-ctrl">
+                  <button type="button" class="c-btn-xs" onclick="showToast('已打开本地运行日志目录')">日志目录</button>
+                  <button type="button" class="c-btn-xs" onclick="showToast('已导出脱敏 AI 诊断包并复制排障提示词')">导出 AI 诊断包</button>
+                  <button type="button" class="c-btn-xs" style="color: var(--primary); border-color: var(--primary-border); background: var(--primary-soft);" onclick="showToast('已完成本地脱敏校验并上传诊断摘要（编号 #FD-8492）')">主动上传</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+      } else if (state.tab === 'policy') {
+        bodyEl.innerHTML = `
+          <!-- 上方独立卡片：核心特色与 4 步运行流程介绍 -->
+          <div class="flow-card">
+            <div class="flow-hd">
+              <span class="flow-title">
+                <svg width="13.5" height="13.5" style="color: var(--primary);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                <span>核心特色 · 4 层纵深防护与 2 秒热熔断闭环</span>
+              </span>
+              <span class="flow-sub">灰蓝开关为系统常驻 · 亮蓝开关可按需调节</span>
+            </div>
+            <div class="flow-steps">
+              <div class="flow-step">
+                <div class="flow-step-top"><span class="flow-step-num tabular">1</span><span>启动前拦裸奔</span></div>
+                <div class="flow-step-desc">必须项未全绿禁止直连</div>
+              </div>
+              <div class="flow-arrow"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 12h14m-5-5 5 5-5 5"/></svg></div>
+              <div class="flow-step">
+                <div class="flow-step-top"><span class="flow-step-num tabular">2</span><span>运行中锁链路</span></div>
+                <div class="flow-step-desc">业务域入 Fixed + 查脱组</div>
+              </div>
+              <div class="flow-arrow"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 12h14m-5-5 5 5-5 5"/></svg></div>
+              <div class="flow-step is-accent">
+                <div class="flow-step-top"><span class="flow-step-num tabular">3</span><span>2 秒自动热熔断</span></div>
+                <div class="flow-step-desc">掐流 + 防火墙封出站</div>
+              </div>
+              <div class="flow-arrow"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 12h14m-5-5 5 5-5 5"/></svg></div>
+              <div class="flow-step">
+                <div class="flow-step-top"><span class="flow-step-num tabular">4</span><span>强杀防回传</span></div>
+                <div class="flow-step-desc">清遥测 + 250ms 盯防</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 下方独立区块：用户紧急措施（与介绍卡清晰分离） -->
+          <div>
+            <div class="sec-hd">
+              <div class="sec-hd-left">
+                <span class="sec-title">用户紧急措施</span>
+                <span class="c-pill ${state.killSwitchActive ? 'c-pill-fail' : 'c-pill-ok'}">${state.killSwitchActive ? '熔断封锁中' : '自动守护待命'}</span>
+              </div>
+              <span class="sec-note">自动检测并触发，极端异常时用户也可手动触发</span>
+            </div>
+            <div class="c-card hero-card" style="${state.killSwitchActive ? 'border-color: var(--bad-border);' : ''}">
+              <div class="hero-row">
+                <div class="hero-left">
+                  <div class="c-icon-box ${state.killSwitchActive ? 'is-bad' : 'is-primary'}">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="9.5" y1="9.5" x2="14.5" y2="14.5"/><line x1="14.5" y1="9.5" x2="9.5" y2="14.5"/></svg>
+                  </div>
+                  <div class="s-row-info">
+                    <div class="s-row-top">
+                      <span class="hero-title">4 层紧急熔断控制</span>
+                      ${infoIconHtml('hero_ks', '4 层紧急熔断控制', '平时由 L3 自动策略静默检测并触发；若你在极端异常时刻需要立即手动断网，点击右侧「手动触发熔断」将毫秒级掐断全部 Claude 连接、写入 Defender 防火墙阻断规则并开启防复活盯防。确认网络安全后点「解除熔断保护」恢复。')}
+                    </div>
+                    <div class="s-row-desc">${state.killSwitchActive ? '防火墙已封锁 Claude 全部出站并锁定防复活，确认网络恢复后可解除' : '一键强制掐断全部 Claude 连接、防火墙封死出站并启动防复活盯防'}</div>
+                  </div>
+                </div>
+                <button type="button" class="${state.killSwitchActive ? 'c-btn' : 'c-btn-danger-hero'}" onclick="state.killSwitchActive=!state.killSwitchActive; renderPanel(); showToast(state.killSwitchActive ? '已手动激活 4 层紧急熔断（掐流 + 防火墙封锁）' : '已解除防火墙熔断并恢复通信');">
+                  ${state.killSwitchActive ? '解除熔断保护' : '手动触发熔断'}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- L1：入口防线 -->
+          <div>
+            <div class="sec-hd">
+              <div class="sec-hd-left">
+                <span class="layer-tag tabular">L1</span>
+                <span class="sec-title">入口防线 · 启动前与切网拦截</span>
+              </div>
+              <span class="sec-note">先检门禁 → 再拦裸奔 → 再护唤醒切网</span>
+            </div>
+            <div class="c-card">
+              ${builtinRowHtml('preflight_gate', '启动前必须项硬门禁', '未通过代理、TUN、Fake-IP、IPv6、出口与卫生体检前锁定安全启动', '系统内置强门禁（不可关闭）：涵盖代理端口、Claude-Fixed 策略组、TUN 虚拟网卡、Fake-IP 防 DNS 泄漏、IPv6 禁用、出口合规与封号污染排查，全部通过后才放行「安全启动 Claude」。')}
+              ${switchHtml('antiNakedGuard', '防裸奔自动接管', '环境没全绿直接双击 Claude 时自动拦下并切回控制台', { text: '推荐开启', tone: 'ok' }, { full: '检测到你在启动前必须项未全绿时直接双击桌面原生 Claude 图标，500ms 内自动写入防火墙出站拦截并唤起控制台提示修复，彻底杜绝误点导致真实 IP 暴露。' })}
+              ${switchHtml('wakePreblockGuard', '休眠唤醒 / 切网 15 秒预阻断', '电脑醒来或切换网络时先暂停联网，等代理稳了自动放行', { text: '推荐开启', tone: 'ok' }, { full: '监听笔记本合盖唤醒或切换 Wi-Fi 瞬间，先挂上最长 15 秒临时出站保护；待 Clash 命名管道、TUN 虚拟网卡与白名单节点全部复测通过后毫秒级自动放行，超时未恢复自动转入熔断。' })}
+            </div>
+          </div>
+
+          <!-- L2：链路防线 -->
+          <div>
+            <div class="sec-hd">
+              <div class="sec-hd-left">
+                <span class="layer-tag tabular">L2</span>
+                <span class="sec-title">链路防线 · 业务域锁 Fixed 与防串线</span>
+              </div>
+              <span class="sec-note">同步业务域 → 锁盾/支付 → 实时查脱组 → 敏感期锁区</span>
+            </div>
+            <div class="c-card">
+              ${builtinRowHtml('rule_sync', '业务域名与桥接进程自动同步至 Claude-Fixed', '自动把 Claude 全家桶域名、KYC 域与桥接进程更新至 Fixed，并屏蔽 14 条遥测域', '系统内置规则引擎（不可关闭）：无损增量更新 Clash 覆写脚本 Script.js（保留你自定义的 AGY/Google 规则），自动将 claude.ai、api.anthropic.com、anthropic.org、clau.de、withpersona.com 及 Claude/chrome-native-host 进程锁死在手动策略组 Claude-Fixed，并在规则层 REJECT 拦截 14 条第三方纯遥测域名（Sentry/Datadog/Statsig/Segment 等）。')}
+              ${switchHtml('lockCfAndStripeToClaude', '同步锁定人机盾与 Stripe 支付至 Claude-Fixed', '网页弹盾或升级付费时也走同一个 Claude 节点，切换自动热同步', { text: '推荐开启', tone: 'ok' }, { full: '将 challenges.cloudflare.com、stripe.com、stripe.network 同步写入 Claude-Fixed 规则并即时热生效，防止弹盾或绑卡付费发生双 IP 串线；若同时使用 ChatGPT 等其他 CF 站点，建议将主代理组与 Claude-Fixed 选同一节点，或按需关闭此项。' })}
+              ${builtinRowHtml('flow_drift', '实时连接脱组监测与落地 IP 漂移审计', '持续盯防 Claude 实时连接流，抓出脱组直连、禁区落地与未收录新域', '系统内置实时雷达（不可关闭）：毫秒级扫描 Mihomo 活跃连接，识别走 DIRECT 或脱出 Claude-Fixed 的异常连接并标红告警，同步比对历史落地 IP 检测静默换区，并自动标出 Claude.exe 发起的未收录新域。')}
+              ${switchHtml('calm24h', '新号 / 刚付费 24h 冷静保护', '新号或刚付费前 24 小时禁切节点、加强 401/403 监控', { text: '按需开启', tone: 'neutral' }, { full: '用于新注册账号或刚升级付费后的前 24 小时审核敏感期：开启后切换节点将弹出高危拦截确认，并提高 401/403 与高并发监控级别，助你平稳度过异步风控审核。' })}
+            </div>
+          </div>
+
+          <!-- L3：断流防线 -->
+          <div>
+            <div class="sec-hd">
+              <div class="sec-hd-left">
+                <span class="layer-tag tabular">L3</span>
+                <span class="sec-title">断流防线 · 实时监测与 2 秒热熔断</span>
+              </div>
+              <span class="sec-note">先监测发现 → 再 2 秒自动掐流封出站</span>
+            </div>
+            <div class="c-card">
+              ${builtinRowHtml('dual_engine', '事件驱动 + 15 分钟全量巡检双引擎', '断连/关 TUN/切网毫秒级响应，后台每 15 分钟自动复测外网与官方状态', '系统内置双引擎调度（不可关闭）：代理断连、网卡切换、休眠唤醒与高危日志报错均毫秒级即时响应；后台每 15 分钟静默复测一次外网出口、DNS 与 Anthropic 官方服务状态页，第一时间区分官方宕机与本地风控。')}
+              ${switchHtml('autoKillSwitch', '异常自动紧急断流（4 层热熔断）', '代理断开、关 TUN、脱组或切禁区时，2 秒内切断全部 Claude 出站', { text: '推荐开启', tone: 'ok' }, { full: 'Claude 运行中一旦检测到代理意外离线、TUN 关闭、节点切入禁区或流量脱组，2 秒内自动触发 4 层热熔断：立刻通过 Clash 掐断现有连接，同时写入 Windows Defender 规则 FDClaudeGuard_KillSwitch_* 封死出站，100% 止损。' })}
+            </div>
+          </div>
+
+          <!-- L4：收口防线 -->
+          <div>
+            <div class="sec-hd">
+              <div class="sec-hd-left">
+                <span class="layer-tag tabular">L4</span>
+                <span class="sec-title">收口防线 · 防回传、进程防复活与自愈留痕</span>
+              </div>
+              <span class="sec-note">清队列 → 防复活 → 事务押运 → 退出防呆 → 归因审计</span>
+            </div>
+            <div class="c-card">
+              ${switchHtml('antiUploadFlush', '熔断恢复前强杀并清遥测缓存', '恢复联网前先杀进程清空待发缓存，防止风险记录补发', { text: '仅熔断生效', tone: 'neutral' }, { full: '仅在触发熔断后生效：恢复网络前先直接强杀 Claude 进程（跳过客户端正常退出时的清理上报钩子），并清空 ~/.claude/telemetry/ 离线缓存，避免断网期间积攒的报错记录在重连瞬间集中补发给 Anthropic。' })}
+              <div class="s-row">
+                <div class="s-row-info">
+                  <div class="s-row-top">
+                    <span class="s-row-title">强杀防复活盯防时长（Kill-Hold）</span>
+                    ${infoIconHtml('kill_hold', '强杀防复活盯防时长（Kill-Hold）', '每次手动或自动强杀 Claude 后，后台以 250ms 频率盯防全部关联进程树（含 MSIX 与 Chrome 桥接宿主），冒头即强杀并自动顺延 +15 秒；点击「安全启动 Claude」前会自动优雅释放。')}
+                  </div>
+                  <div class="s-row-desc">强杀 Claude 后持续盯防，防止后台悄悄自启复活</div>
+                </div>
+                <div class="seg-bar" style="flex-shrink: 0;">
+                  ${[30, 45, 60].map(s => `<button type="button" data-hold-secs="${s}" class="seg-item tabular ${state.config.killHoldSeconds === s ? 'active' : ''}">${s}s</button>`).join('')}
+                </div>
+              </div>
+              ${builtinRowHtml('tx_hold_selfheal', '事务级押运锁与卸载 / 退出自愈', '清理备份与切节点全程防复活，正常退出与卸载自动清防火墙规则', '系统内置安全阀（不可关闭）：执行备份清理、快照还原或切节点期间自动锁死 Claude 进程防止文件占用或偷跑；正常退出确认或通过 Windows 卸载本软件时，自动清空所有 FDClaudeGuard_KillSwitch_* 防火墙规则与计划任务，绝不自锁电脑。')}
+              ${switchHtml('safeExitPrompt', '安全退出防呆提醒', '关闭工具或代理前，如果 Claude 仍在后台会弹窗提醒', { text: '推荐开启', tone: 'ok' }, { full: '准备关闭本启动器或停用代理前，若检测到 Claude 仍有后台残留进程，立即弹出防呆确认窗，支持一键先强杀再安全退出，避免工具退了但 Claude 还在后台裸连。' })}
+              ${builtinRowHtml('log_audit_mask', '72h 风控日志归因审计', '实时识别 401/403/429 与跨号污染并过滤无关噪音', '系统内置本地审计（不可关闭）：只读监听 Claude 本地日志，精准识别 401/403/429 限流、封号污染残留与跨 orgId 混号竞态，自动过滤合盖休眠与第三方 503 等无关噪音。')}
+            </div>
+          </div>
+        `;
+      } else if (state.tab === 'recovery') {
+        const touchedCount = state.rollbackItems.filter(x => x.touched).length;
+        bodyEl.innerHTML = `
+          <!-- 区块 1：网络急救 -->
+          <div id="blk-rescue">
             <div class="sec-hd">
               <div class="sec-hd-left">
                 <span class="sec-title">网络急救</span>
@@ -993,13 +1433,16 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5"/><line x1="5.6" y1="5.6" x2="9.5" y2="9.5"/><line x1="18.4" y1="5.6" x2="14.5" y2="9.5"/><line x1="18.4" y1="18.4" x2="14.5" y2="14.5"/><line x1="5.6" y1="18.4" x2="9.5" y2="14.5"/></svg>
                   </div>
                   <div class="s-row-info">
-                    <div class="hero-title">一键恢复上网与防自锁救援</div>
-                    ${descBlockHtml('rescue_desc', '关代理/关 TUN 断网、导不了订阅或防火墙残留锁死时一键修复', '依次执行 4 步：① 重置残留 127.0.0.1 死 DNS 为 DHCP；② 关闭失效本地代理；③ 清空本工具写入的全部防火墙阻断规则；④ 刷新 DNS 并实测国内直连。正常项自动跳过零副作用。')}
+                    <div class="s-row-top">
+                      <span class="hero-title">一键恢复上网与防自锁救援</span>
+                      ${infoIconHtml('rescue_desc', '一键网络急救（4 步）', '依次执行 4 步并自动跳过正常项：① 重置物理网卡残留的 127.0.0.1 死 DNS 为 DHCP；② 关闭指向死端口的失效系统代理；③ 清空本工具写入的全部防火墙阻断规则；④ 刷新 DNS 缓存并现场实测国内直连。')}
+                    </div>
+                    <div class="s-row-desc">关代理/关 TUN 断网、导不了订阅或防火墙残留锁死时一键修复</div>
                   </div>
                 </div>
                 <div class="hero-actions">
                   <button type="button" class="c-btn" onclick="showToast('已仅清空本工具写入的全部防火墙阻断规则')">仅清防火墙</button>
-                  <button type="button" class="${state.simulateAlert ? 'c-btn-danger' : 'c-btn-primary'}" onclick="state.rescueRan=true; state.simulateAlert=false; syncAlertUI(); renderPanel(); showToast('网络急救完成：DNS、代理与防火墙已恢复，国内直连正常');">
+                  <button type="button" class="${state.simulateAlert ? 'c-btn-danger-hero' : 'c-btn-primary'}" onclick="state.rescueRan=true; state.simulateAlert=false; syncAlertUI(); renderPanel(); showToast('网络急救完成：DNS、代理与防火墙已恢复，国内直连正常');">
                     一键网络急救
                   </button>
                 </div>
@@ -1013,16 +1456,16 @@
             </div>
           </div>
 
-          <!-- 区块 2：系统改动撤回 -->
-          <div>
+          <!-- 区块 2：配置撤回 -->
+          <div id="blk-rollback">
             <div class="sec-hd">
               <div class="sec-hd-left">
-                <span class="sec-title">系统改动撤回</span>
+                <span class="sec-title">配置撤回</span>
                 <span class="c-pill c-pill-neutral tabular">已改动 ${touchedCount} 项</span>
               </div>
               <div style="display: flex; align-items: center; gap: 6px;">
                 <button type="button" class="c-btn-xs" onclick="showToast('已刷新系统与 Clash 原始基线状态')">刷新</button>
-                <button type="button" class="c-btn-xs" ${touchedCount === 0 ? 'disabled' : ''} onclick="showToast('将打开确认窗，按安全顺序撤回全部 ${touchedCount} 项改动')">
+                <button type="button" class="c-btn-xs" ${touchedCount === 0 ? 'disabled' : ''} onclick="showToast('将打开确认窗，按安全顺序撤回全部 ${touchedCount} 项配置改动')">
                   撤回全部 (${touchedCount})
                 </button>
               </div>
@@ -1034,13 +1477,14 @@
                     <div class="s-row-top">
                       <span class="c-pill c-pill-neutral">${item.cat}</span>
                       <span class="s-row-title">${item.title}</span>
+                      ${infoIconHtml('rb_' + item.id, item.title, item.full)}
                     </div>
-                    ${descBlockHtml('rb_' + item.id, `当前：${item.cur}  |  原态：${item.orig}`, item.detail)}
+                    <div class="s-row-desc">当前：${item.cur}  |  原态：${item.orig}</div>
                   </div>
                   <div class="s-row-ctrl">
-                    ${item.touched ? '<span class="c-pill c-pill-warn">可撤回</span>' : '<span class="c-pill c-pill-ok">未改动</span>'}
-                    <button type="button" class="c-btn-xs" ${item.touched ? '' : 'disabled'} onclick="showToast('已打开「${item.title}」撤回确认窗')">
-                      ${item.touched ? '撤回' : '无需撤回'}
+                    ${item.touched ? '<span class="c-pill c-pill-warn c-pill-fixed">可撤回</span>' : '<span class="c-pill c-pill-ok c-pill-fixed">未改动</span>'}
+                    <button type="button" class="c-btn-xs fixed-w" ${item.touched ? '' : 'disabled'} title="${item.touched ? '按首次基线精准撤回此项' : '与原始基线一致，无需撤回'}" onclick="showToast('已打开「${item.title}」撤回确认窗')">
+                      撤回
                     </button>
                   </div>
                 </div>
@@ -1049,7 +1493,7 @@
           </div>
 
           <!-- 区块 3：本地清理 -->
-          <div>
+          <div id="blk-clean">
             <div class="sec-hd">
               <span class="sec-title">本地清理</span>
               <span class="sec-note">均不触碰项目代码与云端对话记录</span>
@@ -1057,8 +1501,11 @@
             <div class="c-card">
               <div class="s-row">
                 <div class="s-row-info">
-                  <div class="s-row-title">强杀并清待上传遥测缓存</div>
-                  ${descBlockHtml('cl_tel', '仅终止进程并清本机待上传遥测，保留登录态', '仅在代理突然断线或节点漂移等紧急时刻使用；会中断正在生成的对话。清理路径：~/.claude/telemetry/')}
+                  <div class="s-row-top">
+                    <span class="s-row-title">强杀并清待上传遥测缓存</span>
+                    ${infoIconHtml('cl_tel', '强杀并清待上传遥测缓存', '仅在代理突然断线或节点漂移等紧急时刻使用：立即强杀 Claude 进程丢弃内存中待发事件，并清空 ~/.claude/telemetry/ 离线缓存；会中断正在生成的当前对话，不影响登录态、项目代码与云端记录。')}
+                  </div>
+                  <div class="s-row-desc">仅终止进程并清本机待上传遥测，保留登录态</div>
                 </div>
                 <div class="s-row-ctrl">
                   <span class="c-pill c-pill-warn">仅应急</span>
@@ -1067,8 +1514,11 @@
               </div>
               <div class="s-row">
                 <div class="s-row-info">
-                  <div class="s-row-title">退出登录并清理本地污染目录</div>
-                  ${descBlockHtml('cl_full', '先自动打包备份，再清空本机登录态与污染目录', '自动覆盖经典安装目录（已识别）、微软商店 MSIX（未安装，后续自动纳入）与 ~/.claude/telemetry/；备份保存在 ~/FDtools-Backups/。')}
+                  <div class="s-row-top">
+                    <span class="s-row-title">退出登录并清理本地污染目录</span>
+                    ${infoIconHtml('cl_full', '退出登录并清理本地污染目录', '不碰项目代码与云端对话：先彻底结束 Claude 进程并自动打包备份至 ~/FDtools-Backups/，再清空经典安装目录（已识别）、微软商店 MSIX（未安装，后续自动纳入）的本地登录态 Cookie 与遥测目录。')}
+                  </div>
+                  <div class="s-row-desc">先自动打包备份，再清空本机登录态与污染目录</div>
                 </div>
                 <div class="s-row-ctrl">
                   <button type="button" class="c-btn-xs" onclick="showToast('已创建手动 ZIP 快照')">仅备份快照</button>
@@ -1079,7 +1529,7 @@
           </div>
 
           <!-- 区块 4：历史备份快照 -->
-          <div>
+          <div id="blk-backup">
             <div class="sec-hd">
               <div class="sec-hd-left">
                 <span class="sec-title">历史备份快照</span>
@@ -1106,159 +1556,66 @@
             </div>
           </div>
         `;
-      } else if (state.tab === 'general') {
-        bodyEl.innerHTML = `
-          <div>
-            <div class="sec-hd">
-              <span class="sec-title">悬浮窗、通知与开机自启</span>
-              <span class="sec-note">苔绿标建议保持开启</span>
-            </div>
-            <div class="c-card">
-              ${switchHtml('showHud', '显示桌面悬浮状态窗', '桌面常驻小卡片看节点与流量，支持拖拽和靠右贴边', { text: '推荐开启', tone: 'ok' }, { extra: '与主窗口右上角悬浮窗开关、系统托盘菜单实时同步，双击悬浮窗顶栏可折叠。' })}
-              ${switchHtml('notifyEnabled', '桌面预警消息提醒', '悬浮窗隐藏时通过系统通知提醒，危急熔断不受静音影响', { text: '推荐开启', tone: 'ok' }, { extra: '关闭后仅静音普通提醒；触发熔断或防裸奔拦截时仍会强制弹出警告。' })}
-              ${switchHtml('bootStart', '开机自动启动 FD Claude 安全启动器', '随系统开机在后台静默启动，先于 Claude 建立代理保护', { text: '推荐开启', tone: 'ok' })}
-              ${switchHtml('bootHudOnly', '开机时仅显示桌面悬浮窗', '开机不弹出大窗口，只在桌面安静显示悬浮状态卡', { text: '推荐开启', tone: 'ok' }, { sub: true, disabled: !state.config.bootStart })}
-            </div>
-          </div>
-
-          <div>
-            <div class="sec-hd">
-              <span class="sec-title">开机启动项检查</span>
-              <span class="sec-note">仅只读检测，绝不擅自删除你的启动项</span>
-            </div>
-            <div class="c-card">
-              <div class="s-row">
-                <div class="s-row-info">
-                  <div class="s-row-title">Clash Verge</div>
-                  ${descBlockHtml('st_clash', '已开启自启，保证代理先于 Claude 就绪')}
-                </div>
-                <span class="c-pill c-pill-ok">已开启自启</span>
-              </div>
-              <div class="s-row">
-                <div class="s-row-info">
-                  <div class="s-row-title">Claude Desktop</div>
-                  ${descBlockHtml('st_claude', '未开启自启，避免开机瞬间绕过代理直连')}
-                </div>
-                <span class="c-pill c-pill-ok">未开启</span>
-              </div>
-              <div class="s-row">
-                <div class="s-row-info">
-                  <div class="s-row-title">FD Claude 安全启动器</div>
-                  ${descBlockHtml('st_fd', '已加入开机后台守护计划任务')}
-                </div>
-                <span class="c-pill c-pill-ok">已开启自启</span>
-              </div>
-            </div>
-          </div>
-        `;
-      } else if (state.tab === 'policy') {
-        bodyEl.innerHTML = `
-          <!-- L1：启动前与切网入口防线 -->
-          <div>
-            <div class="sec-hd">
-              <div class="sec-hd-left">
-                <span class="layer-tag tabular">L1</span>
-                <span class="sec-title">入口防线 · 启动前与切网拦截</span>
-              </div>
-              <span class="sec-note">阻止未就绪裸连与唤醒瞬时直连</span>
-            </div>
-            <div class="c-card">
-              ${switchHtml('antiNakedGuard', '防裸奔自动接管', '环境没全绿直接双击 Claude 时自动拦下并切回控制台', { text: '推荐开启', tone: 'ok' }, { extra: '500ms 内写入防火墙出站拦截并唤起控制台提示修复，避免误点桌面原生图标导致真实 IP 暴露。' })}
-              ${switchHtml('wakePreblockGuard', '休眠唤醒 / 切网 15 秒预阻断', '电脑醒来或切换网络时先暂停联网，等代理稳了自动放行', { text: '推荐开启', tone: 'ok' }, { extra: '最多临时拦截 15 秒；待 Clash 管道、TUN 与白名单节点复测通过后毫秒级放行，超时未恢复自动转入熔断保护。' })}
-            </div>
-          </div>
-
-          <!-- L2：运行中链路锁定与行为降噪 -->
-          <div>
-            <div class="sec-hd">
-              <div class="sec-hd-left">
-                <span class="layer-tag tabular">L2</span>
-                <span class="sec-title">链路防线 · 出口锁定与冷静期</span>
-              </div>
-              <span class="sec-note">防止跨节点双 IP 串线与高频切区</span>
-            </div>
-            <div class="c-card">
-              ${switchHtml('lockCfAndStripeToClaude', '锁定人机盾与 Stripe 支付节点', '网页弹盾或升级付费时与 Claude 保持同一出口节点', { text: '推荐开启', tone: 'ok' }, { extra: '同步锁定 Cloudflare 与 Stripe 至 Claude-Fixed；若你同时在浏览器用 ChatGPT 等其他 CF 站点，建议将主代理组与 Claude-Fixed 选同一节点，或按需关闭此项。' })}
-              ${switchHtml('calm24h', '新号 / 刚付费 24h 冷静保护', '新号或刚付费前 24 小时禁切节点、加强 401/403 监控', { text: '按需开启', tone: 'neutral' }, { extra: '用于平稳度过支付反欺诈异步审核期：开启后切节点会触发高危拦截确认。' })}
-            </div>
-          </div>
-
-          <!-- L3：异常瞬间热熔断 -->
-          <div>
-            <div class="sec-hd">
-              <div class="sec-hd-left">
-                <span class="layer-tag tabular">L3</span>
-                <span class="sec-title">断流防线 · 异常热熔断</span>
-              </div>
-              <span class="sec-note">代理断线、脱组或禁区漂移时毫秒级止损</span>
-            </div>
-            <div class="c-card">
-              ${switchHtml('autoKillSwitch', '异常自动紧急断流', '代理断开、关 TUN 或切禁区时，2 秒内切断全部 Claude 出站', { text: '推荐开启', tone: 'ok' }, { extra: '自动联动 Clash 掐断现有连接 + Windows 防火墙封锁出站，100% 阻止异常流量继续发出。' })}
-              <div class="s-row">
-                <div class="s-row-info">
-                  <div class="s-row-title">手动紧急熔断开关（4 层熔断）</div>
-                  ${descBlockHtml('manual_ks', '平时自动触发，极端异常时可手动一键封锁全部 Claude 出站', '立即掐断所有 Claude 连接、写入 Defender 规则 FDClaudeGuard_KillSwitch_* 并启动防复活盯防锁。')}
-                </div>
-                <div class="s-row-ctrl">
-                  <span class="c-pill ${state.killSwitchActive ? 'c-pill-fail' : 'c-pill-neutral'}">${state.killSwitchActive ? '封锁中' : '待命'}</span>
-                  <button type="button" class="${state.killSwitchActive ? 'c-btn-xs' : 'c-btn-danger-xs'}" onclick="state.killSwitchActive=!state.killSwitchActive; renderPanel(); showToast(state.killSwitchActive ? '已手动激活 4 层紧急熔断' : '已解除防火墙熔断并恢复通信');">
-                    ${state.killSwitchActive ? '解除熔断...' : '立即熔断'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- L4：事后防回传与防复活收口 -->
-          <div>
-            <div class="sec-hd">
-              <div class="sec-hd-left">
-                <span class="layer-tag tabular">L4</span>
-                <span class="sec-title">收口防线 · 防遥测回传与进程防复活</span>
-              </div>
-              <span class="sec-note">断流后清空待发队列，盯防进程静默自启</span>
-            </div>
-            <div class="c-card">
-              ${switchHtml('antiUploadFlush', '熔断恢复前强杀并清遥测缓存', '恢复联网前先杀进程清空待发缓存，防止风险记录补发', { text: '仅熔断生效', tone: 'neutral' }, { extra: '强杀跳过客户端正常退出钩子，并清空 ~/.claude/telemetry/ 离线待上报队列。' })}
-              ${switchHtml('safeExitPrompt', '安全退出防呆提醒', '关闭工具或代理前，如果 Claude 仍在后台会弹窗提醒', { text: '推荐开启', tone: 'ok' })}
-              <div class="s-row">
-                <div class="s-row-info">
-                  <div class="s-row-title">强杀防复活盯防时长（Kill-Hold）</div>
-                  ${descBlockHtml('kill_hold', '强杀 Claude 后持续盯防，防止后台悄悄自启复活', '每 250ms 监测一次进程树，冒头即强杀并自动顺延 +15s；点击「安全启动 Claude」前会自动释放。')}
-                </div>
-                <div class="seg-bar" style="flex-shrink: 0;">
-                  ${[30, 45, 60].map(s => `<button type="button" data-hold-secs="${s}" class="seg-item tabular ${state.config.killHoldSeconds === s ? 'active' : ''}">${s}s</button>`).join('')}
-                </div>
-              </div>
-            </div>
-          </div>
-        `;
       } else if (state.tab === 'update') {
         bodyEl.innerHTML = `
-          <div class="c-card hero-card">
-            <div class="hero-row">
-              <div class="hero-left">
-                <div class="c-icon-box is-primary">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                </div>
-                <div class="s-row-info">
-                  <div class="s-row-top">
-                    <span class="hero-title">FD Claude 安全启动器</span>
-                    <span class="c-pill c-pill-neutral tabular">v0.3.5</span>
-                    <span class="c-pill c-pill-ok">已是最新</span>
+          <div>
+            <div class="sec-hd">
+              <span class="sec-title">客户端版本与签名更新</span>
+              <span class="sec-note">Ed25519 官方公钥验签</span>
+            </div>
+            <div class="c-card hero-card">
+              <div class="hero-row">
+                <div class="hero-left">
+                  <div class="c-icon-box is-primary">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                   </div>
-                  ${descBlockHtml('upd_desc', '走 GitHub 官方签名通道下载，优先复用本机代理', '所有更新包均经过 Ed25519 公钥签名校验，确保安装包未被篡改。')}
+                  <div class="s-row-info">
+                    <div class="s-row-top">
+                      <span class="hero-title">FD Claude 安全启动器</span>
+                      <span class="c-pill c-pill-neutral tabular">v0.3.5</span>
+                      <span class="c-pill c-pill-ok">已是最新</span>
+                      ${infoIconHtml('upd_desc', '官方签名更新通道', '所有客户端更新包均通过 GitHub Releases 官方渠道分发，并在安装前经过 Ed25519 公钥签名强校验，下载过程优先走本机代理，确保安全与高速。')}
+                    </div>
+                    <div class="s-row-desc">走 GitHub 官方签名通道下载，优先复用本机代理</div>
+                  </div>
+                </div>
+                <div class="hero-actions">
+                  <button type="button" class="c-btn" onclick="showToast('已连接 GitHub Releases，当前 v0.3.5 已是最新版本')">检查更新</button>
+                  <button type="button" class="c-btn" onclick="showToast('正在打开 GitHub 官方仓库')">GitHub 官网</button>
                 </div>
               </div>
-              <div class="hero-actions">
-                <button type="button" class="c-btn" onclick="showToast('已连接 GitHub Releases，当前 v0.3.5 已是最新版本')">检查更新</button>
-                <button type="button" class="c-btn" onclick="showToast('正在打开 GitHub 官方仓库')">GitHub 官网</button>
+
+              <div class="sub-box" style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+                <span>开源透明，所有诊断日志上报与导出均先做本地脱敏，严禁采集对话、代码与账号密钥（可在「常规开关」随时关闭自动上报）。</span>
+                <span class="c-pill c-pill-neutral">MIT 开源</span>
               </div>
             </div>
+          </div>
 
-            <div class="sub-box" style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
-              <span>纯本地运行，零云端回传；导出排障包前会自动隐藏账号与密钥。</span>
-              <span class="c-pill c-pill-neutral">MIT 开源</span>
+          <!-- 联系作者（X / Twitter 入口） -->
+          <div>
+            <div class="sec-hd">
+              <span class="sec-title">联系作者与社区交流</span>
+              <span class="sec-note">欢迎反馈问题、建议与关注版本更新</span>
+            </div>
+            <div class="c-card">
+              <div class="s-row">
+                <div style="display: flex; align-items: center; gap: 11px; min-width: 0; flex: 1;">
+                  <div class="c-icon-box" style="color: var(--text-strong);">
+                    <svg width="13.5" height="13.5" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                  </div>
+                  <div class="s-row-info">
+                    <div class="s-row-top">
+                      <span class="s-row-title">作者 X（Twitter）</span>
+                      <span class="c-pill c-pill-neutral">@CaesarLastKing</span>
+                    </div>
+                    <div class="s-row-desc">问题交流、防封经验同步与新版本发布通知</div>
+                  </div>
+                </div>
+                <div class="s-row-ctrl">
+                  <button type="button" class="c-btn-xs" style="color: var(--primary); border-color: var(--primary-border); background: var(--primary-soft);" onclick="showToast('正在浏览器打开 x.com/CaesarLastKing')">前往 X 主页 ↗</button>
+                </div>
+              </div>
             </div>
           </div>
         `;
@@ -1266,7 +1623,7 @@
 
       bodyEl.querySelectorAll('[data-toggle-key]').forEach(row => {
         row.addEventListener('click', (e) => {
-          if (e.target.closest('[data-expand-id]') || e.target.closest('.desc-extra')) return;
+          if (e.target.closest('[data-tip-id]')) return;
           if (row.dataset.disabled === 'true') return;
           const k = row.dataset.toggleKey;
           state.config[k] = !state.config[k];
@@ -1275,12 +1632,12 @@
         });
       });
 
-      bodyEl.querySelectorAll('[data-expand-id]').forEach(btn => {
+      bodyEl.querySelectorAll('[data-tip-id]').forEach(btn => {
+        btn.addEventListener('mouseenter', () => showPopover(btn, btn.dataset.tipId));
+        btn.addEventListener('mouseleave', hidePopover);
         btn.addEventListener('click', (e) => {
           e.stopPropagation();
-          const id = btn.dataset.expandId;
-          state.expanded[id] = !state.expanded[id];
-          renderPanel();
+          showPopover(btn, btn.dataset.tipId);
         });
       });
 
@@ -1292,33 +1649,44 @@
         });
       });
 
-      requestAnimationFrame(() => {
-        bodyEl.querySelectorAll('[data-auto-overflow="true"]').forEach(btn => {
-          const id = btn.dataset.expandId;
-          const textEl = bodyEl.querySelector(`[data-desc-text="${id}"]`);
-          if (!textEl) return;
-          if (state.expanded[id] || textEl.scrollWidth > textEl.clientWidth + 1) {
-            btn.style.display = 'inline-flex';
-          }
-        });
-        syncScrollThumb();
-      });
+      requestAnimationFrame(syncScrollThumb);
+    }
+
+    const popover = document.getElementById('hover-popover');
+    const popHd = document.getElementById('hover-popover-hd');
+    const popBody = document.getElementById('hover-popover-body');
+
+    function showPopover(anchorEl, tipId) {
+      const tip = TIP_MAP[tipId];
+      if (!tip) return;
+      popHd.textContent = tip.title;
+      popBody.textContent = tip.body;
+      popover.classList.add('is-open');
+      const rect = anchorEl.getBoundingClientRect();
+      const pw = popover.offsetWidth || 308;
+      const ph = popover.offsetHeight || 88;
+      let left = rect.left - 12;
+      if (left + pw > window.innerWidth - 16) left = window.innerWidth - pw - 16;
+      if (left < 16) left = 16;
+      let top = rect.bottom + 8;
+      if (top + ph > window.innerHeight - 16) top = Math.max(16, rect.top - ph - 8);
+      popover.style.left = left + 'px';
+      popover.style.top = top + 'px';
+    }
+    function hidePopover() {
+      popover.classList.remove('is-open');
     }
 
     function syncAlertUI() {
-      const badge = document.getElementById('nav-rescue-badge');
+      const dot = document.getElementById('nav-rescue-dot');
       const sideMeta = document.getElementById('sidebar-settings-meta');
       const simBtn = document.getElementById('btn-sim-alert');
       if (state.simulateAlert) {
-        badge.style.background = 'var(--bad-bg)';
-        badge.style.color = 'var(--bad-fg)';
-        badge.textContent = '!';
+        dot.classList.add('is-show');
         sideMeta.innerHTML = `<span class="dot" style="background: var(--bad-dot);"></span><span style="color: var(--bad-fg);">需急救</span>`;
         simBtn.classList.add('active');
       } else {
-        badge.style.background = 'var(--bg-subtle)';
-        badge.style.color = 'var(--text-3)';
-        badge.textContent = '3';
+        dot.classList.remove('is-show');
         sideMeta.innerHTML = `v0.3.5`;
         simBtn.classList.remove('active');
       }
@@ -1326,6 +1694,7 @@
 
     function setModalOpen(open) {
       state.modalOpen = open;
+      hidePopover();
       document.getElementById('settings-scrim').classList.toggle('is-hidden', !open);
       document.getElementById('sidebar-settings-trigger').classList.toggle('is-settings-open', open);
       const toggleBtn = document.getElementById('btn-toggle-modal');
@@ -1335,6 +1704,7 @@
 
     function setTab(tab) {
       state.tab = tab;
+      hidePopover();
       document.querySelectorAll('[data-stab]').forEach(el => el.classList.toggle('active', el.dataset.stab === tab));
       document.getElementById('modal-scroll-body').scrollTop = 0;
       renderPanel();
@@ -1361,6 +1731,7 @@
       scrollThumb.style.transform = `translateY(${top}px)`;
     }
     scrollBody.addEventListener('scroll', () => {
+      hidePopover();
       scrollHost.classList.add('is-scrolling');
       syncScrollThumb();
       clearTimeout(window.__scrT);
@@ -1391,6 +1762,22 @@
       if (state.simulateAlert) { setModalOpen(true); setTab('recovery'); }
       else renderPanel();
     });
+    let contactOpen = false;
+    function setContactOpen(open) {
+      contactOpen = open;
+      hidePopover();
+      document.getElementById('contact-scrim').classList.toggle('is-hidden', !open);
+      document.getElementById('btn-open-contact').classList.toggle('active', open);
+    }
+
+    document.getElementById('chrome-x-btn').addEventListener('click', () => setContactOpen(true));
+    document.getElementById('btn-open-contact').addEventListener('click', () => setContactOpen(!contactOpen));
+    document.getElementById('contact-close-btn').addEventListener('click', () => setContactOpen(false));
+    document.getElementById('contact-close-ft').addEventListener('click', () => setContactOpen(false));
+    document.getElementById('contact-scrim').addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) setContactOpen(false);
+    });
+
     document.getElementById('settings-scrim').addEventListener('click', (e) => {
       if (e.target === e.currentTarget) {
         setModalOpen(false);
@@ -1398,9 +1785,13 @@
       }
     });
     window.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && state.modalOpen) setModalOpen(false);
+      if (e.key === 'Escape') {
+        if (contactOpen) { setContactOpen(false); return; }
+        if (state.modalOpen) setModalOpen(false);
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === ',') { e.preventDefault(); setModalOpen(!state.modalOpen); }
     });
-    window.addEventListener('resize', () => renderPanel());
+    window.addEventListener('resize', () => { hidePopover(); syncScrollThumb(); });
 
     const params = new URLSearchParams(location.search);
     if (params.get('shot') === '1') document.body.classList.add('screenshot-mode');
@@ -1408,6 +1799,7 @@
     if (params.get('tab') && PANEL_META[params.get('tab')]) setTab(params.get('tab'));
     else renderPanel();
     if (params.get('closed') === '1') setModalOpen(false);
+    if (params.get('contact') === '1') { setModalOpen(false); setContactOpen(true); }
     syncAlertUI();
   </script>
 </body>

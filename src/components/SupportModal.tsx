@@ -1,11 +1,27 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, Copy, Headphones, X } from "lucide-react";
+import { Check, Copy, ExternalLink, X } from "lucide-react";
+import { ipc } from "@/lib/ipc";
+import {
+  OFFICIAL_AUTHOR_X_HANDLE,
+  OFFICIAL_AUTHOR_X_URL,
+  OFFICIAL_GITHUB_REPO_URL,
+} from "@/lib/protocol";
 import { useGuardStore } from "@/stores/guardStore";
 
-export const OFFICIAL_SUPPORT_QQ = "2568515327";
+export { OFFICIAL_AUTHOR_X_HANDLE, OFFICIAL_AUTHOR_X_URL };
+
+/** X（Twitter）极简品牌矢量徽标 */
+export function XBrandIcon({ size = 15 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+    </svg>
+  );
+}
 
 /**
- * 开源交流与技术支持弹窗（v3.0 双主题轻遮罩/轻投影规范）
+ * 全新 UI 3.0「联系作者（X / Twitter）」名片弹窗（444px 居中双主题，取代旧 QQ 弹窗）
+ * 严格 1:1 对齐 docs/mockups/ui-v3-settings-modal-preview.html 中的 contact-modal
  */
 export function SupportModal() {
   const open = useGuardStore((s) => s.supportModalOpen);
@@ -19,11 +35,14 @@ export function SupportModal() {
     if (!open) return;
     setCopied(false);
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") {
+        e.stopImmediatePropagation();
+        setOpen(false);
+      }
     };
-    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, true);
     return () => {
-      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keydown", onKeyDown, true);
       if (copyTimerRef.current !== null) {
         window.clearTimeout(copyTimerRef.current);
         copyTimerRef.current = null;
@@ -33,14 +52,42 @@ export function SupportModal() {
 
   if (!open) return null;
 
-  const handleCopyQq = async () => {
+  const shortUrl = OFFICIAL_AUTHOR_X_URL.replace(/^https?:\/\//i, "");
+
+  const handleCopyHandle = async () => {
+    const fallbackCopy = (): boolean => {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = OFFICIAL_AUTHOR_X_HANDLE;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand("copy");
+        document.body.removeChild(ta);
+        return ok;
+      } catch {
+        return false;
+      }
+    };
+
     try {
-      if (!navigator.clipboard?.writeText) {
+      let ok = false;
+      if (navigator.clipboard?.writeText) {
+        ok = await navigator.clipboard
+          .writeText(OFFICIAL_AUTHOR_X_HANDLE)
+          .then(() => true)
+          .catch(() => false);
+      }
+      if (!ok) {
+        ok = fallbackCopy();
+      }
+      if (!ok) {
         throw new Error("clipboard unavailable");
       }
-      await navigator.clipboard.writeText(OFFICIAL_SUPPORT_QQ);
       setCopied(true);
-      pushToast("已复制交流 QQ 号", `QQ：${OFFICIAL_SUPPORT_QQ}，添加时请备注“FD 启动器”。`, "ok");
+      pushToast("已复制作者 X 账号", OFFICIAL_AUTHOR_X_HANDLE, "ok");
       if (copyTimerRef.current !== null) {
         window.clearTimeout(copyTimerRef.current);
       }
@@ -49,7 +96,15 @@ export function SupportModal() {
         copyTimerRef.current = null;
       }, 2400);
     } catch {
-      pushToast("请手动复制 QQ 号", `开发者交流 QQ：${OFFICIAL_SUPPORT_QQ}`, "info");
+      pushToast("请手动复制账号", `作者 X（Twitter）：${OFFICIAL_AUTHOR_X_HANDLE}`, "info");
+    }
+  };
+
+  const handleOpenExternal = async (url: string, label: string) => {
+    try {
+      await ipc.openExternalUrl(url);
+    } catch (err) {
+      pushToast(`打开${label}失败`, String(err), "danger");
     }
   };
 
@@ -57,7 +112,7 @@ export function SupportModal() {
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="开源交流与技术支持"
+      aria-label="联系作者"
       data-testid="support-modal"
       onClick={(e) => {
         if (e.target === e.currentTarget) setOpen(false);
@@ -67,101 +122,138 @@ export function SupportModal() {
         inset: 0,
         background: "var(--modal-backdrop)",
         backdropFilter: "blur(4px)",
-        zIndex: 160,
+        zIndex: 170,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        padding: 20,
+        padding: 24,
+        cursor: "pointer",
       }}
     >
       <div
         style={{
-          width: 496,
-          maxWidth: "96vw",
+          width: 444,
+          maxWidth: "100%",
+          borderRadius: "var(--r-hud)",
           background: "var(--bg-card)",
-          border: "1px solid var(--border-card)",
-          borderRadius: 13,
+          border: "1px solid var(--divider-strong)",
           boxShadow: "var(--shadow-modal)",
-          display: "flex",
-          flexDirection: "column",
           overflow: "hidden",
+          cursor: "default",
         }}
       >
         {/* Header */}
         <div
           style={{
-            padding: "18px 20px 14px",
+            padding: "16px 18px 14px",
             display: "flex",
             alignItems: "flex-start",
             justifyContent: "space-between",
             gap: 12,
           }}
         >
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 12, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 11, minWidth: 0 }}>
             <div
               style={{
-                width: 34,
-                height: 34,
-                borderRadius: 9,
-                background: "var(--primary-soft)",
-                border: "1px solid var(--primary-border)",
-                color: "var(--primary)",
+                width: 36,
+                height: 36,
+                borderRadius: 10,
+                background: "var(--bg-subtle)",
+                border: "1px solid var(--divider-strong)",
+                color: "var(--text-strong)",
                 display: "grid",
                 placeItems: "center",
                 flexShrink: 0,
               }}
             >
-              <Headphones size={16} strokeWidth={1.5} />
+              <XBrandIcon size={16} />
             </div>
             <div style={{ minWidth: 0 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                <h3
-                  style={{
-                    fontSize: 15,
-                    fontWeight: 500,
-                    color: "var(--text-strong)",
-                    letterSpacing: "-0.01em",
-                    margin: 0,
-                  }}
-                >
-                  开源交流与技术支持
-                </h3>
-                <span className="guard-chip guard-chip-ok">免费开源</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                <span style={{ fontSize: 14.5, fontWeight: 500, color: "var(--text-strong)" }}>
+                  联系作者
+                </span>
+                <span className="guard-chip guard-chip-pass">免费开源</span>
               </div>
-              <div style={{ fontSize: 12, color: "var(--text-2)", marginTop: 3, lineHeight: 1.45 }}>
-                环境排障协助、功能反馈与版本更新交流
+              <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 2 }}>
+                问题反馈、功能建议与版本动态
               </div>
             </div>
           </div>
 
           <button
             type="button"
-            aria-label="关闭弹窗"
+            aria-label="关闭联系作者"
             className="modal-close-btn"
             onClick={() => setOpen(false)}
           >
-            <X size={15} strokeWidth={1.5} />
+            <X size={14} strokeWidth={1.6} />
           </button>
         </div>
 
         {/* Body */}
-        <div style={{ padding: "0 20px 18px", display: "flex", flexDirection: "column", gap: 12 }}>
-          <div className="qq-card">
-            <div>
-              <div style={{ fontSize: 11.5, color: "var(--text-3)" }}>开发者交流 QQ</div>
-              <div className="qq-num tabular" data-testid="support-qq-number">
-                {OFFICIAL_SUPPORT_QQ}
+        <div style={{ padding: "0 18px 16px", display: "flex", flexDirection: "column", gap: 11 }}>
+          <div className="x-profile-card">
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 10.5, color: "var(--text-3)", marginBottom: 2 }}>
+                X（Twitter）官方账号
+              </div>
+              <div
+                data-testid="support-x-handle"
+                role="button"
+                tabIndex={0}
+                title={`点击复制 ${OFFICIAL_AUTHOR_X_HANDLE}`}
+                onClick={() => void handleCopyHandle()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    void handleCopyHandle();
+                  }
+                }}
+                style={{
+                  fontSize: 14.5,
+                  fontWeight: 500,
+                  color: "var(--text-strong)",
+                  letterSpacing: "-0.01em",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  cursor: "pointer",
+                  userSelect: "text",
+                }}
+              >
+                {OFFICIAL_AUTHOR_X_HANDLE}
+              </div>
+              <div
+                style={{
+                  fontSize: 11,
+                  color: "var(--text-3)",
+                  marginTop: 2,
+                  userSelect: "text",
+                }}
+              >
+                {shortUrl}
               </div>
             </div>
-            <button
-              type="button"
-              data-testid="btn-copy-qq"
-              className="guard-btn guard-btn-primary guard-btn-sm"
-              onClick={() => void handleCopyQq()}
-            >
-              {copied ? <Check size={13.5} strokeWidth={1.8} /> : <Copy size={13.5} strokeWidth={1.5} />}
-              <span>{copied ? "已复制 QQ 号" : "复制 QQ 号"}</span>
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+              <button
+                type="button"
+                data-testid="btn-copy-x-handle"
+                className="guard-btn guard-btn-flat"
+                onClick={() => void handleCopyHandle()}
+              >
+                {copied ? <Check size={12.5} strokeWidth={1.8} /> : <Copy size={12.5} strokeWidth={1.5} />}
+                <span>{copied ? "已复制" : "复制账号"}</span>
+              </button>
+              <button
+                type="button"
+                data-testid="btn-open-x-profile"
+                className="guard-btn guard-btn-primary"
+                onClick={() => void handleOpenExternal(OFFICIAL_AUTHOR_X_URL, "作者 X 主页")}
+              >
+                <span>前往主页 ↗</span>
+              </button>
+            </div>
           </div>
 
           <div
@@ -169,32 +261,65 @@ export function SupportModal() {
               borderRadius: 9,
               border: "1px solid var(--divider)",
               background: "var(--bg-card-band)",
-              padding: "10px 14px",
-              fontSize: 12,
-              color: "var(--text-2)",
-              lineHeight: 1.62,
+              overflow: "hidden",
             }}
           >
-            <div>• 添加好友时请备注「FD 启动器」，方便快速响应与协助。</div>
-            <div>• 如遇复杂代理或封号环境问题，可导出脱敏诊断 ZIP 包发给开发者快速定位。</div>
+            <div
+              style={{
+                padding: "9px 13px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+                borderBottom: "1px solid var(--divider)",
+                fontSize: 11.5,
+              }}
+            >
+              <span style={{ color: "var(--text-3)", flexShrink: 0 }}>排障反馈</span>
+              <span style={{ color: "var(--text-2)", textAlign: "right" }}>
+                可在「常规开关」导出脱敏诊断包后附带说明反馈
+              </span>
+            </div>
+            <div
+              style={{
+                padding: "9px 13px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+                fontSize: 11.5,
+              }}
+            >
+              <span style={{ color: "var(--text-3)", flexShrink: 0 }}>开源仓库</span>
+              <button
+                type="button"
+                data-testid="btn-open-github-from-contact"
+                className="guard-btn guard-btn-flat guard-btn-xs"
+                onClick={() => void handleOpenExternal(OFFICIAL_GITHUB_REPO_URL, "GitHub 仓库")}
+              >
+                <ExternalLink size={11} strokeWidth={1.55} />
+                <span>GitHub · FD-ClaudeGuard ↗</span>
+              </button>
+            </div>
           </div>
         </div>
 
         {/* Footer */}
         <div
           style={{
-            padding: "12px 20px",
+            padding: "11px 18px",
             borderTop: "1px solid var(--divider)",
             background: "var(--bg-card-band)",
             display: "flex",
             alignItems: "center",
-            justifyContent: "flex-end",
-            gap: 8,
+            justifyContent: "space-between",
+            gap: 12,
           }}
         >
+          <span style={{ fontSize: 11, color: "var(--text-3)" }}>感谢使用与关注更新</span>
           <button
             type="button"
-            className="guard-btn guard-btn-flat guard-btn-sm"
+            className="guard-btn guard-btn-flat guard-btn-xs"
             onClick={() => setOpen(false)}
           >
             关闭

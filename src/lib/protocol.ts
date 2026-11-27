@@ -39,6 +39,15 @@ export const BRAND_SHIELD_SVG = {
 
 export const APP_BRAND_SUBTITLE = "Fuck Dario！！！";
 
+// 作者 X（Twitter）、项目开源仓库与 Clash Verge Rev 官方地址集中常量
+export const OFFICIAL_AUTHOR_X_HANDLE = "@Caesar_LastKing";
+export const OFFICIAL_AUTHOR_X_URL = "https://x.com/Caesar_LastKing";
+export const OFFICIAL_GITHUB_REPO_URL = "https://github.com/CaesarLastKing/FD-ClaudeGuard";
+export const OFFICIAL_GITHUB_RELEASES_URL = "https://github.com/CaesarLastKing/FD-ClaudeGuard/releases";
+export const OFFICIAL_CLASH_VERGE_REPO_URL = "https://github.com/clash-verge-rev/clash-verge-rev";
+export const OFFICIAL_CLASH_VERGE_RELEASES_URL =
+  "https://github.com/clash-verge-rev/clash-verge-rev/releases/latest";
+
 /**
  * 精准提取节点所在地区代码（用于严格比对同区热备 vs 跨洲切换）
  */

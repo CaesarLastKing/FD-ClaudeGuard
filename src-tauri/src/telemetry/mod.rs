@@ -64,12 +64,25 @@ pub fn anonymous_install_short_id() -> String {
         .clone()
 }
 
-/// 可选匿名遥测/排障服务端点（仅在显式配置环境变量 `FD_TELEMETRY_API_URL` 时启用；开源版默认不外发）
+/// 官方默认脱敏诊断日志与排障单号接收服务（Cloudflare Worker + D1，14 天自动清理）
+pub const DEFAULT_DIAG_TELEMETRY_API_URL: &str = "https://diag.rookiebird.org";
+
+/// 脱敏遥测/排障服务端点：
+/// - 优先读取环境变量 `FD_TELEMETRY_API_URL`（方便自托管覆盖，设为 `off`/`none`/`disabled` 可彻底禁发）；
+/// - 未显式覆写时指向官方脱敏诊断服务 `https://diag.rookiebird.org`（仍严格受用户开关与二次强脱敏约束）。
 pub fn telemetry_api_endpoint() -> Option<String> {
-    std::env::var("FD_TELEMETRY_API_URL")
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
+    if let Ok(val) = std::env::var("FD_TELEMETRY_API_URL") {
+        let trimmed = val.trim().to_string();
+        if trimmed.is_empty()
+            || trimmed.eq_ignore_ascii_case("off")
+            || trimmed.eq_ignore_ascii_case("none")
+            || trimmed.eq_ignore_ascii_case("disabled")
+        {
+            return None;
+        }
+        return Some(trimmed);
+    }
+    Some(DEFAULT_DIAG_TELEMETRY_API_URL.to_string())
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

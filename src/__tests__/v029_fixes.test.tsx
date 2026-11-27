@@ -308,7 +308,7 @@ describe("v0.2.9 真机回归：熔断与盯防联动、无锁文案清理与出
         available: true,
         latestVersion: "0.3.1",
         publishedAt: "2026-11-26",
-        notes: "修复多项体验细节",
+        notes: "[重要] 修复多项体验细节",
         viaProxy: true,
         message: "发现新版本 v0.3.1",
       },
@@ -317,8 +317,9 @@ describe("v0.2.9 真机回归：熔断与盯防联动、无锁文案清理与出
     });
 
     const { unmount } = render(<WindowChrome />);
-    expect(screen.getByTestId("topbar-new-version-badge")).toHaveTextContent("新版 v0.3.1 发布啦");
+    expect(screen.getByTestId("topbar-new-version-badge")).toHaveTextContent("✨ 新版本发布！！");
     const subtitleEl = screen.getByTestId("brand-subtitle");
+    expect(subtitleEl).not.toHaveAttribute("title");
     fireEvent.mouseEnter(subtitleEl);
     expect(screen.getByTestId("brand-subtitle-tooltip")).toHaveTextContent(
       "Claude is awesome, but fuck Dario!"

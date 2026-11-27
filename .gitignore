@@ -30,3 +30,7 @@ build-secrets.json
 # Internal handoff & personal raw case notes (keep local only)
 docs/handoff-20261124.md
 docs/research-source-ca8f12fa.md
+
+# Cloudflare Worker local private config (contains D1 database_id)
+diag-worker/wrangler.toml
+diag-worker/.wrangler/

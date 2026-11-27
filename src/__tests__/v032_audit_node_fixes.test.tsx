@@ -303,7 +303,10 @@ describe("v0.3.2 节点悬浮解释、运行中 B 级警示、严防漏链与全
     expect(startAuditSpy).toHaveBeenCalledWith(true, undefined, ["🇸🇬新加坡1"]);
   });
 
-  it("守卫配置离线/检查更新失败时绝不陷入无限重试死循环（最多自动静默检查 1 次）", async () => {
+  it("守卫配置离线/读取更新缓存失败时绝不陷入无限重试死循环（仅零网络读缓存 1 次，不自动刷网络检查）", async () => {
+    const cacheSpy = vi
+      .spyOn(ipc, "getCachedAppUpdate")
+      .mockRejectedValue(new Error("cache read error"));
     const checkSpy = vi
       .spyOn(ipc, "checkAppUpdate")
       .mockRejectedValue(new Error("network offline"));
@@ -316,11 +319,12 @@ describe("v0.3.2 节点悬浮解释、运行中 B 级警示、严防漏链与全
 
     render(<SettingsPage />);
     await waitFor(() => {
-      expect(checkSpy).toHaveBeenCalledTimes(1);
+      expect(cacheSpy).toHaveBeenCalledTimes(1);
     });
-    // 等待多个事件循环确认不会因 updateChecking 回到 false 而再次触发
+    // 等待多个事件循环确认不会触发重复读取或自动网络刷接口
     await new Promise((r) => setTimeout(r, 80));
-    expect(checkSpy).toHaveBeenCalledTimes(1);
+    expect(cacheSpy).toHaveBeenCalledTimes(1);
+    expect(checkSpy).toHaveBeenCalledTimes(0);
   });
 
   it("清理确认弹窗支持按 Esc 键正常关闭，且未连接 Mihomo 时节点页不误报「全部可用」", async () => {

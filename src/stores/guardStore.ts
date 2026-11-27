@@ -19,6 +19,7 @@ import type {
   NodeReport,
   PreflightReport,
   RiskModalState,
+  SettingsModalTab,
   StartupAuditReport,
   ToastAction,
   ToastMessage,
@@ -59,6 +60,9 @@ interface GuardStore {
   nodeReport: NodeReport;
   deepAudit: DeepAuditProgress;
   supportModalOpen: boolean;
+  settingsModalOpen: boolean;
+  settingsModalTab: SettingsModalTab;
+  networkRescueAlert: boolean;
   checking: boolean;
   fixing: boolean;
   fixingItemId: string | null;
@@ -136,6 +140,13 @@ interface GuardStore {
   setPreflightFromEvent: (report: PreflightReport) => void;
   setConfigFromEvent: (cfg: AppConfig) => void;
   setSupportModalOpen: (open: boolean) => void;
+  openSettingsModal: (tab?: SettingsModalTab) => void;
+  closeSettingsModal: () => void;
+  toggleSettingsModal: () => void;
+  setSettingsModalTab: (tab: SettingsModalTab) => void;
+  setNetworkRescueAlert: (alert: boolean) => void;
+  hydrateCachedUpdateInfo: () => Promise<AppUpdateInfo | null>;
+  setUpdateInfo: (info: AppUpdateInfo | null) => void;
   checkForAppUpdate: (silent?: boolean) => Promise<AppUpdateInfo | null>;
   installAppUpdate: () => Promise<void>;
   setUpdateProgress: (
@@ -176,6 +187,9 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
   nodeReport: EMPTY_NODES,
   deepAudit: IDLE_DEEP_AUDIT,
   supportModalOpen: false,
+  settingsModalOpen: false,
+  settingsModalTab: "general",
+  networkRescueAlert: false,
   checking: false,
   fixing: false,
   fixingItemId: null,
@@ -538,12 +552,46 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
       void get().refreshAccountAudit(true);
       return;
     }
+    if (tab === "config") {
+      set({ settingsModalOpen: true, settingsModalTab: "policy" });
+      return;
+    }
+    if (tab === "maintain") {
+      set({ settingsModalOpen: true, settingsModalTab: "recovery" });
+      return;
+    }
     set({ activeTab: tab });
     if (tab === "nodes") {
       void get().refreshNodes();
     } else if (tab === "audit") {
       void get().refreshAccountAudit(true);
     }
+  },
+
+  openSettingsModal(tab) {
+    set((state) => ({
+      settingsModalOpen: true,
+      settingsModalTab: tab ?? (state.networkRescueAlert ? "recovery" : state.settingsModalTab),
+    }));
+  },
+
+  closeSettingsModal() {
+    set({ settingsModalOpen: false });
+  },
+
+  toggleSettingsModal() {
+    set((state) => ({
+      settingsModalOpen: !state.settingsModalOpen,
+      settingsModalTab: !state.settingsModalOpen && state.networkRescueAlert ? "recovery" : state.settingsModalTab,
+    }));
+  },
+
+  setSettingsModalTab(tab) {
+    set({ settingsModalTab: tab });
+  },
+
+  setNetworkRescueAlert(alert) {
+    set({ networkRescueAlert: alert });
   },
 
   setAuditSubTab(sub) {
@@ -765,30 +813,34 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
     set({ supportModalOpen: open });
   },
 
+  async hydrateCachedUpdateInfo() {
+    try {
+      const cached = await ipc.getCachedAppUpdate();
+      if (cached) {
+        set({ updateInfo: cached });
+      }
+      return cached;
+    } catch {
+      return null;
+    }
+  },
+
+  setUpdateInfo(info) {
+    set({ updateInfo: info });
+  },
+
   async checkForAppUpdate(silent = false) {
     if (get().updateChecking || get().updateInstalling) return get().updateInfo;
     set({ updateChecking: true, updateError: null });
     try {
-      const info = await ipc.checkAppUpdate();
+      const info = await ipc.checkAppUpdate(!silent);
       set({ updateInfo: info });
+      // 仅用户主动点击「检查更新」时做操作反馈；后台静默检查绝不再弹出右下角 Toast 打扰，仅静默点亮顶栏与守卫配置微标
       if (!silent) {
         get().pushToast(
           info.available ? `发现新版本 v${info.latestVersion ?? ""}` : "当前已是最新版本",
           info.message,
           info.available ? "info" : "ok"
-        );
-      } else if (info.available && info.latestVersion) {
-        get().pushToast(
-          `发现新版本 v${info.latestVersion}`,
-          "已通过 GitHub Releases 官方更新通道检测到新版本，可点击顶栏更新标签或前往「守卫配置」一键验签升级。",
-          "info",
-          {
-            durationMs: 7000,
-            action: {
-              label: "前往更新",
-              onClick: () => get().setActiveTab("config"),
-            },
-          }
         );
       }
       return info;

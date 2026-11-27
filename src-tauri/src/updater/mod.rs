@@ -10,15 +10,180 @@ use tauri::{AppHandle, Emitter};
 use tauri_plugin_updater::UpdaterExt;
 
 use crate::logger;
+use chrono::Utc;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 static UPDATE_INSTALL_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
-/// 启动期主窗与悬浮窗可能几乎同时触发自动检查更新，采用 25s 单飞缓存去重避免双打 GitHub Releases 与重复日志
-const UPDATE_CHECK_CACHE_TTL_SECS: u64 = 25;
+/// 全局持久化自动检查节流周期（4 小时）：未满 4h 时自动检查直接复用本地持久化状态，不重复请求 GitHub
+pub const UPDATE_CHECK_INTERVAL_MS: i64 = 4 * 3_600_000;
+/// 启动后延迟首次静默自检时间（3 分钟）：避开启动首秒抢跑，确保 Clash 代理与 19 项探针已就绪
+pub const UPDATE_STARTUP_DELAY_SECS: u64 = 180;
+/// 休眠唤醒 / 代理恢复在线后延迟补偿自检时间（60 秒，仍严格受 4h 节流约束）
+pub const UPDATE_WAKE_RECOVERY_DELAY_SECS: u64 = 60;
+/// 手动点击「检查更新」防连点短时单飞保护（15 秒）
+const UPDATE_CHECK_CACHE_TTL_SECS: u64 = 15;
 static UPDATE_CHECK_SINGLEFLIGHT: OnceLock<tokio::sync::Mutex<Option<(Instant, AppUpdateInfo)>>> =
     OnceLock::new();
+
+/// 持久化更新状态文件结构（`%LOCALAPPDATA%\FDClaudeGuard\update-state.json`，零敏感信息）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PersistedUpdateState {
+    pub version: u32,
+    pub last_checked_at_ms: i64,
+    pub checked_app_version: String,
+    pub available: bool,
+    pub latest_version: Option<String>,
+    pub published_at: Option<String>,
+    pub notes: Option<String>,
+    pub via_proxy: bool,
+    pub message: String,
+}
+
+/// 持久化更新状态路径：`%LOCALAPPDATA%\FDClaudeGuard\update-state.json`
+pub fn default_update_state_path() -> PathBuf {
+    dirs::data_local_dir()
+        .or_else(dirs::home_dir)
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("FDClaudeGuard")
+        .join("update-state.json")
+}
+
+/// 轻量 SemVer 比较：判断 `latest` 是否严格高于 `current`
+pub fn is_semver_newer(latest: &str, current: &str) -> bool {
+    let parse = |s: &str| -> (u64, u64, u64) {
+        let trimmed = s.trim().trim_start_matches('v').trim_start_matches('V');
+        let core = trimmed.split(['-', '+']).next().unwrap_or(trimmed);
+        let mut it = core.split('.');
+        let a = it.next().and_then(|x| x.parse::<u64>().ok()).unwrap_or(0);
+        let b = it.next().and_then(|x| x.parse::<u64>().ok()).unwrap_or(0);
+        let c = it.next().and_then(|x| x.parse::<u64>().ok()).unwrap_or(0);
+        (a, b, c)
+    };
+    parse(latest) > parse(current)
+}
+
+/// 读取本地持久化更新状态（损坏或缺失时优雅返回 `None`）
+pub fn load_persisted_update_state(path: &Path) -> Option<PersistedUpdateState> {
+    let raw = fs::read_to_string(path).ok()?;
+    serde_json::from_str::<PersistedUpdateState>(raw.trim_start_matches('\u{feff}')).ok()
+}
+
+/// 原子保存持久化更新状态（仅在成功完成线上检查后调用，断网/超时失败绝不刷新 4h 冷却）
+pub fn save_persisted_update_state(
+    path: &Path,
+    info: &AppUpdateInfo,
+    checked_at_ms: i64,
+) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("创建更新状态目录失败: {e}"))?;
+    }
+    let state = PersistedUpdateState {
+        version: 1,
+        last_checked_at_ms: checked_at_ms,
+        checked_app_version: info.current_version.clone(),
+        available: info.available,
+        latest_version: info.latest_version.clone(),
+        published_at: info.published_at.clone(),
+        notes: info.notes.clone(),
+        via_proxy: info.via_proxy,
+        message: info.message.clone(),
+    };
+    let body = serde_json::to_string_pretty(&state)
+        .map_err(|e| format!("序列化更新状态失败: {e}"))?;
+    let tmp = path.with_extension("json.tmp");
+    fs::write(&tmp, &body).map_err(|e| format!("写入更新状态临时文件失败: {e}"))?;
+    if fs::rename(&tmp, path).is_err() {
+        fs::write(path, &body).map_err(|e| format!("保存更新状态文件失败: {e}"))?;
+        let _ = fs::remove_file(&tmp);
+    }
+    Ok(())
+}
+
+/// 纯函数：评估本地持久化更新状态 → 返回 `(可供 UI 零网络秒显的缓存状态, 本次静默自检是否需要发网络请求)`
+pub fn evaluate_persisted_update_state(
+    persisted: Option<&PersistedUpdateState>,
+    current_version: &str,
+    now_ms: i64,
+) -> (Option<AppUpdateInfo>, bool) {
+    let Some(st) = persisted else {
+        return (None, true);
+    };
+
+    // 时钟回拨保护：若上次检查时间晚于当前时间，视作过期并触发重检
+    if st.last_checked_at_ms > now_ms {
+        return (None, true);
+    }
+
+    // 应用已完成升级（版本号变化）：旧缓存若指向已安装/更低版本则自动失效，不再残留假“发现新版本”
+    let still_available = st.available
+        && st
+            .latest_version
+            .as_deref()
+            .map(|lv| is_semver_newer(lv, current_version))
+            .unwrap_or(false);
+    let version_changed = st.checked_app_version.trim() != current_version.trim();
+    if version_changed && !still_available {
+        return (
+            Some(AppUpdateInfo {
+                current_version: current_version.to_string(),
+                available: false,
+                latest_version: Some(current_version.to_string()),
+                published_at: None,
+                notes: None,
+                via_proxy: st.via_proxy,
+                message: format!("当前已是最新版本 v{current_version}。"),
+            }),
+            true,
+        );
+    }
+
+    let elapsed_ms = now_ms.saturating_sub(st.last_checked_at_ms);
+    let need_network = version_changed || elapsed_ms >= UPDATE_CHECK_INTERVAL_MS;
+    let info = AppUpdateInfo {
+        current_version: current_version.to_string(),
+        available: still_available,
+        latest_version: if still_available {
+            st.latest_version.clone()
+        } else {
+            Some(current_version.to_string())
+        },
+        published_at: if still_available {
+            st.published_at.clone()
+        } else {
+            None
+        },
+        notes: if still_available {
+            st.notes.clone()
+        } else {
+            None
+        },
+        via_proxy: st.via_proxy,
+        message: if still_available {
+            st.message.clone()
+        } else {
+            format!("当前已是最新版本 v{current_version}。")
+        },
+    };
+    (Some(info), need_network)
+}
+
+/// 零网络秒读本地持久化更新状态（供前端启动 0s 恢复顶栏微标，不发任何网络请求）
+pub fn get_cached_update_info_for_current() -> Option<AppUpdateInfo> {
+    let current_version = env!("CARGO_PKG_VERSION");
+    let path = default_update_state_path();
+    let persisted = load_persisted_update_state(&path);
+    let (info, _) = evaluate_persisted_update_state(
+        persisted.as_ref(),
+        current_version,
+        Utc::now().timestamp_millis(),
+    );
+    info
+}
 
 struct UpdateInstallGuard;
 impl Drop for UpdateInstallGuard {
@@ -77,21 +242,36 @@ pub fn should_reuse_cached_update(checked_at: Instant, now: Instant) -> bool {
     now.saturating_duration_since(checked_at) < Duration::from_secs(UPDATE_CHECK_CACHE_TTL_SECS)
 }
 
-/// 检查 GitHub Releases 最新版本（优先代理、失败回退直连；25s 进程级单飞去重防双窗口重复打请求）
+/// 检查 GitHub Releases 最新版本（优先代理、失败回退直连；静默模式严格遵守 4h 持久化节流，手动模式强制穿透刷新）
 pub async fn check_for_app_update(
     app: &AppHandle,
     clash_port: Option<u16>,
+    force: bool,
 ) -> Result<AppUpdateInfo, String> {
+    let current_version = env!("CARGO_PKG_VERSION").to_string();
+    let state_path = default_update_state_path();
     let lock = UPDATE_CHECK_SINGLEFLIGHT.get_or_init(|| tokio::sync::Mutex::new(None));
     let mut cache_guard = lock.lock().await;
-    let now = Instant::now();
-    if let Some((checked_at, cached)) = cache_guard.as_ref() {
-        if should_reuse_cached_update(*checked_at, now) {
+    let now_inst = Instant::now();
+    let now_ms = Utc::now().timestamp_millis();
+
+    // 1. 静默模式优先命中 4 小时持久化节流缓存（未满 4h 直接复用本地状态，零网络请求、不刷日志）
+    if !force {
+        let persisted = load_persisted_update_state(&state_path);
+        let (cached_opt, need_network) =
+            evaluate_persisted_update_state(persisted.as_ref(), &current_version, now_ms);
+        if !need_network {
+            if let Some(cached) = cached_opt {
+                return Ok(cached);
+            }
+        }
+    } else if let Some((checked_at, cached)) = cache_guard.as_ref() {
+        // 2. 手动点击模式穿透 4h 缓存，但保留 15s 并发/连点防抖保护
+        if should_reuse_cached_update(*checked_at, now_inst) {
             return Ok(cached.clone());
         }
     }
 
-    let current_version = env!("CARGO_PKG_VERSION").to_string();
     let proxy_url = build_local_proxy_url(clash_port);
 
     // 优先走本机 Clash 代理检测；若代理超时或失败，自动回退直连再尝试一次
@@ -174,6 +354,8 @@ pub async fn check_for_app_update(
         }
     };
     *cache_guard = Some((Instant::now(), info.clone()));
+    let _ = save_persisted_update_state(&state_path, &info, Utc::now().timestamp_millis());
+    let _ = app.emit("guard://update-available", info.clone());
     Ok(info)
 }
 
@@ -423,11 +605,58 @@ mod tests {
     #[test]
     fn v037_b3_update_check_cache_ttl_dedup() {
         let t0 = Instant::now();
-        // 1.5s 内双窗并发重复检查必须命中缓存去重
+        // 1.5s / 14s 内并发重复检查必须命中防抖缓存
         assert!(should_reuse_cached_update(t0, t0 + Duration::from_millis(1500)));
-        assert!(should_reuse_cached_update(t0, t0 + Duration::from_secs(24)));
-        // 超过 25s TTL 后必须重新发起真实检查
-        assert!(!should_reuse_cached_update(t0, t0 + Duration::from_secs(25)));
+        assert!(should_reuse_cached_update(t0, t0 + Duration::from_secs(14)));
+        // 超过 15s 防抖窗口后必须允许重新检查
+        assert!(!should_reuse_cached_update(t0, t0 + Duration::from_secs(15)));
         assert!(!should_reuse_cached_update(t0, t0 + Duration::from_secs(60)));
+    }
+
+    #[test]
+    fn v038_persisted_update_state_throttles_4h_handles_upgrade_clock_rollback_and_corrupt_json() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("update-state.json");
+        let t0: i64 = 1_795_800_000_000;
+
+        // 1. 损坏 JSON 优雅降级，要求重检不 panic
+        fs::write(&path, "{ corrupt json").expect("write bad");
+        assert!(load_persisted_update_state(&path).is_none());
+        let (cached, need) = evaluate_persisted_update_state(None, "0.3.7", t0);
+        assert!(cached.is_none());
+        assert!(need);
+
+        // 2. 保存发现新版 0.3.8 状态：2 小时内免网络请求且秒显新版微标
+        let found = AppUpdateInfo {
+            current_version: "0.3.7".into(),
+            available: true,
+            latest_version: Some("0.3.8".into()),
+            published_at: None,
+            notes: Some("智能更新调度".into()),
+            via_proxy: true,
+            message: "发现新版本 v0.3.8".into(),
+        };
+        save_persisted_update_state(&path, &found, t0).expect("save");
+        let loaded = load_persisted_update_state(&path).expect("load");
+
+        let (c_2h, need_2h) = evaluate_persisted_update_state(Some(&loaded), "0.3.7", t0 + 2 * 3_600_000);
+        assert!(!need_2h, "2h 未满 4h 节流周期不应发网络请求");
+        assert_eq!(c_2h.as_ref().and_then(|x| x.latest_version.as_deref()), Some("0.3.8"));
+        assert!(c_2h.as_ref().map(|x| x.available).unwrap_or(false));
+
+        // 3. 满 4 小时后仍先返回旧缓存秒显，同时标记需要后台刷新
+        let (c_5h, need_5h) = evaluate_persisted_update_state(Some(&loaded), "0.3.7", t0 + 5 * 3_600_000);
+        assert!(need_5h, "超 4h 应触发后台自检");
+        assert!(c_5h.as_ref().map(|x| x.available).unwrap_or(false));
+
+        // 4. 应用已升级至 0.3.8 后，旧缓存 available 自动失效不残留假红点
+        let (c_upg, need_upg) = evaluate_persisted_update_state(Some(&loaded), "0.3.8", t0 + 60_000);
+        assert!(need_upg);
+        assert!(!c_upg.as_ref().map(|x| x.available).unwrap_or(true));
+
+        // 5. 系统时钟回拨保护：last_checked_at_ms > now 时强制失效重检
+        let (c_back, need_back) = evaluate_persisted_update_state(Some(&loaded), "0.3.7", t0 - 60_000);
+        assert!(c_back.is_none());
+        assert!(need_back);
     }
 }

@@ -1,0 +1,14 @@
+{
+  "name": "fd-claude-guard-diag-worker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "FD Claude Guard 脱敏诊断日志与排障工单接收服务（Cloudflare Worker + D1）",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:init": "wrangler d1 execute fd_diag_db --remote --file=./schema.sql"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

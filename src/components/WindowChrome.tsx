@@ -1,20 +1,46 @@
 import { useState } from "react";
-import { Bell, BellOff, Headphones, Minus, Moon, Sparkles, Square, Sun, X } from "lucide-react";
+import { Bell, BellOff, Headphones, Minus, Moon, Square, Sun, X } from "lucide-react";
 import { ipc } from "@/lib/ipc";
 import { APP_BRAND_SUBTITLE } from "@/lib/protocol";
 import { useGuardStore } from "@/stores/guardStore";
 
 const BRAND_SUBTITLE_TOOLTIP = "Claude is awesome, but fuck Dario!";
 
+/**
+ * 大/小版本顶栏提醒分级降噪（M5-03）：
+ * 仅主/次版本号递增（如 0.3.x -> 0.4.0）或更新日志含重要/安全/紧急标记时才在顶栏点亮微标；
+ * 常规小修订版（如 0.3.7 -> 0.3.8）静默留在「系统设置 → 版本更新」供用户按需自查，零打扰。
+ */
+function shouldHighlightTopbarUpdate(
+  currentVersion: string,
+  latestVersion: string,
+  notes?: string | null
+): boolean {
+  const parse = (v: string) =>
+    v
+      .replace(/^v/i, "")
+      .split(".")
+      .map((n) => parseInt(n, 10) || 0);
+  const cur = parse(currentVersion);
+  const lat = parse(latestVersion);
+  if ((lat[0] ?? 0) > (cur[0] ?? 0)) return true;
+  if ((lat[0] ?? 0) === (cur[0] ?? 0) && (lat[1] ?? 0) > (cur[1] ?? 0)) return true;
+  if (notes && /(\[重要\]|\[安全\]|\[紧急\]|\[major\]|critical|security)/i.test(notes)) {
+    return true;
+  }
+  return false;
+}
+
 export function WindowChrome() {
   const [subtitleHover, setSubtitleHover] = useState(false);
+  const [updateHover, setUpdateHover] = useState(false);
   const theme = useGuardStore((s) => s.config.theme);
   const showHud = useGuardStore((s) => s.config.showHud);
   const notifyEnabled = useGuardStore((s) => s.config.notifyEnabled);
   const updateConfig = useGuardStore((s) => s.updateConfig);
   const setSupportModalOpen = useGuardStore((s) => s.setSupportModalOpen);
   const updateInfo = useGuardStore((s) => s.updateInfo);
-  const setActiveTab = useGuardStore((s) => s.setActiveTab);
+  const openSettingsModal = useGuardStore((s) => s.openSettingsModal);
 
   const handleToggleHud = () => {
     void updateConfig({ showHud: !showHud }, "桌面悬浮状态窗");
@@ -83,7 +109,6 @@ export function WindowChrome() {
         </span>
         <span
           data-testid="brand-subtitle"
-          title={BRAND_SUBTITLE_TOOLTIP}
           onMouseEnter={() => setSubtitleHover(true)}
           onMouseLeave={() => setSubtitleHover(false)}
           style={{
@@ -123,44 +148,63 @@ export function WindowChrome() {
             </span>
           )}
         </span>
-        {updateInfo?.available && updateInfo.latestVersion && (
+        {updateInfo?.available &&
+          updateInfo.latestVersion &&
+          shouldHighlightTopbarUpdate(
+            updateInfo.currentVersion,
+            updateInfo.latestVersion,
+            updateInfo.notes
+          ) && (
           <button
             type="button"
             data-testid="topbar-new-version-badge"
-            onClick={() => setActiveTab("config")}
-            title={`发现新版本 v${updateInfo.latestVersion}，点击前往「守卫配置」一键更新`}
+            onClick={() => openSettingsModal("update")}
+            onMouseEnter={() => setUpdateHover(true)}
+            onMouseLeave={() => setUpdateHover(false)}
             style={{
+              position: "relative",
               display: "inline-flex",
               alignItems: "center",
               gap: 5,
-              padding: "2px 8px",
+              height: 22,
+              padding: "0 9px",
               marginLeft: 2,
               borderRadius: 999,
               border: "1px solid var(--primary-border)",
               background: "var(--primary-soft)",
               color: "var(--primary)",
-              fontSize: 10.5,
+              fontSize: 11,
               fontWeight: 500,
               cursor: "pointer",
-              lineHeight: 1.35,
+              lineHeight: 1,
               whiteSpace: "nowrap",
             }}
           >
-            <Sparkles size={11} strokeWidth={1.7} />
-            <span
-              style={{
-                padding: "0 4px",
-                borderRadius: 4,
-                background: "var(--primary)",
-                color: "#fff",
-                fontSize: 9.5,
-                fontWeight: 500,
-                letterSpacing: "0.04em",
-              }}
-            >
-              NEW
-            </span>
-            <span>新版 v{updateInfo.latestVersion} 发布啦</span>
+            <span>✨ 新版本发布！！</span>
+            {updateHover && (
+              <span
+                role="tooltip"
+                data-testid="topbar-new-version-tooltip"
+                style={{
+                  position: "absolute",
+                  top: "calc(100% + 7px)",
+                  left: 0,
+                  whiteSpace: "nowrap",
+                  padding: "6px 10px",
+                  borderRadius: 7,
+                  background: "var(--tooltip-bg)",
+                  border: "1px solid var(--divider-strong)",
+                  color: "var(--tooltip-fg)",
+                  fontSize: 11,
+                  fontWeight: 400,
+                  boxShadow: "0 10px 26px rgba(0, 0, 0, 0.32)",
+                  pointerEvents: "none",
+                  zIndex: 300,
+                }}
+              >
+                发现新版本 v{updateInfo.latestVersion} · 点击前往「版本更新」一键更新
+              </span>
+            )}
           </button>
         )}
       </div>
@@ -169,14 +213,14 @@ export function WindowChrome() {
       <div style={{ display: "flex", alignItems: "center", height: "100%" }}>
         <div
           data-testid="topbar-quick-toggles"
-          style={{ display: "flex", alignItems: "center", gap: 2, paddingRight: 8 }}
+          style={{ display: "flex", alignItems: "center", gap: 6, paddingRight: 10 }}
         >
-          {/* 0. 开源交流与技术支持入口 */}
+          {/* 0. 联系作者入口（保留原版耳机客服符号，点击打开全新 X / Twitter 联系作者弹窗） */}
           <button
             type="button"
             data-testid="topbar-btn-support"
-            aria-label="开源交流与技术支持"
-            title="开源交流与技术支持（QQ: 2568515327）"
+            aria-label="联系作者 · X (Twitter)"
+            title="联系作者 · X (Twitter)"
             onClick={() => setSupportModalOpen(true)}
             className="chrome-btn"
             style={quickIcoBtnStyle(true)}

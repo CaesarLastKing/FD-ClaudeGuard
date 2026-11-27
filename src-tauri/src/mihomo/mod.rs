@@ -115,9 +115,10 @@ struct NodeStabilityRecord {
 }
 
 const DUAL_AI_CACHE_TTL_SECS: u64 = 300;
-const VERIFIED_GEO_CACHE_TTL_SECS: u64 = 86_400;
-const VERIFIED_DISK_TTL_SECS: i64 = 24 * 3600;
-/// 瞬时超时（offline）短缓存周期（5 分钟），避免一次网络抖动将健康节点误锁死 24 小时
+/// 健康节点 ISP / 归属 / 平台可达性缓存有效期（72 小时 / 3 天），降低重复探测频率避免节点被频繁标记
+const VERIFIED_GEO_CACHE_TTL_SECS: u64 = 72 * 3600;
+const VERIFIED_DISK_TTL_SECS: i64 = 72 * 3600;
+/// 瞬时超时（offline）短缓存周期（5 分钟），避免一次网络抖动将健康节点误锁死 72 小时
 const OFFLINE_DISK_TTL_SECS: i64 = 5 * 60;
 const DRIFT_WINDOW_SECS: i64 = 24 * 3600;
 

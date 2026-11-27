@@ -65,15 +65,16 @@ describe("FD Claude Guard M3/M4 紧急防回传、备份还原与脱敏诊断包
     });
 
     render(<App />);
-    fireEvent.click(screen.getByRole("button", { name: /环境维护/ }));
+    fireEvent.click(screen.getByTestId("sidebar-settings-trigger"));
+    fireEvent.click(await screen.findByTestId("settings-tab-recovery"));
 
-    fireEvent.click(await screen.findByRole("button", { name: "应急清理缓存" }));
+    fireEvent.click(await screen.findByRole("button", { name: "应急清理" }));
     await waitFor(() => expect(killSpy).toHaveBeenCalledWith(true));
 
-    fireEvent.click(screen.getByRole("button", { name: "一键防自锁救援" }));
+    fireEvent.click(screen.getByRole("button", { name: "仅清防火墙" }));
     await waitFor(() => expect(fwRescueSpy).toHaveBeenCalledTimes(1));
 
-    fireEvent.click(screen.getByRole("button", { name: "退出登录并清理（备份）" }));
+    fireEvent.click(screen.getByRole("button", { name: "退出并清理" }));
     expect(await screen.findByTestId("clean-confirm-modal")).toBeInTheDocument();
     fireEvent.click(await screen.findByTestId("btn-clean-modal-confirm"));
     await waitFor(() => expect(backupSpy).toHaveBeenCalledTimes(1));
@@ -84,7 +85,8 @@ describe("FD Claude Guard M3/M4 紧急防回传、备份还原与脱敏诊断包
     fireEvent.click(screen.getByRole("button", { name: /删除备份 claude-backup-clean/ }));
     await waitFor(() => expect(deleteSpy).toHaveBeenCalledWith("claude-backup-clean-20261123-220000-001.zip"));
 
-    fireEvent.click(screen.getByRole("button", { name: "导出脱敏 AI 诊断包" }));
+    fireEvent.click(screen.getByTestId("settings-tab-general"));
+    fireEvent.click(await screen.findByTestId("btn-settings-export-diag"));
     await waitFor(() => expect(diagSpy).toHaveBeenCalledTimes(1));
   });
 });
