@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light" data-light-pal="morandi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FD Claude 安全启动器 · 控制台 v5.8（浅色莫兰迪红绿 + v5.7 压暗暗色 + 守护正常与标红 10/12）</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    @font-face {
+      font-family: "FD-Fine";
+      src:
+        local("SF Pro Text Light"),
+        local("Segoe UI Variable Text Semilight"),
+        local("Noto Sans SC DemiLight"),
+        local("HarmonyOS Sans SC Light"),
+        local("HarmonyOS Sans SC");
+      font-weight: 400;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: "FD-Fine";
+      src:
+        local("SF Pro Text"),
+        local("Segoe UI Variable Text"),
+        local("Noto Sans SC"),
+        local("HarmonyOS Sans SC");
+      font-weight: 500;
+      font-style: normal;
+    }
+
+    :root {
+      --font-sans: "FD-Fine", "SF Pro Text", "Segoe UI Variable Text", "Noto Sans SC", "HarmonyOS Sans SC", -apple-system, sans-serif;
+      --font-mono: "Cascadia Code", "SF Mono", "JetBrains Mono", "Consolas", ui-monospace, monospace;
+      --r-win: 11px;
+      --r-card: 10px;
+      --r-btn: 7px;
+      --r-icon: 7px;
+      --r-chip: 5px;
+      --ease: cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    [data-theme="light"] {
+      --page-backdrop: #EAECEF;
+      --seg-track: rgba(15, 23, 42, 0.065);
+      --seg-thumb: #FFFFFF;
+      --seg-thumb-shadow: 0 1px 2px rgba(15, 23, 42, 0.08), 0 0 0 0.5px rgba(15, 23, 42, 0.04);
+
+      --bg-chrome: #FBFBFD;
+      --bg-sidebar: #FBFBFD;
+      --bg-header: #F8F9FB;
+      --bg-canvas: #F5F6F8;
+
+      --bg-card: #FFFFFF;
+      --bg-subtle: #F2F4F7;
+      --bg-nav-active: #EEF0F4;
+      --bg-row-hover: rgba(15, 23, 42, 0.016);
+
+      --border-card: rgba(15, 23, 42, 0.072);
+      --border-card-hover: rgba(15, 23, 42, 0.12);
+      --divider: rgba(15, 23, 42, 0.058);
+      --divider-strong: rgba(15, 23, 42, 0.102);
+      --icon-border: rgba(15, 23, 42, 0.052);
+
+      --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.022), 0 4px 10px -2px rgba(15, 23, 42, 0.026);
+      --shadow-btn: 0 1px 1.5px rgba(15, 23, 42, 0.032);
+      --shadow-window: 0 0 0 1px rgba(15, 23, 42, 0.08), 0 24px 60px -14px rgba(15, 23, 42, 0.14);
+
+      --text-strong: #2B303B;
+      --text-1: #3D4350;
+      --text-2: #727A8A;
+      --text-3: #8991A2;
+      --text-4: #B4BCC9;
+
+      --primary: #006CE0;
+      --primary-hi: #1A84F5;
+      --primary-soft: rgba(0, 108, 224, 0.068);
+      --primary-border: rgba(0, 108, 224, 0.18);
+
+      --warning-dot: #DF952E;
+      --warning-fg: #B87419;
+      --warning-soft: rgba(223, 149, 46, 0.075);
+      --warning-border: rgba(223, 149, 46, 0.20);
+
+      --sel-bar-bg: rgba(15, 23, 42, 0.015);
+      --sel-bar-color: #9AA3B2;
+
+      --thumb-idle: rgba(15, 23, 42, 0.072);
+      --thumb-active: rgba(15, 23, 42, 0.16);
+
+      --promo-bg: linear-gradient(135deg, rgba(0, 108, 224, 0.042) 0%, #FFFFFF 70%);
+      --promo-border: rgba(0, 108, 224, 0.15);
+
+      --code-bg: #F6F7FA;
+      --code-fg: #474F5E;
+      --toast-bg: #262B35;
+      --toast-fg: #F5F7FA;
+    }
+
+    /* 浅色默认：莫兰迪苔绿 / 柔丹红 */
+    [data-theme="light"][data-light-pal="morandi"] {
+      --ok-dot: #4C9E6E;
+      --ok-fg: #3E8C60;
+      --ok-bg: rgba(76, 158, 110, 0.072);
+      --ok-border: rgba(76, 158, 110, 0.19);
+      --pass-fg: #4F946C;
+      --pass-bg: rgba(76, 158, 110, 0.052);
+      --pass-border: rgba(76, 158, 110, 0.155);
+
+      --bad-dot: #CE5A5A;
+      --bad-fg: #C04D4D;
+      --bad-bg: rgba(206, 90, 90, 0.062);
+      --bad-border: rgba(206, 90, 90, 0.185);
+    }
+
+    /* 浅色备选对照：清雅嫩绿 / 暖珊瑚 */
+    [data-theme="light"][data-light-pal="pastel"] {
+      --ok-dot: #38B86A;
+      --ok-fg: #2E9B59;
+      --ok-bg: #F1FAF4;
+      --ok-border: #CCEBD7;
+      --pass-fg: #3BA366;
+      --pass-bg: #F4FBF6;
+      --pass-border: #D5F0DF;
+
+      --bad-dot: #E85D56;
+      --bad-fg: #D6514A;
+      --bad-bg: #FDF4F3;
+      --bad-border: #F5CECB;
+    }
+
+    /* 暗色：锁定 v5.7 压暗柔化版 */
+    [data-theme="dark"] {
+      --page-backdrop: #070709;
+      --seg-track: rgba(255, 255, 255, 0.065);
+      --seg-thumb: #22222A;
+      --seg-thumb-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+
+      --bg-chrome: #111115;
+      --bg-sidebar: #111115;
+      --bg-header: #0F0F13;
+      --bg-canvas: #0C0C0F;
+
+      --bg-card: #15151A;
+      --bg-subtle: #1D1D24;
+      --bg-nav-active: #1B1B22;
+      --bg-row-hover: rgba(255, 255, 255, 0.022);
+
+      --border-card: rgba(255, 255, 255, 0.082);
+      --border-card-hover: rgba(255, 255, 255, 0.13);
+      --divider: rgba(255, 255, 255, 0.058);
+      --divider-strong: rgba(255, 255, 255, 0.105);
+      --icon-border: rgba(255, 255, 255, 0.065);
+
+      --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.24);
+      --shadow-btn: 0 1px 2px rgba(0, 0, 0, 0.22);
+      --shadow-window: 0 0 0 1px rgba(255, 255, 255, 0.09), 0 28px 72px -12px rgba(0, 0, 0, 0.85);
+
+      --text-strong: #C9CED8;
+      --text-1: #B4BAC6;
+      --text-2: #7D8494;
+      --text-3: #646C7C;
+      --text-4: #4A5160;
+
+      --primary: #3B93FA;
+      --primary-hi: #55A3FF;
+      --primary-soft: rgba(59, 147, 250, 0.105);
+      --primary-border: rgba(59, 147, 250, 0.23);
+
+      --ok-dot: #449C69;
+      --ok-fg: #529F73;
+      --ok-bg: rgba(74, 158, 108, 0.072);
+      --ok-border: rgba(74, 158, 108, 0.16);
+      --pass-fg: #4B9169;
+      --pass-bg: rgba(74, 158, 108, 0.052);
+      --pass-border: rgba(74, 158, 108, 0.135);
+
+      --bad-dot: #BD5F5A;
+      --bad-fg: #C56B66;
+      --bad-bg: rgba(196, 102, 97, 0.075);
+      --bad-border: rgba(196, 102, 97, 0.175);
+
+      --warning-dot: #C28F3E;
+      --warning-fg: #BF9148;
+      --warning-soft: rgba(194, 143, 62, 0.075);
+      --warning-border: rgba(194, 143, 62, 0.175);
+
+      --sel-bar-bg: rgba(255, 255, 255, 0.022);
+      --sel-bar-color: #6B7384;
+
+      --thumb-idle: rgba(255, 255, 255, 0.072);
+      --thumb-active: rgba(255, 255, 255, 0.17);
+
+      --promo-bg: linear-gradient(135deg, rgba(74, 158, 255, 0.07) 0%, rgba(21, 21, 26, 0.96) 65%);
+      --promo-border: rgba(74, 158, 255, 0.19);
+
+      --code-bg: #101015;
+      --code-fg: #9CA3B2;
+      --toast-bg: #22222A;
+      --toast-fg: #D5D9E2;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0; padding: 14px 24px 26px; min-height: 100vh;
+      background: var(--page-backdrop); color: var(--text-1); font-family: var(--font-sans);
+      font-weight: 400; font-synthesis: none; -webkit-font-smoothing: antialiased;
+      display: flex; flex-direction: column; align-items: center;
+      transition: background-color 180ms var(--ease), color 180ms var(--ease);
+    }
+
+    .tabular { font-variant-numeric: tabular-nums; }
+    .font-mono-code { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+    .seg-bar { display: inline-flex; align-items: center; gap: 2px; padding: 2.5px; border-radius: 9px; background: var(--seg-track); }
+    .seg-item {
+      padding: 4px 10px; border: none; border-radius: 7px; background: transparent;
+      color: var(--text-3); font-family: var(--font-sans); font-size: 11.5px; cursor: pointer; white-space: nowrap;
+      display: inline-flex; align-items: center; gap: 4.5px; transition: all 140ms var(--ease);
+    }
+    .seg-item:hover:not(.active) { color: var(--text-1); }
+    .seg-item.active { background: var(--seg-thumb); color: var(--text-strong); font-weight: 500; box-shadow: var(--seg-thumb-shadow); }
+
+    .fd-window {
+      width: 100%; max-width: 1280px; height: 774px; border-radius: var(--r-win);
+      background: var(--bg-canvas); box-shadow: var(--shadow-window); overflow: hidden;
+      display: flex; flex-direction: column; user-select: none; position: relative;
+      transition: background-color 180ms var(--ease), box-shadow 180ms var(--ease);
+    }
+
+    .c-card {
+      background: var(--bg-card); border: 1px solid var(--border-card); border-radius: var(--r-card);
+      box-shadow: var(--shadow-card); overflow: hidden; transition: background-color 160ms var(--ease), border-color 160ms var(--ease);
+    }
+    .c-card.is-hold { border-color: var(--primary-border); background: var(--primary-soft); }
+
+    .c-promo-slot {
+      background: var(--promo-bg); border: 1px solid var(--promo-border); border-radius: var(--r-card);
+      padding: 10px 12px; cursor: pointer; transition: border-color 150ms var(--ease), transform 130ms var(--ease);
+    }
+    .c-promo-slot:hover { border-color: var(--primary); transform: translateY(-0.5px); }
+
+    .c-btn {
+      height: 31px; padding: 0 11px; border: 1px solid var(--divider-strong); border-radius: var(--r-btn);
+      background: var(--bg-card); color: var(--text-1); box-shadow: var(--shadow-btn);
+      font-family: var(--font-sans); font-size: 12px; font-weight: 400;
+      display: inline-flex; align-items: center; justify-content: center; gap: 5.5px; cursor: pointer; white-space: nowrap; flex-shrink: 0;
+      transition: transform 110ms var(--ease), background-color 140ms var(--ease), border-color 140ms var(--ease);
+    }
+    .c-btn:hover:not(:disabled) { background: var(--bg-row-hover); color: var(--text-strong); border-color: var(--border-card-hover); }
+    .c-btn:active:not(:disabled) { transform: scale(0.985); }
+    .c-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    .c-btn-primary {
+      height: 31px; padding: 0 14px; border: none; border-radius: var(--r-btn);
+      background: linear-gradient(180deg, var(--primary-hi) 0%, var(--primary) 100%);
+      color: #FFFFFF; font-family: var(--font-sans); font-size: 12px; font-weight: 500;
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; white-space: nowrap; flex-shrink: 0;
+      box-shadow: 0 1px 2px rgba(0, 108, 224, 0.25), 0 4px 10px -3px rgba(0, 108, 224, 0.22);
+      transition: transform 110ms var(--ease), filter 140ms var(--ease);
+    }
+    .c-btn-primary:hover:not(:disabled) { filter: brightness(1.06); }
+    .c-btn-primary:disabled {
+      background: var(--bg-subtle); color: var(--text-3); border: 1px solid var(--divider-strong);
+      box-shadow: none; cursor: not-allowed; font-weight: 400;
+    }
+
+    .c-status-indicator {
+      height: 31px; padding: 0 10px; border-radius: var(--r-btn);
+      background: var(--bg-card); border: 1px solid var(--divider-strong);
+      font-size: 12px; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; flex-shrink: 0;
+    }
+
+    .c-nav-item {
+      height: 33px; padding: 0 10px; border: none; border-radius: var(--r-btn);
+      background: transparent; color: var(--text-2); font-family: var(--font-sans); font-size: 12.5px;
+      display: flex; align-items: center; justify-content: space-between; width: 100%; cursor: pointer;
+      transition: background-color 130ms var(--ease), color 130ms var(--ease);
+    }
+    .c-nav-item:hover { background: var(--bg-nav-active); color: var(--text-1); }
+    .c-nav-item.active { background: var(--bg-nav-active); color: var(--text-strong); font-weight: 500; }
+
+    .c-status-card { padding: 10px 12px; display: flex; flex-direction: column; gap: 7px; }
+    .c-status-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 20px; }
+    .c-hold-chip {
+      height: 20px; padding: 0 7px; border-radius: 5px;
+      background: var(--primary-soft); color: var(--primary); border: 1px solid var(--primary-border);
+      font-family: var(--font-sans); font-size: 10.5px;
+      display: inline-flex; align-items: center; gap: 3.5px; cursor: pointer; white-space: nowrap;
+    }
+    .c-hold-chip.is-active { background: var(--primary); color: #FFFFFF; border-color: transparent; }
+
+    .c-icon-box {
+      width: 28px; height: 28px; border-radius: var(--r-icon);
+      background: var(--bg-subtle); color: var(--text-2); border: 1px solid var(--icon-border);
+      display: grid; place-items: center; flex-shrink: 0; transition: all 140ms var(--ease);
+    }
+    .c-icon-box svg { width: 14.5px; height: 14.5px; }
+    .c-icon-box.is-fail { background: var(--bad-bg); color: var(--bad-fg); border-color: var(--bad-border); }
+    .c-icon-box.is-warn { background: var(--warning-soft); color: var(--warning-fg); border-color: var(--warning-border); }
+
+    .c-check-row {
+      position: relative; width: 100%; text-align: left; border: none; background: transparent;
+      padding: 10px 15px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      cursor: pointer; border-bottom: 1px solid var(--divider); font-family: var(--font-sans);
+      transition: background-color 130ms var(--ease);
+    }
+    .c-check-row:last-child { border-bottom: none; }
+    .c-check-row:hover:not(.selected) { background: var(--bg-row-hover); }
+    .c-check-row.selected { background: var(--sel-bar-bg); }
+    .c-check-row.selected::before {
+      content: ""; position: absolute; left: 4.5px; top: 50%; transform: translateY(-50%);
+      width: 2.5px; height: 19px; border-radius: 99px; background: var(--sel-bar-color);
+    }
+    .c-check-row.selected:not(.is-fail):not(.is-warn) .c-icon-box {
+      background: var(--bg-card); color: var(--text-strong); border-color: var(--divider-strong);
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    }
+    .c-check-row.selected .c-row-title { color: var(--text-strong); }
+    .c-check-row:hover .c-row-chev { color: var(--text-2) !important; transform: translateX(1.5px); }
+    .c-check-row.selected .c-row-chev { color: var(--text-2) !important; transform: translateX(1.5px); }
+
+    .c-row-title { font-size: 12.5px; font-weight: 400; line-height: 1.38; color: var(--text-1); }
+    .c-row-sub { margin-top: 2px; font-size: 11.5px; line-height: 1.45; color: var(--text-2); }
+
+    .c-pill {
+      min-width: 54px; height: 21px; padding: 0 7.5px; border-radius: var(--r-chip);
+      font-size: 11px; font-weight: 400;
+      display: inline-flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap;
+    }
+    .c-pill-ok { color: var(--pass-fg); background: var(--pass-bg); border: 1px solid var(--pass-border); }
+    .c-pill-warn { color: var(--warning-fg); background: var(--warning-soft); border: 1px solid var(--warning-border); }
+    .c-pill-fail { color: var(--bad-fg); background: var(--bad-bg); border: 1px solid var(--bad-border); }
+
+    .c-kv-row { padding: 7.5px 0; }
+    .raw-drawer { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 170ms var(--ease); }
+    .raw-drawer.open { grid-template-rows: 1fr; }
+    .raw-drawer > div { overflow: hidden; }
+
+    @keyframes fadeSlide { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
+    .insp-enter { animation: fadeSlide 145ms var(--ease) both; }
+    @keyframes spinFast { to { transform: rotate(360deg); } }
+    .spin-icon { animation: spinFast 0.72s linear infinite; }
+    @keyframes toastIn { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
+    .fd-toast { animation: toastIn 160ms var(--ease) both; }
+
+    .chrome-btn { color: var(--text-2); transition: background-color 120ms, color 120ms; }
+    .chrome-btn:hover { background: var(--bg-subtle); color: var(--text-strong); }
+    .chrome-close:hover { background: #DC2626 !important; color: #FFFFFF !important; }
+
+    .thin-scroll-host { position: relative; min-height: 0; display: flex; flex-direction: column; }
+    .thin-scroll-body { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; }
+    .thin-scroll-body::-webkit-scrollbar { display: none; }
+    .thin-scroll-track { position: absolute; top: 10px; bottom: 10px; right: 4px; width: 6px; pointer-events: none; z-index: 20; }
+    .thin-scroll-thumb {
+      position: absolute; right: 1px; top: 0; width: 3px; height: 46px; border-radius: 99px;
+      background: var(--thumb-idle); pointer-events: auto; cursor: grab;
+      transition: background-color 160ms var(--ease), width 140ms var(--ease), opacity 180ms var(--ease);
+    }
+    .thin-scroll-host:hover .thin-scroll-thumb,
+    .thin-scroll-host.is-scrolling .thin-scroll-thumb { background: var(--thumb-active); }
+    .thin-scroll-thumb:active { cursor: grabbing; width: 4px; }
+  </style>
+</head>
+<body>
+
+  <div class="w-full max-w-[1280px] mb-2.5 flex flex-wrap items-center justify-between gap-2">
+    <div class="flex items-center gap-2 flex-wrap">
+      <span class="text-[11px]" style="color: var(--text-3);">浅色红绿对比</span>
+      <div class="seg-bar">
+        <button type="button" data-pal-opt="morandi" class="seg-item active">
+          <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full" style="background:#4C9E6E;"></span><span class="w-2 h-2 rounded-full" style="background:#CE5A5A;"></span></span>
+          <span>莫兰迪苔绿 / 柔丹红</span>
+        </button>
+        <button type="button" data-pal-opt="pastel" class="seg-item">
+          <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full" style="background:#38B86A;"></span><span class="w-2 h-2 rounded-full" style="background:#E85D56;"></span></span>
+          <span>清雅嫩绿 / 暖珊瑚</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="flex items-center flex-wrap gap-2">
+      <div class="seg-bar">
+        <button type="button" data-mode-opt="multi" class="seg-item active">2 项未通过 (10/12)</button>
+        <button type="button" data-mode-opt="fail" class="seg-item">1 项未通过 (11/12)</button>
+        <button type="button" data-mode-opt="ok" class="seg-item">全绿 (12/12)</button>
+      </div>
+      <div class="seg-bar">
+        <button type="button" data-theme-opt="light" class="seg-item active">浅色版</button>
+        <button type="button" data-theme-opt="dark" class="seg-item">暗色版（v5.7）</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="fd-window">
+    <header class="h-[38px] shrink-0 pl-4 flex items-center justify-between transition-colors"
+      style="background: var(--bg-chrome); border-bottom: 1px solid var(--divider);">
+      <div class="flex items-center gap-2 min-w-0">
+        <img src="data:image/png;base64,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"
+          alt="FD Claude Guard" class="w-[17px] h-[17px] rounded-[4px] shrink-0" />
+        <span class="text-[12.5px] tracking-[-0.005em]" style="color: var(--text-1);">FD Claude 安全启动器</span>
+        <span class="text-[11px] px-0.5" style="color: var(--text-3);">Fuck Dario！！！</span>
+      </div>
+      <div class="flex items-center h-full">
+        <div class="flex items-center gap-0.5 pr-2">
+          <button type="button" class="chrome-btn w-[28px] h-[25px] rounded-[6px] flex items-center justify-center cursor-pointer"><svg class="w-[14px] h-[14px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/></svg></button>
+          <button type="button" class="chrome-btn w-[28px] h-[25px] rounded-[6px] flex items-center justify-center cursor-pointer"><svg class="w-[14px] h-[14px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="15" rx="2.8"/><rect x="12" y="8" width="6" height="4.5" rx="1"/></svg></button>
+          <button type="button" class="chrome-btn w-[28px] h-[25px] rounded-[6px] flex items-center justify-center cursor-pointer"><svg class="w-[14px] h-[14px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8.7 3A6 6 0 0 1 18 8a21.3 21.3 0 0 0 .6 5"/><path d="M17 17H4a1 1 0 0 1-.8-1.6A9.5 9.5 0 0 0 6 8c0-.8.2-1.5.5-2.2"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/><line x1="2.5" y1="2.5" x2="21.5" y2="21.5"/></svg></button>
+          <button id="top-btn-theme" type="button" class="chrome-btn w-[28px] h-[25px] rounded-[6px] flex items-center justify-center cursor-pointer"><svg id="theme-ico-svg" class="w-[13.5px] h-[13.5px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg></button>
+        </div>
+        <span class="w-px h-[13px] mr-1" style="background: var(--divider-strong);"></span>
+        <button type="button" class="chrome-btn w-[38px] h-full flex items-center justify-center cursor-pointer"><svg class="w-[12.5px] h-[12.5px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45"><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+        <button type="button" class="chrome-btn w-[38px] h-full flex items-center justify-center cursor-pointer"><svg class="w-[10.5px] h-[10.5px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55"><rect x="4" y="4" width="16" height="16" rx="2"/></svg></button>
+        <button type="button" class="chrome-btn chrome-close w-[38px] h-full flex items-center justify-center cursor-pointer"><svg class="w-[12.5px] h-[12.5px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg></button>
+      </div>
+    </header>
+
+    <div class="flex-1 min-h-0 flex">
+      <aside class="w-[212px] shrink-0 px-3 py-3 flex flex-col justify-between transition-colors"
+        style="background: var(--bg-sidebar); border-right: 1px solid var(--divider);">
+        <nav class="flex flex-col gap-[3px]">
+          <button type="button" class="c-nav-item active"><span class="flex items-center gap-2.5"><svg class="w-[15px] h-[15px]" style="color: var(--text-strong);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 10.5 12 3.8l8.5 6.7V19a1.8 1.8 0 0 1-1.8 1.8h-4.5v-5.2a1.2 1.2 0 0 0-1.2-1.2h-2a1.2 1.2 0 0 0-1.2 1.2v5.2H5.3A1.8 1.8 0 0 1 3.5 19v-8.5Z" fill="currentColor" fill-opacity="0.06"/></svg><span>控制台</span></span><span id="nav-console-badge" class="tabular text-[10px] min-w-[17px] h-[17px] px-1 rounded-[4.5px] inline-flex items-center justify-center"></span></button>
+          <button type="button" class="c-nav-item"><span class="flex items-center gap-2.5"><svg class="w-[15px] h-[15px]" style="color: var(--text-3);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7.5 3v5.4c0 4.8-3.2 8.5-7.5 10-4.3-1.5-7.5-5.2-7.5-10V6L12 3Z"/><path d="m9.2 12.2 2 2 3.8-4"/></svg><span>账户审计</span></span><span class="tabular text-[10px] min-w-[17px] h-[17px] px-1 rounded-[4.5px] inline-flex items-center justify-center" style="background: var(--warning-soft); color: var(--warning-fg);">1</span></button>
+          <button type="button" class="c-nav-item"><span class="flex items-center gap-2.5"><svg class="w-[15px] h-[15px]" style="color: var(--text-3);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a13.5 13.5 0 0 0 0 18 13.5 13.5 0 0 0 0-18"/><path d="M3.2 12h17.6"/></svg><span>节点流量</span></span></button>
+          <button type="button" class="c-nav-item"><span class="flex items-center gap-2.5"><svg class="w-[15px] h-[15px]" style="color: var(--text-3);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.4-3.4a5.8 5.8 0 0 1-7.6 7.6l-6.6 6.6a2 2 0 1 1-2.9-2.9l6.6-6.6a5.8 5.8 0 0 1 7.6-7.6l-3.5 3.3Z"/></svg><span>环境维护</span></span></button>
+          <button type="button" class="c-nav-item"><span class="flex items-center gap-2.5"><svg class="w-[15px] h-[15px]" style="color: var(--text-3);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M4 6.5h16M4 12h16M4 17.5h16"/><circle cx="9" cy="6.5" r="2" fill="var(--bg-sidebar)"/><circle cx="15" cy="12" r="2" fill="var(--bg-sidebar)"/><circle cx="10.5" cy="17.5" r="2" fill="var(--bg-sidebar)"/></svg><span>守卫配置</span></span></button>
+        </nav>
+
+        <div class="flex flex-col gap-2">
+          <div class="c-promo-slot">
+            <div class="flex items-center justify-between gap-1.5">
+              <span class="text-[11.5px]" style="color: var(--text-strong); font-weight: 500;">住宅静态节点精选</span>
+              <span class="text-[9.5px] px-1.5 py-[0.5px] rounded-[4px]" style="background: var(--primary-soft); color: var(--primary); border: 1px solid var(--primary-border);">推荐</span>
+            </div>
+            <div class="mt-1 text-[11px] leading-[1.45]" style="color: var(--text-2);">美国原生静态 ISP · 低风控专线 →</div>
+          </div>
+
+          <div id="proc-card" class="c-card c-status-card">
+            <div class="c-status-row"><span class="flex items-center gap-2 text-[12px]" style="color: var(--text-1);"><span id="proc-dot" class="w-[5.5px] h-[5.5px] rounded-full" style="background: var(--ok-dot);"></span><span>Claude 进程</span></span><span class="tabular text-[11px]" style="color: var(--text-3);">0 进程</span></div>
+            <div class="c-status-row"><span id="proc-sub" class="text-[11px]" style="color: var(--text-3);">已退出</span><button id="btn-kill-hold" type="button" class="c-hold-chip tabular"><svg class="w-[10.5px] h-[10.5px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3l7.5 3v5.4c0 4.8-3.2 8.5-7.5 10-4.3-1.5-7.5-5.2-7.5-10V6L12 3Z"/></svg><span id="hold-label">盯防 45s</span></button></div>
+          </div>
+
+          <div class="c-card c-status-card">
+            <div class="c-status-row"><span class="flex items-center gap-2 text-[12px]" style="color: var(--text-1);"><span class="w-[5.5px] h-[5.5px] rounded-full" style="background: var(--ok-dot);"></span><span>Clash Verge</span></span><span class="tabular text-[11px]" style="color: var(--text-3);">:7890</span></div>
+            <div class="c-status-row"><span class="text-[11px] tabular" style="color: var(--text-3);">Mihomo v1.19.33</span><span class="text-[11px]" style="color: var(--ok-fg);">在线</span></div>
+          </div>
+        </div>
+      </aside>
+
+      <main class="flex-1 min-w-0 flex flex-col" style="background: var(--bg-canvas);">
+        <!-- 页头：恢复原来的「守护正常」状态胶囊 -->
+        <div class="h-[58px] px-6 flex items-center justify-between gap-4 shrink-0"
+          style="background: var(--bg-header); border-bottom: 1px solid var(--divider);">
+          <div class="flex items-center gap-3 min-w-0">
+            <h1 class="m-0 text-[16.5px] tracking-[-0.015em] shrink-0" style="color: var(--text-strong); font-weight: 500;">控制台</h1>
+            <span class="text-[11.5px] truncate tabular" style="color: var(--text-3);">启动前体检 · 实时监听 · 巡检 02:28</span>
+            <span class="text-[10px] px-1.5 py-[1px] rounded-[4.5px] shrink-0" style="background: var(--bg-subtle); color: var(--text-2); border: 1px solid var(--divider);">24h 冷静期</span>
+          </div>
+
+          <div class="flex items-center gap-2 shrink-0">
+            <span class="c-status-indicator tabular">
+              <span class="w-[5.5px] h-[5.5px] rounded-full" style="background: var(--ok-dot);"></span>
+              <span style="color: var(--ok-fg);">守护正常</span>
+            </span>
+
+            <span class="w-px h-[16px] mx-0.5" style="background: var(--divider-strong);"></span>
+
+            <button id="btn-recheck-all" type="button" class="c-btn">
+              <svg id="recheck-all-ico" class="w-[13px] h-[13px]" style="color: var(--text-2);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 12a8.5 8.5 0 1 1-2.5-6"/><polyline points="20.5 3.5 20.5 9 15 9"/></svg>
+              <span id="recheck-all-label">重新实测</span>
+            </button>
+
+            <button id="btn-primary-launch" type="button" class="c-btn-primary">
+              <svg id="primary-ico" class="w-[10.5px] h-[10.5px] fill-current" viewBox="0 0 24 24"><polygon points="6 4 20 12 6 20 6 4"/></svg>
+              <span id="primary-label">安全启动 Claude</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="flex-1 min-h-0 grid" style="grid-template-columns: minmax(0, 1fr) clamp(296px, 29.5%, 332px);">
+          <div id="mid-scroll-host" class="thin-scroll-host" style="border-right: 1px solid var(--divider);">
+            <section id="mid-scroll-body" class="thin-scroll-body px-6 py-4 space-y-5">
+              <div>
+                <div class="flex items-center justify-between mb-2.5 px-0.5">
+                  <span class="text-[12.5px]" style="color: var(--text-strong); font-weight: 500;">一、必须通过</span>
+                  <span id="must-summary-right" class="tabular text-[11.5px]" style="color: var(--text-3);"></span>
+                </div>
+                <div id="must-groups-container" class="space-y-3.5"></div>
+              </div>
+
+              <div>
+                <div class="flex items-center justify-between mb-2.5 px-0.5">
+                  <span class="text-[12.5px]" style="color: var(--text-strong); font-weight: 500;">二、建议优化</span>
+                  <span id="opt-summary-right" class="tabular text-[11px]" style="color: var(--text-3);"></span>
+                </div>
+                <div id="opt-group-container"></div>
+              </div>
+            </section>
+            <div class="thin-scroll-track"><div id="mid-scroll-thumb" class="thin-scroll-thumb"></div></div>
+          </div>
+
+          <div id="right-scroll-host" class="thin-scroll-host">
+            <aside id="inspector-stack" class="thin-scroll-body px-3.5 py-4 flex flex-col gap-2.5"></aside>
+            <div class="thin-scroll-track"><div id="right-scroll-thumb" class="thin-scroll-thumb"></div></div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <div id="toast-anchor" class="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 z-50"></div>
+  </div>
+
+  <script>
+    const ICONS = {
+      proxy: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="6.5" rx="2" fill="currentColor" fill-opacity="0.05"/><rect x="3" y="13.5" width="18" height="6.5" rx="2" fill="currentColor" fill-opacity="0.05"/><circle cx="7" cy="7.2" r="0.8" fill="currentColor"/><circle cx="7" cy="16.8" r="0.8" fill="currentColor"/><path d="M12.5 7.2h4.5M12.5 16.8h4.5"/></svg>`,
+      group: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10.5" width="16" height="10" rx="2.5" fill="currentColor" fill-opacity="0.05"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/><circle cx="12" cy="15.5" r="1.1" fill="currentColor"/></svg>`,
+      fw: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="15" rx="3" fill="currentColor" fill-opacity="0.05"/><path d="M6 12h2.8l1.8-3.8 2.6 7.6 1.8-3.8H18"/></svg>`,
+      dns: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 18.5H7.6a5 5 0 1 1 1.4-9.8A5.6 5.6 0 0 1 20 12a3.6 3.6 0 0 1-2.5 6.5Z" fill="currentColor" fill-opacity="0.05"/><path d="M12 11v4.2m0 0-1.8-1.8m1.8 1.8 1.8-1.8"/></svg>`,
+      geo: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.8" fill="currentColor" fill-opacity="0.05"/><path d="M12 3.2a13.2 13.2 0 0 0 0 17.6 13.2 13.2 0 0 0 0-17.6"/><path d="M3.4 12h17.2"/></svg>`,
+      ipv6: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.8" fill="currentColor" fill-opacity="0.05"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+      startup: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6.8a8.4 8.4 0 1 1-12 0"/><line x1="12" y1="3.2" x2="12" y2="11.5"/></svg>`,
+      location: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s6.5-5.4 6.5-10.8a6.5 6.5 0 0 0-9.6-5.7M5.9 7.2A6.5 6.5 0 0 0 5.5 10.2C5.5 15.6 12 21 12 21"/><line x1="3.2" y1="3.2" x2="20.8" y2="20.8"/></svg>`,
+      ban: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2l7.4 2.9v5.2c0 4.6-3.1 8.2-7.4 9.7-4.3-1.5-7.4-5.1-7.4-9.7V6.1L12 3.2Z" fill="currentColor" fill-opacity="0.05"/><path d="M12 8.6v4"/><circle cx="12" cy="15.5" r="0.8" fill="currentColor"/></svg>`,
+      userLock: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="9.2" cy="7.8" r="3.4" fill="currentColor" fill-opacity="0.05"/><path d="M3.2 19.6c.7-3 3-4.6 6-4.6s5.3 1.6 6 4.6"/><path d="M16 11.5l1.8 1.8 3.2-3.4"/></svg>`,
+      endpoint: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.2 13.8a4.5 4.5 0 0 0 6.8.5l2.7-2.7a4.5 4.5 0 0 0-6.4-6.4L11.8 6.7"/><path d="M13.8 10.2a4.5 4.5 0 0 0-6.8-.5l-2.7 2.7a4.5 4.5 0 0 0 6.4 6.4l1.5-1.5"/></svg>`,
+      privacy: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.4 6.2A9 9 0 0 1 12 6c5.4 0 9 6 9 6a16 16 0 0 1-2.9 3.6M6.5 8.2A15.8 15.8 0 0 0 3 12s3.6 6 9 6c1.4 0 2.7-.3 3.9-.9"/><line x1="3.2" y1="3.2" x2="20.8" y2="20.8"/></svg>`,
+      clock: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.8" fill="currentColor" fill-opacity="0.05"/><path d="M12 7.2V12l3.2 1.9"/></svg>`
+    };
+
+    const BASE_ITEMS = [
+      { id: "node_proxy", part: "must", cat: "1. 代理与节点（改 Clash 配置）", icon: "proxy", mode: "自动一键", reversible: "只读探针 · 无改写", title: "代理引擎在线与端口独占", status: "ok", checkedAt: "02:28:12", durationMs: 9, summary: "Clash Verge (:7890) 在线 · 未发现 12334 等冲突端口", probes: [{ k: "内核版本", v: "Mihomo v1.19.33" }, { k: "管道连接", v: "命名管道已直连" }, { k: "监听端口", v: "127.0.0.1:7890" }, { k: "冲突端口", v: "0 冲突" }], raw: `Endpoint: \\\\.\\pipe\\verge-mihomo-production\nKernel: Mihomo v1.19.33\nPort 7890: Online | Conflicts: 0`, guide: "探针直连 Mihomo 命名管道并确认代理端口独占无冲突，避免多客户端抢占导致出站 IP 抖动。", fixLabel: null },
+      { id: "node_group", part: "must", cat: "1. 代理与节点（改 Clash 配置）", icon: "group", mode: "向导 + 实测", reversible: "改写 Script.js · 自动备份", title: "策略组与全家桶规则锁死", status: "ok", checkedAt: "02:28:12", durationMs: 14, summary: "手动单节点锁定 us美国1|流媒体AI · Claude 全家桶 + API 覆盖完整", probes: [{ k: "策略组", v: "Claude-Fixed（手动）" }, { k: "当前节点", v: "us美国1|流媒体AI" }, { k: "内核 IPv6", v: "已锁死关闭" }, { k: "核心域名", v: "14 条规则生效" }], raw: `GET /proxies/Claude-Fixed -> Selector, now="us美国1|流媒体AI"\nScript.js active | ipv6: false`, guide: "将 Claude 桌面端、CLI 与网页版核心域名强制锁定到单一出口节点，杜绝自动测速轮换触发风控。", fixLabel: "写入 Script.js 覆写并实测" },
+      { id: "node_tun", part: "must", cat: "1. 代理与节点（改 Clash 配置）", icon: "fw", mode: "向导 + 实测", reversible: "仅检测 TUN · 不强杀客户端", title: "虚拟网卡接管（Clash TUN）", status: "ok", checkedAt: "02:28:12", durationMs: 18, summary: "TUN 已激活 · 虚拟网卡 Meta 在线接管全局与 CLI 底层流量", probes: [{ k: "TUN 模式", v: "已激活（gVisor）" }, { k: "虚拟网卡", v: "Meta · 在线接管" }, { k: "系统服务", v: "Clash Service 运行中" }], raw: `/configs -> tun.enable=true, stack=gvisor\nNetAdapter "Meta": Up`, guide: "系统级虚拟网卡可兜底接管忽略系统代理的终端与后台子进程，从底层封死裸连通道。", fixLabel: "打开 TUN 安装指引", multiFault: { status: "fail", durationMs: 21, summary: "未检测到 Clash TUN 虚拟网卡 · CLI 终端底层流量存在裸连风险", probes: [{ k: "TUN 模式", v: "未开启 (false)", sub: "Clash 核心未启用虚拟网卡接管", tone: "fail" }, { k: "系统服务", v: "未安装服务模式", sub: "需在 Clash Verge 界面点击安装 Service Mode", tone: "fail" }, { k: "虚拟网卡", v: "未检出 Meta 网卡" }], raw: `[FAIL] /configs -> tun.enable=false\n[FAIL] Service clash_verge_service: NotInstalled`, guide: "系统服务未安装时，本工具绝不强制覆盖配置或硬杀 Clash 进程。请按指引在 Clash Verge 设置页开启 Service Mode 与 TUN 后一键复测。", fixLabel: "打开 TUN 安装指引" } },
+      { id: "node_dns", part: "must", cat: "1. 代理与节点（改 Clash 配置）", icon: "dns", mode: "向导 + 实测", reversible: "自动留存首次基线", title: "DNS 防泄漏（Clash Fake-IP）", status: "ok", checkedAt: "02:28:12", durationMs: 11, summary: "Fake-IP 生效 · 实测 claude.ai 解析为 198.18.0.38（0 泄漏）", probes: [{ k: "解析模式", v: "Fake-IP (198.18.0.0/15)" }, { k: "claude.ai", v: "198.18.0.38（命中）" }, { k: "明文泄漏", v: "0 本地运营商泄漏" }], raw: `DNS Probe (claude.ai): 198.18.0.38 [PASS]`, guide: "拦截本机 DNS 请求交由远端节点解析，避免本地运营商暴露真实归属地或返回污染 IP。", fixLabel: "写入 Fake-IP 配置并实测" },
+      { id: "node_geo", part: "must", cat: "1. 代理与节点（改 Clash 配置）", icon: "geo", mode: "无状态实测", reversible: "零账号凭据发送", title: "出口节点真实可达性", status: "ok", checkedAt: "02:28:12", durationMs: 141, summary: "Anthropic API 真实可达 · US · 140.235.xx.xx (141 ms · 非禁区)", probes: [{ k: "出口地区", v: "US · 140.235.xx.xx" }, { k: "IP 性质", v: "ISP 住宅静态 · 0 滥用" }, { k: "API 握手", v: "TLS 1.3 · 141 ms" }, { k: "Cloudflare", v: "无弹盾 · 无 403" }], raw: `Proxy :7890 -> 140.235.xx.xx (US)\nTLS 1.3 api.anthropic.com: OK (141ms)`, guide: "经由当前锁定代理通道发起无状态探针，确认出口非受限区域且未被 Cloudflare 拦截。", fixLabel: "前往「节点流量」更换节点" },
+      { id: "sys_ipv6", part: "must", cat: "2. Windows 系统环境（改系统）", icon: "ipv6", mode: "管理员一键", reversible: "留存首次基线 · 可还原", title: "Windows 网卡 IPv6 禁用", status: "ok", checkedAt: "02:28:12", durationMs: 24, summary: "活跃物理网卡 ms_tcpip6 已禁用 · 真实外网 IPv6 探测不可达", probes: [{ k: "物理网卡", v: "WLAN / 以太网已禁用" }, { k: "外网 IPv6", v: "不可达（无直连）" }, { k: "回滚快照", v: "首次基线已留存" }], raw: `NetAdapterBinding ms_tcpip6: Disabled\nExternal IPv6: ConnectError`, guide: "禁用物理网卡 IPv6 绑定，防止客户端优先通过直连 IPv6 暴露国内宽带真实归属地。", fixLabel: "一键禁用 IPv6 并实测" },
+      { id: "sys_env", part: "must", cat: "2. Windows 系统环境（改系统）", icon: "startup", mode: "自动一键", reversible: "留存原值 · 不碰账号目录", title: "系统代理与环境变量冲突排查", status: "ok", checkedAt: "02:28:12", durationMs: 12, summary: "CLI 代理变量 0 冲突 · WinINET 端口与 :7890 一致（三端同 IP）", probes: [{ k: "官方端点", v: "默认官方原生" }, { k: "终端变量", v: "0 冲突 · 无豁免" }, { k: "代理接管", v: "TUN 虚拟网卡接管" }, { k: "三端一致", v: "桌面/CLI/网页同 IP" }], raw: `ANTHROPIC_BASE_URL: <unset>\nHTTP_PROXY / NO_PROXY: <unset> (0 conflicts)`, guide: "确保桌面端、CLI 与网页版三端始终走同一出口 IP；网页版建议关闭浏览器独立代理扩展。", fixLabel: "一键备份并清理冲突变量", faultOverride: { status: "fail", durationMs: 16, summary: "检出残留终端变量冲突：HTTP_PROXY=10809 且 NO_PROXY 豁免 anthropic.com", probes: [{ k: "HTTP_PROXY", v: "127.0.0.1:10809", sub: "指向旧代理端口，非 Clash :7890", tone: "fail" }, { k: "NO_PROXY", v: "*.anthropic.com", sub: "存在直连豁免，将致 CLI 裸连", tone: "fail" }, { k: "官方端点", v: "默认官方原生" }, { k: "代理接管", v: "TUN 虚拟网卡接管" }], raw: `[FAIL] HKCU\\Environment\\HTTP_PROXY = "http://127.0.0.1:10809"\n[FAIL] HKCU\\Environment\\NO_PROXY = "localhost,*.anthropic.com"`, guide: "终端环境变量优先级高于系统代理：残留的 10809 端口与直连豁免会导致 Claude CLI 绕过 Clash 裸连。点击修复将先自动留存首次基线，再精准清理这 2 条冲突变量。", fixLabel: "一键备份并清理冲突变量" } },
+      { id: "sys_location", part: "must", cat: "2. Windows 系统环境（改系统）", icon: "location", mode: "管理员一键", reversible: "留存注册表原值 · 可撤回", title: "Windows 系统定位服务关闭", status: "ok", checkedAt: "02:28:12", durationMs: 15, summary: "系统 / 用户 / 桌面应用定位权限均已 Deny · lfsvc 服务已禁用", probes: [{ k: "系统/用户", v: "已拒绝（Deny）" }, { k: "桌面应用", v: "已拒绝（NonPackaged）" }, { k: "定位服务", v: "lfsvc 已停止并禁用" }], raw: `ConsentStore\\location\\Value = "Deny"\nlfsvc: STOPPED / DISABLED`, guide: "阻断 Windows 定位服务向本地桌面客户端返回与代理出口不一致的真实地理坐标。", fixLabel: "一键关闭定位与 lfsvc" },
+      { id: "claude_ban", part: "must", cat: "3. Claude 本机卫生（改 Claude）", icon: "ban", mode: "自动一键", reversible: "清理前强制 ZIP 备份", title: "本地封号污染残留审查", status: "ok", checkedAt: "02:28:12", durationMs: 31, summary: "已扫描 5 份本地日志 · 0 确认封号污染残留", probes: [{ k: "扫描日志", v: "5 份桌面与 CLI 日志" }, { k: "污染痕迹", v: "0 确认封号残留" }, { k: "安装形态", v: "Classic AppData · 纯净" }], raw: `Contamination Scan: 5 files, 0 confirmed ban traces`, guide: "启动前扫描本地缓存与历史日志，避免携带历史封号设备指纹直接登录新号引发连坐。", fixLabel: "备份并清理本地污染" },
+      { id: "claude_acct", part: "must", cat: "3. Claude 本机卫生（改 Claude）", icon: "userLock", mode: "引导确认", reversible: "绝不擅删 · 冲突二选一", title: "单号卫生锁（防混号与跨 orgId）", status: "ok", checkedAt: "02:28:12", durationMs: 19, summary: "仅桌面端单号登录（jaso***11@gmail.com · Free）· 无混登残留", probes: [{ k: "绑定主号", v: "jaso***11@gmail.com" }, { k: "登录端", v: "仅桌面端（CLI 已清）" }, { k: "混登竞态", v: "0 次跨号冲突" }], raw: `Primary: jaso***11@gmail.com (org a4722ea6)\nCross-org race: 0`, guide: "锁定本机唯一绑定账号，检出换号或混登时提供分项清单由你自主决定清理或换绑。", fixLabel: "引导处理单号冲突" },
+      { id: "claude_endpoint", part: "must", cat: "3. Claude 本机卫生（改 Claude）", icon: "endpoint", mode: "自动一键", reversible: "自动备份 settings.json", title: "官方 API 端点防反代校验", status: "ok", checkedAt: "02:28:12", durationMs: 7, summary: "settings.json 与环境变量均保持官方原生端点 · 未检出反代", probes: [{ k: "CLI 配置", v: "未改写非官方端点" }, { k: "环境变量", v: "无自定义反代 URL" }], raw: `settings.json -> ANTHROPIC_BASE_URL: <unset>`, guide: "消费级订阅账号直连官方原生端点，避免第三方反代引发指纹异常或封禁连坐。", fixLabel: "一键还原原生端点" },
+      { id: "claude_tel", part: "must", cat: "3. Claude 本机卫生（改 Claude）", icon: "privacy", mode: "自动一键", reversible: "仅写降噪字段 · 不碰对话", title: "官方隐私降噪开关 & 遥测缓存", status: "ok", checkedAt: "02:28:12", durationMs: 10, summary: "4/4 官方 CLI 降噪开启（已关非必要遥测与报错）· 缓存 0 B", probes: [{ k: "降噪开关", v: "4 / 4 项已开启" }, { k: "遥测缓存", v: "0 文件 · 0 B" }], raw: `DISABLE_TELEMETRY=1, DISABLE_ERROR_REPORTING=1\nTelemetry Dir: 0 B`, guide: "合并写入官方隐私降噪环境变量并清空本地待传遥测缓存，绝不触碰凭据、聊天记录与 MCP。", fixLabel: "写入降噪并清空缓存" },
+      { id: "opt_boot", part: "opt", cat: "建议优化", icon: "startup", mode: "只读监测", reversible: "纯只读 · 不改开机项", title: "开机启动项顺序风险检查", status: "ok", checkedAt: "02:28:12", durationMs: 13, summary: "Clash Verge 已自启 · Claude 未设置开机抢跑", probes: [{ k: "Clash Verge", v: "开机自启已启用" }, { k: "Claude", v: "未自启（无抢跑）" }], raw: `Startup Audit: Clash Enabled, Claude Disabled`, guide: "只读审计 Windows 启动顺序，确保代理核心早于 Claude 启动就绪。", fixLabel: "打开启动管理" },
+      { id: "opt_ntp", part: "opt", cat: "建议优化", icon: "clock", mode: "管理员一键", reversible: "标准 Windows w32tm", title: "系统时钟 NTP 同步偏差", status: "ok", checkedAt: "02:28:12", durationMs: 62, summary: "UTC 时钟偏差 +0.18 s · 处于 ±30 s 安全窗口内", probes: [{ k: "对时基准", v: "time.cloudflare.com" }, { k: "UTC 偏差", v: "+0.18 s (±30 s)" }], raw: `NTP: time.cloudflare.com | Drift: +0.18 s`, guide: "系统时钟偏差超 ±30s 时支持管理员一键校时。", fixLabel: "一键 NTP 校时" },
+      { id: "opt_fw", part: "opt", cat: "建议优化", icon: "fw", mode: "管理员一键", reversible: "卸载自动清空任务", title: "防火墙 Kill Switch 权限就绪", status: "ok", checkedAt: "02:28:12", durationMs: 17, summary: "免 UAC 守护计划任务已就绪 · 触发熔断可毫秒级锁死出站", probes: [{ k: "计划任务", v: "免 UAC 已就绪" }, { k: "规则读写", v: "防火墙自检正常" }], raw: `Scheduled Task: \\FDClaudeGuard_ElevatedHelper (Ready)`, guide: "遇到代理掉线或出口漂移至禁区时，可在无弹窗打断下瞬时锁死 Claude 出站流量。", fixLabel: "安装守护权限" },
+      { id: "opt_webrtc", part: "opt", cat: "建议优化", icon: "privacy", mode: "自动一键", reversible: "零 UAC 策略 · 可撤回", title: "浏览器 WebRTC 防泄露策略", status: "ok", checkedAt: "02:28:12", durationMs: 8, summary: "Chrome / Edge 均已锁定 disable_non_proxied_udp 策略", probes: [{ k: "Chrome", v: "已禁用非代理 UDP" }, { k: "Edge", v: "已禁用非代理 UDP" }], raw: `WebRtcIPHandling = "disable_non_proxied_udp"`, guide: "防止网页版 Claude 通过 WebRTC UDP 暴露本机真实 IP。", fixLabel: "锁死 WebRTC 策略", multiFault: { status: "warn", durationMs: 9, summary: "Edge 尚未写入 WebRTC 禁用策略 · 网页版会话存在局域网 IP 暴露风险", probes: [{ k: "Chrome", v: "已禁用非代理 UDP" }, { k: "Edge", v: "未配置策略", sub: "建议写入 disable_non_proxied_udp（零 UAC 可撤回）", tone: "warn" }], raw: `[OK] Chrome WebRtcIPHandling=disable_non_proxied_udp\n[WARN] Edge WebRtcIPHandling=<unset>`, guide: "仅写入用户级浏览器策略（零 UAC，不改浏览器账号数据），可随时在「环境维护」一键撤回。", fixLabel: "一键锁死 Edge WebRTC 策略" } },
+      { id: "opt_tz", part: "opt", cat: "建议优化", icon: "clock", mode: "只读监测", reversible: "仅提示 · 不改时区", title: "系统时区与出口地区一致性", status: "ok", checkedAt: "02:28:12", durationMs: 5, summary: "本机时区与账号长期习惯一致 · 未触发跨区跳变提示", probes: [{ k: "本机时区", v: "UTC+08:00" }, { k: "出口评估", v: "US · 长期稳定" }], raw: `TZ: UTC+08:00 | Exit: US`, guide: "仅作温和风险参考，绝不强改电脑系统时区。", fixLabel: "打开时区设置" },
+      { id: "opt_exit_geo", part: "opt", cat: "建议优化", icon: "geo", mode: "只读监测", reversible: "持续被动观测", title: "出口节点合规性与属地一致性", status: "ok", checkedAt: "02:28:12", durationMs: 21, summary: "24h 落地 IP 零漂移 · 账号属地与当前出口同区一致", probes: [{ k: "24h 漂移", v: "0 次落地漂移" }, { k: "属地一致", v: "账号 US · 出口 US" }, { k: "人机弹盾", v: "未触发 CF 弹盾" }], raw: `Exit Geo: Match | 24h Drift: 0`, guide: "持续追踪账号属地一致性与 24 小时落地 IP 稳定性。", fixLabel: "前往「节点流量」" },
+      { id: "opt_browser_ext", part: "opt", cat: "建议优化", icon: "group", mode: "只读监测", reversible: "纯只读 · 不改扩展", title: "浏览器独立代理插件冲突审计", status: "ok", checkedAt: "02:28:12", durationMs: 11, summary: "未检出 SwitchyOmega / ZeroOmega 等独立代理扩展冲突", probes: [{ k: "Chrome", v: "0 个代理分流插件" }, { k: "Edge", v: "0 个代理分流插件" }], raw: `Proxy Switcher Extensions: 0`, guide: "排查浏览器是否对 claude.ai 配置了与 Clash 不一致的独立分流插件。", fixLabel: null }
+    ];
+
+    const MUST_CATS = ["1. 代理与节点（改 Clash 配置）", "2. Windows 系统环境（改系统）", "3. Claude 本机卫生（改 Claude）"];
+    const state = { theme: "light", lightPal: "morandi", mode: "multi", selectedId: "node_tun", rawOpen: false, scanningAll: false, scanningId: null, fixingId: null, holdOn: false, holdSecs: 45, holdTimer: null };
+
+    function getItems() {
+      return BASE_ITEMS.map(it => {
+        if (state.mode === "fail" && it.faultOverride) return { ...it, ...it.faultOverride };
+        if (state.mode === "multi") {
+          if (it.faultOverride) return { ...it, ...it.faultOverride };
+          if (it.multiFault) return { ...it, ...it.multiFault };
+        }
+        return it;
+      });
+    }
+
+    let toastTimer = null;
+    function showToast(msg) {
+      const el = document.getElementById("toast-anchor");
+      el.innerHTML = `<div class="fd-toast pointer-events-auto px-3.5 py-1.5 rounded-full text-[11.5px]" style="background: var(--toast-bg); color: var(--toast-fg); border: 1px solid var(--divider-strong); box-shadow: 0 8px 22px -6px rgba(0,0,0,0.38);">${msg}</div>`;
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => { el.innerHTML = ""; }, 2200);
+    }
+
+    function bindThinScrollbar(hostId, bodyId, thumbId) {
+      const host = document.getElementById(hostId), body = document.getElementById(bodyId), thumb = document.getElementById(thumbId);
+      let hideTimer = null;
+      const sync = () => {
+        const scrollMax = body.scrollHeight - body.clientHeight;
+        if (scrollMax <= 2) { thumb.style.opacity = "0"; thumb.style.pointerEvents = "none"; return; }
+        thumb.style.opacity = "1"; thumb.style.pointerEvents = "auto";
+        thumb.style.transform = `translateY(${Math.round((body.scrollTop / scrollMax) * Math.max(0, host.clientHeight - 20 - 46))}px)`;
+      };
+      body.addEventListener("scroll", () => { host.classList.add("is-scrolling"); sync(); clearTimeout(hideTimer); hideTimer = setTimeout(() => host.classList.remove("is-scrolling"), 550); });
+      let dragging = false, startY = 0, startTop = 0;
+      thumb.addEventListener("mousedown", (e) => { e.preventDefault(); dragging = true; startY = e.clientY; startTop = body.scrollTop; host.classList.add("is-scrolling"); });
+      window.addEventListener("mousemove", (e) => { if (!dragging) return; const scrollMax = body.scrollHeight - body.clientHeight; body.scrollTop = startTop + ((e.clientY - startY) / Math.max(1, host.clientHeight - 20 - 46)) * scrollMax; });
+      window.addEventListener("mouseup", () => { if (!dragging) return; dragging = false; host.classList.remove("is-scrolling"); });
+      window.addEventListener("resize", sync);
+      return { sync };
+    }
+    const midScroll = bindThinScrollbar("mid-scroll-host", "mid-scroll-body", "mid-scroll-thumb");
+    const rightScroll = bindThinScrollbar("right-scroll-host", "inspector-stack", "right-scroll-thumb");
+
+    function renderHeader(items) {
+      const mustAll = items.filter(i => i.part === "must");
+      const mustOk = mustAll.filter(i => i.status === "ok").length;
+      const mustFail = mustAll.length - mustOk;
+      const optAll = items.filter(i => i.part === "opt");
+      const optOk = optAll.filter(i => i.status === "ok").length;
+
+      const navBadge = document.getElementById("nav-console-badge");
+      navBadge.textContent = mustFail > 0 ? String(mustFail) : "OK";
+      navBadge.style.background = mustFail > 0 ? "var(--bad-bg)" : "var(--ok-bg)";
+      navBadge.style.color = mustFail > 0 ? "var(--bad-fg)" : "var(--ok-fg)";
+
+      /* 严格按用户标注图：未全通过时「已通过 10/12」（仅 10/12 标红）；全通过时「通过 12/12 项后安全启动」 */
+      const mustRight = document.getElementById("must-summary-right");
+      if (mustFail > 0) {
+        mustRight.innerHTML = `已通过 <span style="color: var(--bad-fg); font-weight: 500;">${mustOk}/${mustAll.length}</span>`;
+      } else {
+        mustRight.innerHTML = `通过 <span style="color: var(--text-1);">${mustOk}/${mustAll.length}</span> 项后安全启动`;
+      }
+      document.getElementById("opt-summary-right").textContent = `${optOk}/${optAll.length} · 不阻断启动`;
+
+      const btn = document.getElementById("btn-primary-launch");
+      const ico = document.getElementById("primary-ico");
+      const lbl = document.getElementById("primary-label");
+      if (mustFail > 0) {
+        btn.disabled = true;
+        ico.outerHTML = `<svg id="primary-ico" class="w-[12px] h-[12px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`;
+        lbl.textContent = mustFail === 1 ? "请先处理 1 项未通过" : `请先处理 ${mustFail} 项未通过`;
+      } else {
+        btn.disabled = false;
+        ico.outerHTML = `<svg id="primary-ico" class="w-[10.5px] h-[10.5px] fill-current" viewBox="0 0 24 24"><polygon points="6 4 20 12 6 20 6 4"/></svg>`;
+        lbl.textContent = "安全启动 Claude";
+      }
+    }
+
+    function renderRow(it) {
+      const sel = it.id === state.selectedId, fail = it.status === "fail", warn = it.status === "warn";
+      const scan = state.scanningAll || state.scanningId === it.id;
+      let pill = `<span class="c-pill c-pill-ok">已通过</span>`;
+      if (scan) pill = `<svg class="w-3.5 h-3.5 spin-icon" style="color: var(--text-2);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a9 9 0 1 1-6.2-8.55" stroke-linecap="round"/></svg>`;
+      else if (fail) pill = `<span class="c-pill c-pill-fail">未通过</span>`;
+      else if (warn) pill = `<span class="c-pill c-pill-warn">待优化</span>`;
+
+      return `
+        <button type="button" data-cid="${it.id}" class="c-check-row ${sel ? "selected" : ""} ${fail ? "is-fail" : ""} ${warn ? "is-warn" : ""}">
+          <div class="flex items-center gap-3 min-w-0 flex-1">
+            <div class="c-icon-box ${fail ? "is-fail" : ""} ${warn ? "is-warn" : ""}">${ICONS[it.icon] || ICONS.proxy}</div>
+            <div class="min-w-0 flex-1">
+              <div class="c-row-title truncate">${it.title}</div>
+              <div class="c-row-sub truncate tabular">${it.summary}</div>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 shrink-0">
+            ${pill}
+            <svg class="c-row-chev w-3 h-3 transition-all duration-150" style="color: var(--text-4);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+        </button>
+      `;
+    }
+
+    function renderLists(items) {
+      const mustAll = items.filter(i => i.part === "must"), optAll = items.filter(i => i.part === "opt");
+      document.getElementById("must-groups-container").innerHTML = MUST_CATS.map(cat => {
+        const list = mustAll.filter(i => i.cat === cat);
+        return `<div><div class="mb-1.5 px-0.5 text-[11px]" style="color: var(--text-3);">${cat}</div><div class="c-card">${list.map(renderRow).join("")}</div></div>`;
+      }).join("");
+      document.getElementById("opt-group-container").innerHTML = `<div class="c-card">${optAll.map(renderRow).join("")}</div>`;
+      document.querySelectorAll("[data-cid]").forEach(btn => btn.addEventListener("click", () => {
+        const nid = btn.dataset.cid;
+        if (nid === state.selectedId) return;
+        state.selectedId = nid; state.rawOpen = false; renderAll(true);
+      }));
+    }
+
+    function renderInspectorCards(items, animate = false) {
+      const it = items.find(i => i.id === state.selectedId) || items[0];
+      const fail = it.status === "fail", warn = it.status === "warn", abnormal = fail || warn;
+      const scan = state.scanningAll || state.scanningId === it.id, fixing = state.fixingId === it.id;
+
+      const kvHtml = it.probes.map((p, idx) => {
+        const dotColor = p.tone === "fail" ? "var(--bad-dot)" : p.tone === "warn" ? "var(--warning-dot)" : "";
+        return `
+          <div class="c-kv-row">
+            <div class="flex items-center justify-between gap-3">
+              <span class="flex items-center gap-1.5 text-[11.5px] shrink-0" style="color: var(--text-2);">
+                ${dotColor ? `<span class="w-[5px] h-[5px] rounded-full shrink-0" style="background: ${dotColor};"></span>` : ""}
+                <span>${p.k}</span>
+              </span>
+              <span class="text-[11.5px] text-right truncate tabular" style="color: var(--text-1);">${p.v}</span>
+            </div>
+            ${p.sub ? `<div class="mt-0.5 pl-3 text-[10.5px] leading-[1.45]" style="color: var(--text-3);">${p.sub}</div>` : ""}
+          </div>
+          ${idx !== it.probes.length - 1 ? `<div class="h-px" style="background: var(--divider);"></div>` : ""}
+        `;
+      }).join("");
+
+      const actionCardHtml = !abnormal
+        ? `<div class="c-card p-3 shrink-0"><div class="grid grid-cols-2 gap-2">
+            <button id="btn-single-recheck" type="button" ${scan ? "disabled" : ""} class="c-btn w-full !h-[30px] !text-[11.5px]"><svg class="w-[12px] h-[12px] ${scan ? "spin-icon" : ""}" style="color: var(--text-2);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45"><path d="M20.5 12a8.5 8.5 0 1 1-2.5-6"/><polyline points="20.5 3.5 20.5 9 15 9"/></svg><span>${scan ? "复测中..." : "单项复测"}</span></button>
+            <button id="btn-copy-diag" type="button" class="c-btn w-full !h-[30px] !text-[11.5px]"><svg class="w-[12px] h-[12px]" style="color: var(--text-2);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span>复制诊断</span></button>
+          </div></div>`
+        : `<div class="c-card p-3 space-y-2 shrink-0">
+            <button id="btn-fix-item" type="button" ${fixing || scan ? "disabled" : ""} class="c-btn-primary w-full !h-[32px]">
+              ${fixing ? `<svg class="w-3.5 h-3.5 spin-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a9 9 0 1 1-6.2-8.55" stroke-linecap="round"/></svg><span>正在留存基线并修复...</span>` : `<span>${it.fixLabel || "一键修复此项"}</span>`}
+            </button>
+            <div class="grid grid-cols-2 gap-2">
+              <button id="btn-single-recheck" type="button" ${scan || fixing ? "disabled" : ""} class="c-btn w-full !h-[30px] !text-[11.5px]"><svg class="w-[12px] h-[12px] ${scan ? "spin-icon" : ""}" style="color: var(--text-2);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45"><path d="M20.5 12a8.5 8.5 0 1 1-2.5-6"/><polyline points="20.5 3.5 20.5 9 15 9"/></svg><span>${scan ? "复测中..." : "单项复测"}</span></button>
+              <button id="btn-export-ai" type="button" class="c-btn w-full !h-[30px] !text-[11.5px]"><svg class="w-[12px] h-[12px]" style="color: var(--text-2);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3h7v7"/><path d="M10 14 21 3"/><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></svg><span>导出给 AI</span></button>
+            </div>
+          </div>`;
+
+      document.getElementById("inspector-stack").innerHTML = `
+        <div class="${animate ? "insp-enter" : ""} flex flex-col gap-2.5">
+          <div class="c-card p-3.5 shrink-0">
+            <div class="flex items-start gap-2.5">
+              <div class="c-icon-box ${fail ? "is-fail" : warn ? "is-warn" : ""}" style="width: 32px; height: 32px; border-radius: 8px;">${ICONS[it.icon] || ICONS.proxy}</div>
+              <div class="min-w-0 flex-1">
+                <h2 class="m-0 text-[13px] leading-[1.38]" style="color: var(--text-strong); font-weight: 500;">${it.title}</h2>
+                <div class="mt-1 flex items-center gap-1.5 text-[10.5px] tabular flex-wrap" style="color: var(--text-3);">
+                  <span>${it.part === "must" ? "启动必须项" : "建议优化"}</span>
+                  <span style="color: var(--text-4);">·</span><span>${it.checkedAt}</span>
+                  <span style="color: var(--text-4);">·</span><span>${it.durationMs} ms</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="c-card px-3.5 py-3 shrink-0"><div class="mb-1 text-[11px]" style="color: var(--text-3);">实测结果</div><div>${kvHtml}</div></div>
+          <div class="c-card px-3.5 py-3 shrink-0 space-y-2.5">
+            <div class="flex items-center justify-between text-[11px]" style="color: var(--text-3);"><span>说明与边界</span><span>${it.mode}</span></div>
+            <p class="m-0 text-[11.5px] leading-[1.6]" style="color: var(--text-2);">${it.guide}</p>
+            <div class="text-[10.5px]" style="color: var(--text-3);">保护边界：${it.reversible}</div>
+            <div class="pt-2" style="border-top: 1px solid var(--divider);">
+              <button id="btn-raw-toggle" type="button" class="w-full flex items-center justify-between text-[11.5px] cursor-pointer bg-transparent border-0 p-0" style="color: var(--text-1); font-family: var(--font-sans);">
+                <span>原始探针日志</span>
+                <span class="flex items-center gap-1 text-[11px]" style="color: var(--text-3);"><span>${state.rawOpen ? "收起" : "查看"}</span><svg class="w-3 h-3 transition-transform duration-150 ${state.rawOpen ? "rotate-90" : ""}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="9 18 15 12 9 6"/></svg></span>
+              </button>
+              <div class="raw-drawer ${state.rawOpen ? "open" : ""}"><div><div class="pt-2"><div class="relative rounded-[6px] overflow-hidden" style="background: var(--code-bg); border: 1px solid var(--divider);">
+                <button id="btn-copy-raw" type="button" class="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded-[4px] text-[10px] cursor-pointer" style="background: var(--bg-card); color: var(--text-2); border: 1px solid var(--divider-strong);">复制</button>
+                <pre class="m-0 p-2 pr-11 font-mono-code text-[10px] leading-[1.55] whitespace-pre-wrap break-all select-text" style="color: var(--code-fg);">${it.raw}</pre>
+              </div></div></div></div>
+            </div>
+          </div>
+          ${actionCardHtml}
+        </div>
+      `;
+
+      document.getElementById("btn-raw-toggle")?.addEventListener("click", () => { state.rawOpen = !state.rawOpen; renderInspectorCards(items, false); setTimeout(() => rightScroll.sync(), 180); });
+      document.getElementById("btn-copy-raw")?.addEventListener("click", (e) => { e.stopPropagation(); navigator.clipboard?.writeText(it.raw).catch(() => {}); showToast("已复制原始探针日志"); });
+      document.getElementById("btn-fix-item")?.addEventListener("click", () => { state.fixingId = it.id; renderInspectorCards(items, false); setTimeout(() => { state.fixingId = null; setMode("ok"); showToast("已留存首次基线并完成修复 · 12/12 全部通过"); }, 680); });
+      document.getElementById("btn-export-ai")?.addEventListener("click", () => showToast("已导出脱敏问题包并复制 AI 排障提示词"));
+      document.getElementById("btn-single-recheck")?.addEventListener("click", () => { state.scanningId = it.id; renderAll(false); setTimeout(() => { state.scanningId = null; renderAll(false); showToast(`已完成「${it.title}」单项实测`); }, 460); });
+      document.getElementById("btn-copy-diag")?.addEventListener("click", () => { navigator.clipboard?.writeText(`[FDTools] ${it.title}\n${it.raw}`).catch(() => {}); showToast("已复制结构化诊断信息"); });
+    }
+
+    function renderAll(anim = false) {
+      const items = getItems();
+      renderHeader(items); renderLists(items); renderInspectorCards(items, anim);
+      requestAnimationFrame(() => { midScroll.sync(); rightScroll.sync(); });
+    }
+
+    function setTheme(theme) {
+      state.theme = theme;
+      document.documentElement.setAttribute("data-theme", theme);
+      document.querySelectorAll("[data-theme-opt]").forEach(b => b.classList.toggle("active", b.dataset.themeOpt === theme));
+      document.getElementById("theme-ico-svg").innerHTML = theme === "dark"
+        ? `<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>`
+        : `<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>`;
+    }
+    function setLightPal(pal) {
+      state.lightPal = pal;
+      document.documentElement.setAttribute("data-light-pal", pal);
+      document.querySelectorAll("[data-pal-opt]").forEach(b => b.classList.toggle("active", b.dataset.palOpt === pal));
+      if (state.theme === "dark") setTheme("light");
+    }
+    function setMode(mode) {
+      state.mode = mode;
+      document.querySelectorAll("[data-mode-opt]").forEach(b => b.classList.toggle("active", b.dataset.modeOpt === mode));
+      state.selectedId = mode === "fail" ? "sys_env" : mode === "multi" ? "node_tun" : "node_proxy";
+      state.rawOpen = false; renderAll(true);
+    }
+
+    document.querySelectorAll("[data-theme-opt]").forEach(b => b.addEventListener("click", () => setTheme(b.dataset.themeOpt)));
+    document.getElementById("top-btn-theme").addEventListener("click", () => setTheme(state.theme === "light" ? "dark" : "light"));
+    document.querySelectorAll("[data-pal-opt]").forEach(b => b.addEventListener("click", () => setLightPal(b.dataset.palOpt)));
+    document.querySelectorAll("[data-mode-opt]").forEach(b => b.addEventListener("click", () => setMode(b.dataset.modeOpt)));
+    document.getElementById("btn-primary-launch").addEventListener("click", () => showToast("12 项体检全部通过 · 正在安全启动 Claude"));
+    document.getElementById("btn-recheck-all").addEventListener("click", () => {
+      if (state.scanningAll) return;
+      state.scanningAll = true; document.getElementById("recheck-all-ico").classList.add("spin-icon"); document.getElementById("recheck-all-label").textContent = "实测中..."; renderAll(false);
+      setTimeout(() => { state.scanningAll = false; document.getElementById("recheck-all-ico").classList.remove("spin-icon"); document.getElementById("recheck-all-label").textContent = "重新实测"; renderAll(false); showToast("全量 19 项实测完成"); }, 600);
+    });
+
+    const procCard = document.getElementById("proc-card"), procDot = document.getElementById("proc-dot"), procSub = document.getElementById("proc-sub");
+    const holdBtn = document.getElementById("btn-kill-hold"), holdLbl = document.getElementById("hold-label");
+    holdBtn.addEventListener("click", () => {
+      state.holdOn = !state.holdOn; clearInterval(state.holdTimer);
+      if (state.holdOn) {
+        state.holdSecs = 45; procCard.classList.add("is-hold"); holdBtn.classList.add("is-active");
+        procDot.style.background = "var(--primary)"; procSub.textContent = "防复活中"; holdLbl.textContent = `解除 ${state.holdSecs}s`;
+        state.holdTimer = setInterval(() => {
+          state.holdSecs -= 1;
+          if (state.holdSecs <= 0) { state.holdOn = false; clearInterval(state.holdTimer); procCard.classList.remove("is-hold"); holdBtn.classList.remove("is-active"); procDot.style.background = "var(--ok-dot)"; procSub.textContent = "已退出"; holdLbl.textContent = "盯防 45s"; }
+          else { holdLbl.textContent = `解除 ${state.holdSecs}s`; }
+        }, 1000);
+      } else {
+        procCard.classList.remove("is-hold"); holdBtn.classList.remove("is-active"); procDot.style.background = "var(--ok-dot)"; procSub.textContent = "已退出"; holdLbl.textContent = "盯防 45s";
+      }
+    });
+
+    renderAll(false);
+  </script>
+</body>
+</html>

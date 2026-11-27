@@ -167,7 +167,7 @@ export function App() {
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",
-        border: "1px solid var(--border-strong)",
+        border: "1px solid var(--divider)",
       }}
     >
       <WindowChrome />

@@ -1,0 +1,1153 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FD Claude 安全启动器 · 节点流量 v6.7（等距均分列间隙实测验收版）</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    @font-face {
+      font-family: "FD-Fine";
+      src:
+        local("SF Pro Text Light"),
+        local("Segoe UI Variable Text Semilight"),
+        local("Noto Sans SC DemiLight"),
+        local("HarmonyOS Sans SC Light"),
+        local("HarmonyOS Sans SC");
+      font-weight: 400;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: "FD-Fine";
+      src:
+        local("SF Pro Text"),
+        local("Segoe UI Variable Text"),
+        local("Noto Sans SC"),
+        local("HarmonyOS Sans SC");
+      font-weight: 500;
+      font-style: normal;
+    }
+
+    :root {
+      --font-sans: "FD-Fine", "SF Pro Text", "Segoe UI Variable Text", "Noto Sans SC", "HarmonyOS Sans SC", -apple-system, sans-serif;
+      --r-win: 11px;
+      --r-card: 10px;
+      --r-btn: 7px;
+      --r-chip: 5px;
+      --ease: cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    /* 全站定稿浅色：莫兰迪苔绿 / 柔丹红 */
+    [data-theme="light"] {
+      --page-backdrop: #EAECEF;
+      --seg-track: rgba(15, 23, 42, 0.065);
+      --seg-thumb: #FFFFFF;
+      --seg-thumb-shadow: 0 1px 2px rgba(15, 23, 42, 0.08), 0 0 0 0.5px rgba(15, 23, 42, 0.04);
+
+      --bg-chrome: #FBFBFD;
+      --bg-sidebar: #FBFBFD;
+      --bg-header: #F8F9FB;
+      --bg-canvas: #F5F6F8;
+
+      --bg-card: #FFFFFF;
+      --bg-card-band: #FAFBFD;
+      --bg-subtle: #F2F4F7;
+      --bg-nav-active: #EEF0F4;
+      --bg-row-hover: rgba(15, 23, 42, 0.015);
+      --sel-bar-bg: rgba(15, 23, 42, 0.012);
+      --sel-bar-color: #9AA3B2;
+
+      --border-card: rgba(15, 23, 42, 0.072);
+      --border-card-hover: rgba(15, 23, 42, 0.12);
+      --divider: rgba(15, 23, 42, 0.056);
+      --divider-strong: rgba(15, 23, 42, 0.10);
+      --icon-border: rgba(15, 23, 42, 0.052);
+
+      --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.022), 0 4px 10px -2px rgba(15, 23, 42, 0.026);
+      --shadow-btn: 0 1px 1.5px rgba(15, 23, 42, 0.032);
+      --shadow-window: 0 0 0 1px rgba(15, 23, 42, 0.08), 0 24px 60px -14px rgba(15, 23, 42, 0.14);
+
+      --text-strong: #2B303B;
+      --text-1: #3D4350;
+      --text-2: #727A8A;
+      --text-3: #8991A2;
+      --text-4: #B4BCC9;
+
+      --primary: #006CE0;
+      --primary-hi: #1A84F5;
+      --primary-soft: rgba(0, 108, 224, 0.068);
+      --primary-border: rgba(0, 108, 224, 0.18);
+
+      --ok-dot: #4C9E6E;
+      --ok-fg: #3E8C60;
+      --ok-bg: rgba(76, 158, 110, 0.065);
+      --ok-border: rgba(76, 158, 110, 0.18);
+
+      --bad-dot: #CE5A5A;
+      --bad-fg: #C04D4D;
+      --bad-bg: rgba(206, 90, 90, 0.062);
+      --bad-border: rgba(206, 90, 90, 0.185);
+
+      --warning-dot: #DF952E;
+      --warning-fg: #B87419;
+      --warning-soft: rgba(223, 149, 46, 0.075);
+      --warning-border: rgba(223, 149, 46, 0.20);
+
+      --thumb-idle: rgba(15, 23, 42, 0.072);
+      --thumb-active: rgba(15, 23, 42, 0.16);
+
+      --promo-bg: linear-gradient(135deg, rgba(0, 108, 224, 0.042) 0%, #FFFFFF 70%);
+      --promo-border: rgba(0, 108, 224, 0.15);
+
+      --tooltip-bg: #262B35;
+      --tooltip-fg: #EEF1F6;
+      --toast-bg: #262B35;
+      --toast-fg: #F5F7FA;
+    }
+
+    /* 全站定稿暗色：v5.7 压暗柔化版 */
+    [data-theme="dark"] {
+      --page-backdrop: #070709;
+      --seg-track: rgba(255, 255, 255, 0.065);
+      --seg-thumb: #22222A;
+      --seg-thumb-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+
+      --bg-chrome: #111115;
+      --bg-sidebar: #111115;
+      --bg-header: #0F0F13;
+      --bg-canvas: #0C0C0F;
+
+      --bg-card: #15151A;
+      --bg-card-band: #121217;
+      --bg-subtle: #1D1D24;
+      --bg-nav-active: #1B1B22;
+      --bg-row-hover: rgba(255, 255, 255, 0.02);
+      --sel-bar-bg: rgba(255, 255, 255, 0.02);
+      --sel-bar-color: #6B7384;
+
+      --border-card: rgba(255, 255, 255, 0.082);
+      --border-card-hover: rgba(255, 255, 255, 0.13);
+      --divider: rgba(255, 255, 255, 0.056);
+      --divider-strong: rgba(255, 255, 255, 0.105);
+      --icon-border: rgba(255, 255, 255, 0.065);
+
+      --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.24);
+      --shadow-btn: 0 1px 2px rgba(0, 0, 0, 0.22);
+      --shadow-window: 0 0 0 1px rgba(255, 255, 255, 0.09), 0 28px 72px -12px rgba(0, 0, 0, 0.85);
+
+      --text-strong: #C9CED8;
+      --text-1: #B4BAC6;
+      --text-2: #7D8494;
+      --text-3: #646C7C;
+      --text-4: #4A5160;
+
+      --primary: #3B93FA;
+      --primary-hi: #55A3FF;
+      --primary-soft: rgba(59, 147, 250, 0.105);
+      --primary-border: rgba(59, 147, 250, 0.23);
+
+      --ok-dot: #449C69;
+      --ok-fg: #4F9B70;
+      --ok-bg: rgba(74, 158, 108, 0.062);
+      --ok-border: rgba(74, 158, 108, 0.145);
+
+      --bad-dot: #BD5F5A;
+      --bad-fg: #C56B66;
+      --bad-bg: rgba(196, 102, 97, 0.075);
+      --bad-border: rgba(196, 102, 97, 0.175);
+
+      --warning-dot: #C28F3E;
+      --warning-fg: #BF9148;
+      --warning-soft: rgba(194, 143, 62, 0.075);
+      --warning-border: rgba(194, 143, 62, 0.175);
+
+      --thumb-idle: rgba(255, 255, 255, 0.072);
+      --thumb-active: rgba(255, 255, 255, 0.17);
+
+      --promo-bg: linear-gradient(135deg, rgba(74, 158, 255, 0.07) 0%, rgba(21, 21, 26, 0.96) 65%);
+      --promo-border: rgba(74, 158, 255, 0.19);
+
+      --tooltip-bg: #22232B;
+      --tooltip-fg: #D5D9E2;
+      --toast-bg: #22222A;
+      --toast-fg: #D5D9E2;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0; padding: 14px 24px 26px; min-height: 100vh;
+      background: var(--page-backdrop); color: var(--text-1); font-family: var(--font-sans);
+      font-weight: 400; font-synthesis: none; -webkit-font-smoothing: antialiased;
+      display: flex; flex-direction: column; align-items: center;
+      transition: background-color 180ms var(--ease), color 180ms var(--ease);
+    }
+
+    .tabular { font-variant-numeric: tabular-nums; }
+
+    .seg-bar { display: inline-flex; align-items: center; gap: 2px; padding: 2.5px; border-radius: 9px; background: var(--seg-track); }
+    .seg-item {
+      padding: 4px 10px; border: none; border-radius: 7px; background: transparent;
+      color: var(--text-3); font-family: var(--font-sans); font-size: 11.5px; cursor: pointer; white-space: nowrap;
+      transition: all 140ms var(--ease);
+    }
+    .seg-item:hover:not(.active) { color: var(--text-1); }
+    .seg-item.active { background: var(--seg-thumb); color: var(--text-strong); font-weight: 500; box-shadow: var(--seg-thumb-shadow); }
+
+    .fd-window {
+      width: 100%; max-width: 1280px; height: 774px; border-radius: var(--r-win);
+      background: var(--bg-canvas); box-shadow: var(--shadow-window); overflow: hidden;
+      display: flex; flex-direction: column; user-select: none; position: relative;
+      transition: background-color 180ms var(--ease), box-shadow 180ms var(--ease);
+    }
+
+    .c-card {
+      background: var(--bg-card); border: 1px solid var(--border-card); border-radius: var(--r-card);
+      box-shadow: var(--shadow-card); overflow: hidden; transition: background-color 160ms var(--ease), border-color 160ms var(--ease);
+    }
+    .c-card.is-hold { border-color: var(--primary-border); background: var(--primary-soft); }
+
+    .c-promo-slot {
+      background: var(--promo-bg); border: 1px solid var(--promo-border); border-radius: var(--r-card);
+      padding: 10px 12px; cursor: pointer; transition: border-color 150ms var(--ease), transform 130ms var(--ease);
+    }
+    .c-promo-slot:hover { border-color: var(--primary); transform: translateY(-0.5px); }
+
+    .c-btn {
+      height: 31px; padding: 0 11px; border: 1px solid var(--divider-strong); border-radius: var(--r-btn);
+      background: var(--bg-card); color: var(--text-1); box-shadow: var(--shadow-btn);
+      font-family: var(--font-sans); font-size: 12px; font-weight: 400;
+      display: inline-flex; align-items: center; justify-content: center; gap: 5.5px; cursor: pointer; white-space: nowrap; flex-shrink: 0;
+      transition: transform 110ms var(--ease), background-color 140ms var(--ease), border-color 140ms var(--ease);
+    }
+    .c-btn:hover:not(:disabled) { background: var(--bg-row-hover); color: var(--text-strong); border-color: var(--border-card-hover); }
+    .c-btn:active:not(:disabled) { transform: scale(0.985); }
+    .c-btn-xs { height: 25px; padding: 0 9.5px; font-size: 11px; border-radius: 6px; }
+    .c-btn-danger-xs {
+      height: 25px; padding: 0 9.5px; font-size: 11px; border-radius: 6px;
+      background: var(--bad-bg); color: var(--bad-fg); border: 1px solid var(--bad-border);
+      font-family: var(--font-sans); display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+      cursor: pointer; white-space: nowrap;
+      transition: transform 110ms var(--ease), filter 130ms var(--ease);
+    }
+    .c-btn-danger-xs:hover { filter: brightness(0.97); }
+    .c-btn-danger-xs:active { transform: scale(0.985); }
+
+    .in-seg {
+      height: 31px; display: inline-flex; align-items: center; padding: 2.5px; border-radius: 8px;
+      background: var(--seg-track); gap: 2px;
+    }
+    .in-seg-btn {
+      height: 100%; padding: 0 11px; border: none; border-radius: 6px; background: transparent;
+      color: var(--text-2); font-family: var(--font-sans); font-size: 12px; cursor: pointer; white-space: nowrap;
+      transition: all 140ms var(--ease);
+    }
+    .in-seg-btn:hover:not(.active) { color: var(--text-strong); }
+    .in-seg-btn.active { background: var(--seg-thumb); color: var(--text-strong); font-weight: 500; box-shadow: var(--seg-thumb-shadow); }
+
+    .c-nav-item {
+      height: 33px; padding: 0 10px; border: none; border-radius: var(--r-btn);
+      background: transparent; color: var(--text-2); font-family: var(--font-sans); font-size: 12.5px;
+      display: flex; align-items: center; justify-content: space-between; width: 100%; cursor: pointer;
+      transition: background-color 130ms var(--ease), color 130ms var(--ease);
+    }
+    .c-nav-item:hover { background: var(--bg-nav-active); color: var(--text-1); }
+    .c-nav-item.active { background: var(--bg-nav-active); color: var(--text-strong); font-weight: 500; }
+
+    .c-status-card { padding: 10px 12px; display: flex; flex-direction: column; gap: 7px; }
+    .c-status-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 20px; }
+    .c-hold-chip {
+      height: 20px; padding: 0 7px; border-radius: 5px;
+      background: var(--primary-soft); color: var(--primary); border: 1px solid var(--primary-border);
+      font-family: var(--font-sans); font-size: 10.5px;
+      display: inline-flex; align-items: center; gap: 3.5px; cursor: pointer; white-space: nowrap;
+    }
+    .c-hold-chip.is-active { background: var(--primary); color: #FFFFFF; border-color: transparent; }
+
+    .c-pill {
+      height: 21px; padding: 0 7.5px; border-radius: var(--r-chip);
+      font-size: 11px; font-weight: 400; line-height: 1;
+      display: inline-flex; align-items: center; justify-content: center; gap: 3.5px; white-space: nowrap;
+    }
+    .c-pill-ok { color: var(--ok-fg); background: var(--ok-bg); border: 1px solid var(--ok-border); }
+    .c-pill-bad { color: var(--bad-fg); background: var(--bad-bg); border: 1px solid var(--bad-border); }
+    .c-pill-warn { color: var(--warning-fg); background: var(--warning-soft); border: 1px solid var(--warning-border); }
+    .c-pill-neutral { color: var(--text-2); background: var(--bg-subtle); border: 1px solid var(--divider); }
+
+    /* 顶部统计条：节点页按内容比例分配；流量页严格 4 等分 */
+    .metric-strip-nodes { display: grid; grid-template-columns: 1.32fr 0.86fr 0.96fr 1.06fr; align-items: stretch; }
+    .metric-strip-equal { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: stretch; }
+    .metric-cell { padding: 12px 16px; position: relative; display: flex; flex-direction: column; justify-content: flex-start; min-width: 0; }
+    .metric-cell + .metric-cell::before { content: ""; position: absolute; left: 0; top: 14px; bottom: 14px; width: 1px; background: var(--divider); }
+
+    .filter-tab {
+      height: 27px; padding: 0 10.5px; border-radius: 7px; border: 1px solid transparent;
+      background: transparent; color: var(--text-2); font-family: var(--font-sans); font-size: 12px;
+      display: inline-flex; align-items: center; gap: 5.5px; cursor: pointer; transition: all 130ms var(--ease);
+    }
+    .filter-tab:hover:not(.active) { color: var(--text-strong); background: var(--bg-row-hover); }
+    .filter-tab.active { background: var(--bg-card); color: var(--text-strong); font-weight: 500; border-color: var(--border-card); box-shadow: var(--shadow-btn); }
+
+    .region-box {
+      width: 30px; height: 30px; border-radius: 7.5px;
+      background: var(--bg-subtle); color: var(--text-2); border: 1px solid var(--icon-border);
+      font-family: var(--font-sans); font-size: 10.5px; font-weight: 500; letter-spacing: 0.03em;
+      display: grid; place-items: center; flex-shrink: 0;
+    }
+    .region-box.is-cur { background: var(--ok-bg); color: var(--ok-fg); border-color: var(--ok-border); }
+    .region-box.is-warn { background: var(--warning-soft); color: var(--warning-fg); border-color: var(--warning-border); }
+    .region-box.is-bad { background: var(--bad-bg); color: var(--bad-fg); border-color: var(--bad-border); }
+
+    /* 节点质量 6 字段：同样改用实宽 + space-between 均分 5 处间隙，告别局部白沟 */
+    .node-col-head, .node-row-grid {
+      display: grid;
+      grid-template-columns: 238px 136px 104px 160px 114px 76px;
+      justify-content: space-between;
+      align-items: center;
+      column-gap: 12px;
+    }
+
+    /* 实时流量 7 字段：彻底禁用 fr 独吞空白，每列紧贴真实内容宽度，剩余空间由 space-between 绝对均分至全部 6 个列间隙 */
+    .conn-col-head, .conn-row-grid {
+      display: grid;
+      grid-template-columns: 164px 140px 66px 76px 108px 66px 48px;
+      justify-content: space-between;
+      align-items: center;
+      column-gap: 12px;
+    }
+
+    .node-col-head, .conn-col-head {
+      padding: 8px 16px;
+      background: var(--bg-card-band);
+      border-bottom: 1px solid var(--divider);
+      font-size: 11px;
+      color: var(--text-3);
+      letter-spacing: 0.01em;
+    }
+    .node-row-grid {
+      position: relative;
+      padding: 11.5px 16px;
+      border-bottom: 1px solid var(--divider);
+      transition: background-color 130ms var(--ease);
+    }
+    .conn-row-grid {
+      position: relative;
+      padding: 11px 16px;
+      border-bottom: 1px solid var(--divider);
+      transition: background-color 130ms var(--ease);
+    }
+    .node-row-grid:last-child, .conn-row-grid:last-child { border-bottom: none; }
+    .node-row-grid:hover, .conn-row-grid:hover { background: var(--bg-row-hover); }
+    .node-row-grid.is-cur { background: var(--sel-bar-bg); }
+    .node-row-grid.is-cur::before {
+      content: ""; position: absolute; left: 4.5px; top: 50%; transform: translateY(-50%);
+      width: 2.5px; height: 20px; border-radius: 99px; background: var(--sel-bar-color);
+    }
+
+    .row-main { font-size: 12.5px; font-weight: 400; line-height: 1.38; color: var(--text-1); }
+    .row-sub { margin-top: 2.5px; font-size: 11px; font-weight: 400; line-height: 1.4; color: var(--text-3); }
+
+    .plat-ok { font-size: 11.5px; color: var(--text-2); display: inline-flex; align-items: center; gap: 3px; cursor: help; }
+    .plat-ok svg { width: 11px; height: 11px; color: var(--ok-fg); opacity: 0.85; }
+
+    .mini-bar-track { width: 42px; height: 3.5px; border-radius: 99px; background: var(--bg-subtle); overflow: hidden; }
+    .mini-bar-fill { height: 100%; border-radius: 99px; }
+
+    #hover-tooltip {
+      position: fixed; max-width: 288px; padding: 7.5px 10.5px; border-radius: 8px;
+      background: var(--tooltip-bg); color: var(--tooltip-fg); border: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 11px; line-height: 1.55; white-space: pre-line; box-shadow: 0 12px 30px -6px rgba(0, 0, 0, 0.36);
+      pointer-events: none; z-index: 9999; display: none;
+    }
+
+    @keyframes spinFast { to { transform: rotate(360deg); } }
+    .spin-icon { animation: spinFast 0.72s linear infinite; }
+    @keyframes toastIn { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
+    .fd-toast { animation: toastIn 160ms var(--ease) both; }
+
+    .chrome-btn { color: var(--text-2); transition: background-color 120ms, color 120ms; }
+    .chrome-btn:hover { background: var(--bg-subtle); color: var(--text-strong); }
+    .chrome-close:hover { background: #DC2626 !important; color: #FFFFFF !important; }
+
+    .thin-scroll-host { position: relative; min-height: 0; flex: 1; display: flex; flex-direction: column; }
+    .thin-scroll-body { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; }
+    .thin-scroll-body::-webkit-scrollbar { display: none; }
+    .thin-scroll-track { position: absolute; top: 10px; bottom: 10px; right: 5px; width: 6px; pointer-events: none; z-index: 20; }
+    .thin-scroll-thumb {
+      position: absolute; right: 1px; top: 0; width: 3px; height: 46px; border-radius: 99px;
+      background: var(--thumb-idle); pointer-events: auto; cursor: grab;
+      transition: background-color 160ms var(--ease), width 140ms var(--ease), opacity 180ms var(--ease);
+    }
+    .thin-scroll-host:hover .thin-scroll-thumb,
+    .thin-scroll-host.is-scrolling .thin-scroll-thumb { background: var(--thumb-active); }
+    .thin-scroll-thumb:active { cursor: grabbing; width: 4px; }
+  </style>
+</head>
+<body>
+
+  <div class="w-full max-w-[1280px] mb-2.5 flex flex-wrap items-center justify-between gap-2">
+    <div class="flex items-center gap-2 text-[11.5px]" style="color: var(--text-2);">
+      <span class="inline-flex items-center gap-2 px-3 py-1 rounded-full"
+        style="background: var(--bg-card); color: var(--text-1); border: 1px solid var(--border-card);">
+        <span class="w-1.5 h-1.5 rounded-full" style="background: var(--ok-dot);"></span>
+        节点流量 v6.7 · 实宽紧贴 + 等距均分 6 处列间隙（真机截图验收版）
+      </span>
+    </div>
+
+    <div class="seg-bar">
+      <button type="button" data-theme-opt="light" class="seg-item active">浅色版（莫兰迪）</button>
+      <button type="button" data-theme-opt="dark" class="seg-item">暗色版（v5.7）</button>
+    </div>
+  </div>
+
+  <div class="fd-window">
+    <header class="h-[38px] shrink-0 pl-4 flex items-center justify-between transition-colors"
+      style="background: var(--bg-chrome); border-bottom: 1px solid var(--divider);">
+      <div class="flex items-center gap-2 min-w-0">
+        <img src="data:image/png;base64,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"
+          alt="FD Claude Guard" class="w-[17px] h-[17px] rounded-[4px] shrink-0" />
+        <span class="text-[12.5px] tracking-[-0.005em]" style="color: var(--text-1);">FD Claude 安全启动器</span>
+        <span class="text-[11px] px-0.5" style="color: var(--text-3);">Fuck Dario！！！</span>
+      </div>
+      <div class="flex items-center h-full">
+        <div class="flex items-center gap-0.5 pr-2">
+          <button type="button" class="chrome-btn w-[28px] h-[25px] rounded-[6px] flex items-center justify-center cursor-pointer"><svg class="w-[14px] h-[14px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/></svg></button>
+          <button type="button" class="chrome-btn w-[28px] h-[25px] rounded-[6px] flex items-center justify-center cursor-pointer"><svg class="w-[14px] h-[14px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="15" rx="2.8"/><rect x="12" y="8" width="6" height="4.5" rx="1"/></svg></button>
+          <button type="button" class="chrome-btn w-[28px] h-[25px] rounded-[6px] flex items-center justify-center cursor-pointer"><svg class="w-[14px] h-[14px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8.7 3A6 6 0 0 1 18 8a21.3 21.3 0 0 0 .6 5"/><path d="M17 17H4a1 1 0 0 1-.8-1.6A9.5 9.5 0 0 0 6 8c0-.8.2-1.5.5-2.2"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/><line x1="2.5" y1="2.5" x2="21.5" y2="21.5"/></svg></button>
+          <button id="top-btn-theme" type="button" class="chrome-btn w-[28px] h-[25px] rounded-[6px] flex items-center justify-center cursor-pointer"><svg id="theme-ico-svg" class="w-[13.5px] h-[13.5px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg></button>
+        </div>
+        <span class="w-px h-[13px] mr-1" style="background: var(--divider-strong);"></span>
+        <button type="button" class="chrome-btn w-[38px] h-full flex items-center justify-center cursor-pointer"><svg class="w-[12.5px] h-[12.5px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45"><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+        <button type="button" class="chrome-btn w-[38px] h-full flex items-center justify-center cursor-pointer"><svg class="w-[10.5px] h-[10.5px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55"><rect x="4" y="4" width="16" height="16" rx="2"/></svg></button>
+        <button type="button" class="chrome-btn chrome-close w-[38px] h-full flex items-center justify-center cursor-pointer"><svg class="w-[12.5px] h-[12.5px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg></button>
+      </div>
+    </header>
+
+    <div class="flex-1 min-h-0 flex">
+      <aside class="w-[212px] shrink-0 px-3 py-3 flex flex-col justify-between transition-colors"
+        style="background: var(--bg-sidebar); border-right: 1px solid var(--divider);">
+        <nav class="flex flex-col gap-[3px]">
+          <button type="button" class="c-nav-item"><span class="flex items-center gap-2.5"><svg class="w-[15px] h-[15px]" style="color: var(--text-3);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 10.5 12 3.8l8.5 6.7V19a1.8 1.8 0 0 1-1.8 1.8h-4.5v-5.2a1.2 1.2 0 0 0-1.2-1.2h-2a1.2 1.2 0 0 0-1.2 1.2v5.2H5.3A1.8 1.8 0 0 1 3.5 19v-8.5Z"/></svg><span>控制台</span></span><span class="tabular text-[10px] px-1.5 py-[1px] rounded-[4.5px]" style="background: var(--ok-bg); color: var(--ok-fg);">OK</span></button>
+          <button type="button" class="c-nav-item"><span class="flex items-center gap-2.5"><svg class="w-[15px] h-[15px]" style="color: var(--text-3);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7.5 3v5.4c0 4.8-3.2 8.5-7.5 10-4.3-1.5-7.5-5.2-7.5-10V6L12 3Z"/><path d="m9.2 12.2 2 2 3.8-4"/></svg><span>账户审计</span></span><span class="tabular text-[10px] min-w-[17px] h-[17px] px-1 rounded-[4.5px] inline-flex items-center justify-center" style="background: var(--warning-soft); color: var(--warning-fg);">1</span></button>
+          <button type="button" class="c-nav-item active"><span class="flex items-center gap-2.5"><svg class="w-[15px] h-[15px]" style="color: var(--text-strong);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" fill="currentColor" fill-opacity="0.06"/><path d="M12 3a13.5 13.5 0 0 0 0 18 13.5 13.5 0 0 0 0-18"/><path d="M3.2 12h17.6"/></svg><span>节点流量</span></span><span id="nav-traffic-badge" class="tabular text-[10px] min-w-[17px] h-[17px] px-1 rounded-[4.5px] inline-flex items-center justify-center" style="background: var(--bad-bg); color: var(--bad-fg);">1</span></button>
+          <button type="button" class="c-nav-item"><span class="flex items-center gap-2.5"><svg class="w-[15px] h-[15px]" style="color: var(--text-3);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.4-3.4a5.8 5.8 0 0 1-7.6 7.6l-6.6 6.6a2 2 0 1 1-2.9-2.9l6.6-6.6a5.8 5.8 0 0 1 7.6-7.6l-3.5 3.3Z"/></svg><span>环境维护</span></span></button>
+          <button type="button" class="c-nav-item"><span class="flex items-center gap-2.5"><svg class="w-[15px] h-[15px]" style="color: var(--text-3);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M4 6.5h16M4 12h16M4 17.5h16"/><circle cx="9" cy="6.5" r="2" fill="var(--bg-sidebar)"/><circle cx="15" cy="12" r="2" fill="var(--bg-sidebar)"/><circle cx="10.5" cy="17.5" r="2" fill="var(--bg-sidebar)"/></svg><span>守卫配置</span></span></button>
+        </nav>
+
+        <div class="flex flex-col gap-2">
+          <div class="c-promo-slot">
+            <div class="flex items-center justify-between gap-1.5">
+              <span class="text-[11.5px]" style="color: var(--text-strong); font-weight: 500;">住宅静态节点精选</span>
+              <span class="text-[9.5px] px-1.5 py-[0.5px] rounded-[4px]" style="background: var(--primary-soft); color: var(--primary); border: 1px solid var(--primary-border);">推荐</span>
+            </div>
+            <div class="mt-1 text-[11px] leading-[1.45]" style="color: var(--text-2);">美国原生静态 ISP · 低风控专线 →</div>
+          </div>
+
+          <div id="proc-card" class="c-card c-status-card">
+            <div class="c-status-row"><span class="flex items-center gap-2 text-[12px]" style="color: var(--text-1);"><span id="proc-dot" class="w-[5.5px] h-[5.5px] rounded-full" style="background: var(--ok-dot);"></span><span>Claude 进程</span></span><span class="tabular text-[11px]" style="color: var(--text-3);">2 进程</span></div>
+            <div class="c-status-row"><span id="proc-sub" class="text-[11px]" style="color: var(--text-3);">运行中</span><button id="btn-kill-hold" type="button" class="c-hold-chip tabular"><svg class="w-[10.5px] h-[10.5px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3l7.5 3v5.4c0 4.8-3.2 8.5-7.5 10-4.3-1.5-7.5-5.2-7.5-10V6L12 3Z"/></svg><span id="hold-label">盯防 45s</span></button></div>
+          </div>
+
+          <div class="c-card c-status-card">
+            <div class="c-status-row"><span class="flex items-center gap-2 text-[12px]" style="color: var(--text-1);"><span class="w-[5.5px] h-[5.5px] rounded-full" style="background: var(--ok-dot);"></span><span>Clash Verge</span></span><span class="tabular text-[11px]" style="color: var(--text-3);">:7890</span></div>
+            <div class="c-status-row"><span class="text-[11px] tabular" style="color: var(--text-3);">Mihomo v1.19.33</span><span class="text-[11px]" style="color: var(--ok-fg);">在线</span></div>
+          </div>
+        </div>
+      </aside>
+
+      <main class="flex-1 min-w-0 flex flex-col" style="background: var(--bg-canvas);">
+        <div class="h-[58px] px-6 flex items-center justify-between gap-4 shrink-0"
+          style="background: var(--bg-header); border-bottom: 1px solid var(--divider);">
+          <div class="flex items-center gap-3 min-w-0">
+            <h1 class="m-0 text-[16.5px] tracking-[-0.015em] shrink-0" style="color: var(--text-strong); font-weight: 500;">节点流量</h1>
+            <span class="text-[11.5px] truncate" style="color: var(--text-3);">Claude + AGY 双平台评估 · 同区容灾 · 12h 流量监控</span>
+          </div>
+
+          <div class="flex items-center gap-2 shrink-0">
+            <div id="header-actions" class="flex items-center gap-2"></div>
+            <span class="w-px h-[16px] mx-0.5" style="background: var(--divider-strong);"></span>
+            <div class="in-seg" role="tablist">
+              <button id="tab-quality" type="button" class="in-seg-btn">节点质量与容灾</button>
+              <button id="tab-traffic" type="button" class="in-seg-btn active">实时流量分析</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="main-scroll-host" class="thin-scroll-host">
+          <div id="main-scroll-body" class="thin-scroll-body px-6 py-4 space-y-4"></div>
+          <div class="thin-scroll-track"><div id="main-scroll-thumb" class="thin-scroll-thumb"></div></div>
+        </div>
+      </main>
+    </div>
+
+    <div id="toast-anchor" class="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 z-50"></div>
+  </div>
+
+  <div id="hover-tooltip" role="tooltip"></div>
+
+  <script>
+    const CHECK_ICO = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+
+    const ALL_NODES = [
+      {
+        id: "n1", group: "usable", sameRegion: true, isCurrent: true, code: "US",
+        name: "us美国1|流媒体AI", proto: "VLESS", ip: "140.235.xx.xx",
+        claudeStatus: "ok", claudeLabel: "Claude", claudeTip: "Anthropic API 与 claude.ai 网页登录均实测放行，无 Cloudflare 拦截盾。\n实测明细：TLS 1.3 握手 141 ms，零 403。",
+        agyStatus: "ok", agyLabel: "AGY", agyTip: "Google Antigravity (AGY) 地区准入附带参考探针实测放行可用。",
+        ipType: "ISP 住宅", ipDetail: "无代理标记", ipTone: "ok",
+        ipTip: "ISP 住宅：经 IP 情报核验为原生住宅宽带或静态 ISP 线路，无代理黑名单标记，防封最稳。",
+        delayMs: 141, dropRate: 0.0, jitterMs: 6, drift: 0, score: 96, rec: "主力首选"
+      },
+      {
+        id: "n2", group: "usable", sameRegion: true, isCurrent: false, code: "US",
+        name: "us美国2|原生住宅备用", proto: "Trojan", ip: "104.28.xx.xx",
+        claudeStatus: "ok", claudeLabel: "Claude", claudeTip: "Anthropic API 与网页登录均畅通，与主节点同属 US 区域，清零进程即可无缝热备接管。",
+        agyStatus: "ok", agyLabel: "AGY", agyTip: "Google Antigravity (AGY) 地区准入参考探针放行可用。",
+        ipType: "ISP 住宅", ipDetail: "无代理标记", ipTone: "ok",
+        ipTip: "ISP 住宅：原生静态 ISP 线路，无代理黑名单标记，适合作为主力或同区热备。",
+        delayMs: 158, dropRate: 0.0, jitterMs: 9, drift: 0, score: 93, rec: "同区热备"
+      },
+      {
+        id: "n3", group: "usable", sameRegion: false, isCurrent: false, code: "JP",
+        name: "jp日本1|东京低延迟", proto: "Snell", ip: "45.76.xx.xx",
+        claudeStatus: "ok", claudeLabel: "Claude", claudeTip: "API 与网页均实测通畅，低延迟稳定；跨洲切入建议完成后静默 15~30 分钟。",
+        agyStatus: "ok", agyLabel: "AGY", agyTip: "Google Antigravity (AGY) 参考探针放行可用。",
+        ipType: "常规机房", ipDetail: "0 滥用记录", ipTone: "ok",
+        ipTip: "常规机房：云服务商机房段（0 滥用记录、非公共 VPN），控制台允许通过。",
+        delayMs: 74, dropRate: 0.0, jitterMs: 5, drift: 0, score: 88, rec: "低延迟可用"
+      },
+      {
+        id: "n4", group: "usable", sameRegion: false, isCurrent: false, code: "SG",
+        name: "sg新加坡1|标准专线", proto: "VMess", ip: "139.180.xx.xx",
+        claudeStatus: "ok", claudeLabel: "Claude", claudeTip: "实测 Claude 畅通无拦截，允许正常用于 Claude。",
+        agyStatus: "warn", agyLabel: "AGY 限区", agyTip: "AGY 限区（标记风险 · 不禁用）：Google 将该出口识别为受限地区，AGY 不可用；但实测 Claude 畅通，不影响继续使用 Claude。",
+        ipType: "常规机房", ipDetail: "0 滥用记录", ipTone: "ok",
+        ipTip: "常规机房：云服务商机房段（0 滥用记录、非公共 VPN）。",
+        delayMs: 98, dropRate: 0.2, jitterMs: 11, drift: 0, score: 82, rec: "仅限 Claude"
+      },
+      {
+        id: "n5", group: "usable", sameRegion: true, isCurrent: false, code: "US",
+        name: "us美国3|洛杉矶多线", proto: "Shadowsocks", ip: "172.93.xx.xx",
+        claudeStatus: "warn", claudeLabel: "CF 弹盾", claudeTip: "弹盾：API 勉强能通，但 claude.ai 网页登录触发 Cloudflare 人机拦截盾；桌面端/网页端易反复弹验证，不推荐作主力。",
+        agyStatus: "ok", agyLabel: "AGY", agyTip: "Google Antigravity (AGY) 参考探针放行。",
+        ipType: "共享代理", ipDetail: "公共代理段", ipTone: "warn",
+        ipTip: "共享代理：该出口 IP 被标记为公共 VPN / 多人共享代理段，强烈建议避开作主力。",
+        delayMs: 186, dropRate: 1.4, jitterMs: 31, drift: 2, score: 64, rec: "不建议主力"
+      },
+      {
+        id: "q1", group: "quarantine", qType: "blocked", sameRegion: false, isCurrent: false, code: "HK",
+        name: "tw台湾2|专线B（实测落地 HK）", proto: "VLESS", ip: "43.132.xx.xx",
+        claudeStatus: "bad", claudeLabel: "落地禁区", claudeTip: "落地禁区：节点名称虽标台湾，但实测真实出口 IP 落入 HK 禁区黑名单（广播 IP），已隔离严禁使用 Claude。",
+        agyStatus: "warn", agyLabel: "AGY 限区", agyTip: "Google 侧亦识别为中国香港受限区。",
+        ipType: "落地禁区", ipDetail: "HK 禁区黑名单", ipTone: "bad",
+        ipTip: "落地禁区：实测真实出口国家落入 Anthropic 禁区黑名单，禁止切换锁定。",
+        delayMs: 52, dropRate: 0.0, jitterMs: 4, drift: 0, score: 0, rec: "禁区已隔离"
+      },
+      {
+        id: "q2", group: "quarantine", qType: "cf403", sameRegion: false, isCurrent: false, code: "GB",
+        name: "uk英国1|伦敦共享节点", proto: "VLESS", ip: "185.199.xx.xx",
+        claudeStatus: "bad", claudeLabel: "Claude 拉黑", claudeTip: "拉黑：出口 IP 已被 Cloudflare 403 或 Anthropic 封禁，无法访问 Claude，已隔离禁用。",
+        agyStatus: "ok", agyLabel: "AGY", agyTip: "AGY 侧未拦截，但 Claude 已被 403 拉黑。",
+        ipType: "高危滥用", ipDetail: "命中滥用黑名单", ipTone: "bad",
+        ipTip: "高危滥用：命中公开滥用/黑名单情报库，极易触发 Claude 封号或 403。",
+        delayMs: 224, dropRate: 0.8, jitterMs: 18, drift: 0, score: 0, rec: "CF 403 拉黑"
+      },
+      {
+        id: "q3", group: "quarantine", qType: "timeout", sameRegion: false, isCurrent: false, code: "US",
+        name: "us美国5|西雅图备用", proto: "Trojan", ip: "无响应",
+        claudeStatus: "bad", claudeLabel: "连接超时", claudeTip: "Claude 超时：访问 api.anthropic.com 连续 2 次超时或连接被重置；仅短缓存 5 分钟，可点右上「重测超时类」复核。",
+        agyStatus: "bad", agyLabel: "AGY 离线", agyTip: "节点基础网络超时离线，无法探测 AGY 服务。",
+        ipType: "连接超时", ipDetail: "5 分钟短缓存", ipTone: "bad",
+        ipTip: "超时节点仅短缓存 5 分钟，随时支持按「重测超时类」批量复测。",
+        delayMs: null, dropRate: 100.0, jitterMs: 0, drift: 0, score: 0, rec: "节点超时"
+      }
+    ];
+
+    /* 实时流量数据：与后端 src-tauri/src/killswitch/mod.rs 真实分类 100% 对齐 */
+    const LIVE_CONNS = [
+      {
+        id: "c1", anomaly: true, rejected: false, acked: false,
+        host: "api.anthropic.com:443", process: "claude.exe",
+        purposeLabel: "核心 API", purposeShort: "模型推理与代码对话",
+        purposeTip: "Anthropic 官方模型推理、桌面端与 Claude Code 核心接口。\n当前检测到脱出 Claude-Fixed 策略组，存在直连暴露本机 IP 风险，建议立即掐断！",
+        ruleLabel: "兜底直连", ruleCode: "Match",
+        ruleTip: "未命中 Claude-Fixed 专属分流规则，落入兜底 Match 规则走向 DIRECT。",
+        exitNode: "DIRECT", anomalySub: "脱出 Claude-Fixed",
+        fullChain: "DIRECT（异常直连泄露）",
+        durationSecs: 96, startedAt: "02:27:57", bytes: "4.8 KB", liveTick: true
+      },
+      {
+        id: "c2", anomaly: false, rejected: false, acked: false,
+        host: "api.anthropic.com:443", process: "claude.exe",
+        purposeLabel: "核心 API", purposeShort: "模型推理与代码对话",
+        purposeTip: "Anthropic 官方模型推理与对话流核心接口（不可随意掐断，否则中断当前回复）。",
+        ruleLabel: "域名规则", ruleCode: "DomainSuffix",
+        ruleTip: "原始命中：DOMAIN-SUFFIX, anthropic.com → Claude-Fixed",
+        exitNode: "us美国1|流媒体AI", anomalySub: "",
+        fullChain: "Claude-Fixed → us美国1|流媒体AI",
+        durationSecs: 944, startedAt: "02:13:49", bytes: "1.42 MB", liveTick: true
+      },
+      {
+        id: "c3", anomaly: false, rejected: false, acked: false,
+        host: "claude.ai:443", process: "claude.exe",
+        purposeLabel: "主站与会话", purposeShort: "主界面、账号鉴权与聊天",
+        purposeTip: "Claude 桌面端 / 网页端主界面加载、账号 Session 鉴权与历史会话同步（核心业务）。",
+        ruleLabel: "域名规则", ruleCode: "DomainSuffix",
+        ruleTip: "原始命中：DOMAIN-SUFFIX, claude.ai → Claude-Fixed",
+        exitNode: "us美国1|流媒体AI", anomalySub: "",
+        fullChain: "Claude-Fixed → us美国1|流媒体AI",
+        durationSecs: 1167, startedAt: "02:10:06", bytes: "864 KB", liveTick: true
+      },
+      {
+        id: "c4", anomaly: false, rejected: false, acked: false,
+        host: "statsig.anthropic.com:443", process: "claude.exe",
+        purposeLabel: "功能开关", purposeShort: "模型列表与 Artifacts 灰度",
+        purposeTip: "Anthropic 官方特性开关（控制可用模型列表、Artifacts、MCP 等新功能）。\n本工具刻意保留不拦截，拦截会导致客户端功能残缺。",
+        ruleLabel: "域名规则", ruleCode: "DomainSuffix",
+        ruleTip: "原始命中：DOMAIN-SUFFIX, anthropic.com → Claude-Fixed",
+        exitNode: "us美国1|流媒体AI", anomalySub: "",
+        fullChain: "Claude-Fixed → us美国1|流媒体AI",
+        durationSecs: 483, startedAt: "02:21:30", bytes: "18.6 KB", liveTick: true
+      },
+      {
+        id: "c5", anomaly: false, rejected: false, acked: false,
+        host: "api.anthropic.com:443", process: "node.exe (CLI)",
+        purposeLabel: "核心 API", purposeShort: "Claude Code 终端推理",
+        purposeTip: "Node.js 驱动的 Claude Code CLI 终端推理与工具调用长连接（核心业务）。",
+        ruleLabel: "域名规则", ruleCode: "DomainSuffix",
+        ruleTip: "原始命中：DOMAIN-SUFFIX, anthropic.com → Claude-Fixed",
+        exitNode: "us美国1|流媒体AI", anomalySub: "",
+        fullChain: "Claude-Fixed → us美国1|流媒体AI",
+        durationSecs: 2619, startedAt: "01:45:54", bytes: "3.86 MB", liveTick: true
+      },
+      {
+        id: "c6", anomaly: false, rejected: true, acked: false,
+        host: "o1158394.ingest.sentry.io:443", process: "claude.exe",
+        purposeLabel: "遥测 · 崩溃上报", purposeShort: "第三方错误上报（已屏蔽）",
+        purposeTip: "第三方 Sentry 客户端错误堆栈与环境指纹上报。\n本工具通过 REJECT-DROP 自动静默拦截，防止泄漏本机环境特征，不影响正常对话。",
+        ruleLabel: "防回传拦截", ruleCode: "DomainSuffix",
+        ruleTip: "原始命中：DOMAIN-SUFFIX, sentry.io → REJECT-DROP（防回传隐私保护）",
+        exitNode: "REJECT-DROP", anomalySub: "防回传已阻断",
+        fullChain: "REJECT-DROP（遥测自动拦截）",
+        durationSecs: 0, startedAt: "02:27:41", bytes: "0 B", liveTick: false
+      }
+    ];
+
+    function formatDisplayHost(rawHost) {
+      if (!rawHost) return "";
+      return rawHost.endsWith(":443") ? rawHost.slice(0, -4) : rawHost;
+    }
+
+    function formatDuration(secs, rejected) {
+      if (rejected) return "已阻断";
+      const s = Math.max(0, Math.floor(secs));
+      if (s < 60) return `${s}s`;
+      const m = Math.floor(s / 60);
+      const remS = s % 60;
+      if (m < 60) return `${m}m ${String(remS).padStart(2, "0")}s`;
+      const h = Math.floor(m / 60);
+      const remM = m % 60;
+      return `${h}h ${String(remM).padStart(2, "0")}m`;
+    }
+
+    const state = {
+      theme: "light", subTab: "traffic", nodeFilter: "usable", flowFilter: "all",
+      auditingScope: null, auditIdx: 0, auditTotal: 0, auditTimer: null,
+      refreshing: false, nodes: ALL_NODES.map(n => ({ ...n })), conns: LIVE_CONNS.map(c => ({ ...c })),
+      holdOn: false, holdSecs: 45, holdTimer: null
+    };
+
+    let toastTimer = null;
+    function showToast(msg) {
+      const el = document.getElementById("toast-anchor");
+      el.innerHTML = `<div class="fd-toast pointer-events-auto px-3.5 py-1.5 rounded-full text-[11.5px]" style="background: var(--toast-bg); color: var(--toast-fg); border: 1px solid var(--divider-strong); box-shadow: 0 8px 22px -6px rgba(0,0,0,0.38);">${msg}</div>`;
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => { el.innerHTML = ""; }, 2300);
+    }
+
+    const tipEl = document.getElementById("hover-tooltip");
+    function showTip(el, text) {
+      if (!text) return;
+      const rect = el.getBoundingClientRect();
+      const x = Math.max(154, Math.min(window.innerWidth - 154, rect.left + rect.width / 2));
+      const below = rect.top < 140;
+      tipEl.textContent = text;
+      tipEl.style.left = `${x}px`;
+      tipEl.style.top = `${below ? rect.bottom + 8 : rect.top - 8}px`;
+      tipEl.style.transform = below ? "translate(-50%, 0)" : "translate(-50%, -100%)";
+      tipEl.style.display = "block";
+    }
+    function hideTip() { tipEl.style.display = "none"; }
+    function bindTooltips() {
+      document.querySelectorAll("[data-tip]").forEach(el => {
+        el.addEventListener("mouseenter", () => showTip(el, decodeURIComponent(el.dataset.tip)));
+        el.addEventListener("mouseleave", hideTip);
+      });
+    }
+
+    function bindThinScrollbar(hostId, bodyId, thumbId) {
+      const host = document.getElementById(hostId), body = document.getElementById(bodyId), thumb = document.getElementById(thumbId);
+      let hideTimer = null;
+      const sync = () => {
+        const scrollMax = body.scrollHeight - body.clientHeight;
+        if (scrollMax <= 2) { thumb.style.opacity = "0"; thumb.style.pointerEvents = "none"; return; }
+        thumb.style.opacity = "1"; thumb.style.pointerEvents = "auto";
+        thumb.style.transform = `translateY(${Math.round((body.scrollTop / scrollMax) * Math.max(0, host.clientHeight - 20 - 46))}px)`;
+      };
+      body.addEventListener("scroll", () => { hideTip(); host.classList.add("is-scrolling"); sync(); clearTimeout(hideTimer); hideTimer = setTimeout(() => host.classList.remove("is-scrolling"), 550); });
+      let dragging = false, startY = 0, startTop = 0;
+      thumb.addEventListener("mousedown", (e) => { e.preventDefault(); dragging = true; startY = e.clientY; startTop = body.scrollTop; host.classList.add("is-scrolling"); });
+      window.addEventListener("mousemove", (e) => { if (!dragging) return; const scrollMax = body.scrollHeight - body.clientHeight; body.scrollTop = startTop + ((e.clientY - startY) / Math.max(1, host.clientHeight - 20 - 46)) * scrollMax; });
+      window.addEventListener("mouseup", () => { if (!dragging) return; dragging = false; host.classList.remove("is-scrolling"); });
+      window.addEventListener("resize", sync);
+      return { sync };
+    }
+    const mainScroll = bindThinScrollbar("main-scroll-host", "main-scroll-body", "main-scroll-thumb");
+
+    function startScopedAudit(scope, label, total) {
+      if (state.auditingScope) { clearInterval(state.auditTimer); state.auditingScope = null; renderAll(); showToast("已停止分类重测"); return; }
+      state.auditingScope = scope; state.auditIdx = 1; state.auditTotal = total; renderAll();
+      state.auditTimer = setInterval(() => {
+        if (state.auditIdx >= state.auditTotal) { clearInterval(state.auditTimer); state.auditingScope = null; renderAll(); showToast(`已完成「${label}」批量核验（共 ${total} 个）`); }
+        else { state.auditIdx += 1; renderAll(); }
+      }, 750);
+    }
+
+    function renderHeaderActions() {
+      const box = document.getElementById("header-actions");
+      const activeAnom = state.conns.filter(c => c.anomaly && !c.acked).length;
+      const navBadge = document.getElementById("nav-traffic-badge");
+      navBadge.textContent = String(activeAnom);
+      navBadge.style.display = activeAnom > 0 ? "inline-flex" : "none";
+
+      if (state.subTab === "quality") {
+        const auditing = Boolean(state.auditingScope);
+        box.innerHTML = `
+          ${auditing
+            ? `<button id="btn-deep-audit" type="button" class="c-btn" style="color: var(--warning-fg); border-color: var(--warning-border);">
+                 <svg class="w-[12.5px] h-[12.5px] spin-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a9 9 0 1 1-6.2-8.55" stroke-linecap="round"/></svg>
+                 <span class="tabular">核验中 ${state.auditIdx}/${state.auditTotal} · 停止</span>
+               </button>`
+            : `<button id="btn-deep-audit" type="button" class="c-btn">
+                 <svg class="w-[13px] h-[13px]" style="color: var(--text-2);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7.5"/><path d="m20 20-3.8-3.8"/><path d="M8.5 11.2 10.2 13l3.3-3.5"/></svg>
+                 <span>深度核验全部</span>
+               </button>`}
+          <button id="btn-refresh-list" type="button" class="c-btn">
+            <svg class="w-[13px] h-[13px] ${state.refreshing ? "spin-icon" : ""}" style="color: var(--text-2);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 12a8.5 8.5 0 1 1-2.5-6"/><polyline points="20.5 3.5 20.5 9 15 9"/></svg>
+            <span>${state.refreshing ? "刷新中..." : "刷新列表"}</span>
+          </button>
+        `;
+        document.getElementById("btn-deep-audit").addEventListener("click", () => startScopedAudit("all", "全部节点", state.nodes.length));
+        document.getElementById("btn-refresh-list").addEventListener("click", () => {
+          if (state.refreshing) return;
+          state.refreshing = true; renderAll();
+          setTimeout(() => { state.refreshing = false; renderAll(); showToast("已同步订阅节点状态与 24h 持久化缓存"); }, 480);
+        });
+      } else {
+        box.innerHTML = `
+          ${activeAnom > 0 ? `<button id="btn-ack-all" type="button" class="c-btn"><svg class="w-[13px] h-[13px]" style="color: var(--text-2);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45"><path d="m5 12 4.5 4.5L19 7"/></svg><span>全部已处理</span></button>` : ""}
+          <button id="btn-refresh-conns" type="button" class="c-btn">
+            <svg class="w-[13px] h-[13px] ${state.refreshing ? "spin-icon" : ""}" style="color: var(--text-2);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 12a8.5 8.5 0 1 1-2.5-6"/><polyline points="20.5 3.5 20.5 9 15 9"/></svg>
+            <span>刷新连接</span>
+          </button>
+        `;
+        document.getElementById("btn-ack-all")?.addEventListener("click", () => { state.conns.forEach(c => { if (c.anomaly) c.acked = true; }); renderAll(); showToast("已清零异常告警角标"); });
+        document.getElementById("btn-refresh-conns").addEventListener("click", () => { state.refreshing = true; renderAll(); setTimeout(() => { state.refreshing = false; renderAll(); showToast("已刷新 Mihomo 实时连接"); }, 420); });
+      }
+    }
+
+    function getFilteredNodes() {
+      if (state.nodeFilter === "usable") return state.nodes.filter(n => n.group === "usable");
+      if (state.nodeFilter === "same") return state.nodes.filter(n => n.group === "usable" && n.sameRegion);
+      return state.nodes.filter(n => n.group === "quarantine");
+    }
+
+    function renderPlatBadge(status, label, tip) {
+      if (status === "ok") return `<span class="plat-ok" data-tip="${encodeURIComponent(tip)}">${CHECK_ICO}<span>${label}</span></span>`;
+      if (status === "warn") return `<span class="c-pill c-pill-warn !h-[19px] !text-[10.5px] cursor-help" data-tip="${encodeURIComponent(tip)}">${label}</span>`;
+      return `<span class="c-pill c-pill-bad !h-[19px] !text-[10.5px] cursor-help" data-tip="${encodeURIComponent(tip)}">${label}</span>`;
+    }
+
+    function renderQualityView() {
+      const cur = state.nodes.find(n => n.isCurrent) || state.nodes[0];
+      const usableList = state.nodes.filter(n => n.group === "usable");
+      const sameList = usableList.filter(n => n.sameRegion);
+      const qList = state.nodes.filter(n => n.group === "quarantine");
+      const list = getFilteredNodes();
+
+      const scopeLabel = state.nodeFilter === "usable" ? "重测可用节点" : state.nodeFilter === "same" ? "重测同区热备" : "重测隔离区";
+      const isScopeRunning = state.auditingScope === state.nodeFilter;
+
+      const listHtml = list.map((n, idx) => {
+        const isQ = n.group === "quarantine";
+        const isAuditingRow = (state.auditingScope === "all" || state.auditingScope === state.nodeFilter) && state.auditIdx === idx + 1;
+        const boxCls = isQ ? "is-bad" : n.isCurrent ? "is-cur" : (n.claudeStatus === "warn" || n.ipTone === "warn") ? "is-warn" : "";
+        const dropWarn = !isQ && n.dropRate > 0.5;
+        const stabWarn = !isQ && (n.drift > 0 || n.jitterMs >= 25);
+        const scoreColor = isQ ? "var(--text-3)" : n.score < 75 ? "var(--warning-fg)" : "var(--text-strong)";
+        const barColor = isQ ? "var(--bad-dot)" : n.score < 75 ? "var(--warning-dot)" : "var(--ok-dot)";
+        const stabTip = n.drift > 0
+          ? `最近 24 小时检测到该节点落地 IP 静默切换 ${n.drift} 次（抖动 ±${n.jitterMs} ms），会话中途变 IP 易触发风控。`
+          : `多轮实测延迟抖动 ±${n.jitterMs} ms，最近 24 小时落地 IP 稳定（0 次漂移）。`;
+
+        return `
+          <div class="node-row-grid ${n.isCurrent ? "is-cur" : ""}">
+            <div class="flex items-center gap-3 min-w-0">
+              <div class="region-box ${boxCls}">${n.code}</div>
+              <div class="min-w-0 flex-1">
+                <div class="row-main flex items-center gap-1.5 min-w-0">
+                  <span class="truncate" style="color: ${isQ ? "var(--text-2)" : n.isCurrent ? "var(--text-strong)" : "var(--text-1)"};">${n.name}</span>
+                  ${n.sameRegion && !n.isCurrent && !isQ ? `<span class="text-[10px] shrink-0 px-1.5 py-[0.5px] rounded-[4px]" style="background: var(--bg-subtle); color: var(--text-3);">同区</span>` : ""}
+                </div>
+                <div class="row-sub tabular truncate">${n.proto} · ${n.ip}</div>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-2.5 min-w-0">
+              ${isAuditingRow
+                ? `<span class="c-pill c-pill-warn !h-[19px] !text-[10.5px]"><svg class="w-2.5 h-2.5 spin-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.2-8.55" stroke-linecap="round"/></svg><span>检测中...</span></span>`
+                : `${renderPlatBadge(n.claudeStatus, n.claudeLabel, n.claudeTip)}${renderPlatBadge(n.agyStatus, n.agyLabel, n.agyTip)}`}
+            </div>
+
+            <div class="min-w-0">
+              <div class="inline-block max-w-full cursor-help" data-tip="${encodeURIComponent(n.ipTip)}">
+                <div class="row-main truncate" style="color: ${n.ipTone === "warn" ? "var(--warning-fg)" : isQ ? "var(--text-2)" : "var(--text-1)"};">${n.ipType}</div>
+                <div class="row-sub truncate">${n.ipDetail}</div>
+              </div>
+            </div>
+
+            <div class="tabular min-w-0">
+              <div class="row-main truncate" style="color: ${isQ ? "var(--text-2)" : "var(--text-1)"};">
+                <span>${n.delayMs !== null ? `${n.delayMs} ms` : "超时"}</span>
+                <span class="mx-1" style="color: var(--text-4);">·</span>
+                <span style="color: ${dropWarn ? "var(--warning-fg)" : "var(--text-2)"};">${n.dropRate.toFixed(1)}% 断连</span>
+              </div>
+              <div class="row-sub inline-block max-w-full truncate cursor-help" style="color: ${stabWarn ? "var(--warning-fg)" : "var(--text-3)"};" data-tip="${encodeURIComponent(stabTip)}">
+                抖动 ±${n.jitterMs} ms · ${n.drift > 0 ? `漂移 ${n.drift} 次` : "0 漂移"}
+              </div>
+            </div>
+
+            <div class="tabular min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="text-[12.5px]" style="color: ${scoreColor}; font-weight: 500;">${n.score} <span class="text-[10.5px] font-normal" style="color: var(--text-3);">分</span></span>
+                <div class="mini-bar-track"><div class="mini-bar-fill" style="width: ${n.score}%; background: ${barColor};"></div></div>
+              </div>
+              <div class="row-sub truncate" style="color: ${!isQ && n.score < 75 ? "var(--warning-fg)" : "var(--text-3)"};">${n.rec}</div>
+            </div>
+
+            <div class="flex items-center justify-end">
+              ${n.isCurrent
+                ? `<span class="c-pill c-pill-ok">当前锁定</span>`
+                : isQ
+                ? `<span class="c-pill c-pill-bad">已隔离</span>`
+                : `<button type="button" data-switch-id="${n.id}" class="c-btn c-btn-xs">切换锁定</button>`}
+            </div>
+          </div>
+        `;
+      }).join("");
+
+      return `
+        <div class="c-card metric-strip-nodes tabular">
+          <div class="metric-cell">
+            <div class="text-[11px]" style="color: var(--text-3);">当前锁定节点</div>
+            <div class="mt-1 flex items-center gap-2 min-w-0">
+              <span class="text-[10px] px-1.5 py-[1px] rounded-[4px] shrink-0" style="background: var(--ok-bg); color: var(--ok-fg); border: 1px solid var(--ok-border);">${cur.code}</span>
+              <span class="text-[13.5px] truncate" style="color: var(--text-strong); font-weight: 500;">${cur.name}</span>
+            </div>
+            <div class="mt-0.5 text-[10.5px] truncate" style="color: var(--text-3);">${cur.ip} · ${cur.ipType} · ${cur.delayMs} ms</div>
+          </div>
+
+          <div class="metric-cell">
+            <div class="text-[11px]" style="color: var(--text-3);">可用节点</div>
+            <div class="mt-1 flex items-baseline gap-1">
+              <span class="text-[15px]" style="color: var(--text-strong); font-weight: 500;">${usableList.length}</span>
+              <span class="text-[11px]" style="color: var(--text-3);">/ 订阅 17</span>
+            </div>
+            <div class="mt-0.5 text-[10.5px] truncate" style="color: var(--text-3);">含 ${sameList.length} 个同区热备</div>
+          </div>
+
+          <div class="metric-cell">
+            <div class="text-[11px]" style="color: var(--text-3);">隔离与禁区</div>
+            <div class="mt-1 flex items-baseline gap-1.5">
+              <span class="text-[15px]" style="color: var(--text-1); font-weight: 500;">${qList.length}</span>
+              <span class="text-[11px]" style="color: var(--text-3);">· 名称禁区 9</span>
+            </div>
+            <div class="mt-0.5 text-[10.5px] truncate" style="color: var(--text-3);">落地禁区 1 · 拉黑/超时 2</div>
+          </div>
+
+          <div class="metric-cell">
+            <div class="text-[11px]" style="color: var(--text-3);">Mihomo 管道</div>
+            <div class="mt-1 flex items-center gap-1.5 min-w-0">
+              <span class="w-[5.5px] h-[5.5px] rounded-full shrink-0" style="background: var(--ok-dot);"></span>
+              <span class="text-[13.5px] truncate" style="color: var(--ok-fg); font-weight: 500;">管道已直连</span>
+            </div>
+            <div class="mt-0.5 text-[10.5px] truncate" style="color: var(--text-3);">Claude-Fixed · v1.19.33 · :7890</div>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between gap-3 pt-0.5">
+          <div class="flex items-center gap-1">
+            <button type="button" data-nfilter="usable" class="filter-tab ${state.nodeFilter === "usable" ? "active" : ""}">
+              <span>可用节点</span><span class="tabular text-[11px]" style="color: var(--text-3);">${usableList.length}</span>
+            </button>
+            <button type="button" data-nfilter="same" class="filter-tab ${state.nodeFilter === "same" ? "active" : ""}">
+              <span>同区热备</span><span class="tabular text-[11px]" style="color: var(--text-3);">${sameList.length}</span>
+            </button>
+            <button type="button" data-nfilter="quarantine" class="filter-tab ${state.nodeFilter === "quarantine" ? "active" : ""}">
+              <span>隔离区</span><span class="tabular text-[11px]" style="color: var(--text-3);">${qList.length}</span>
+            </button>
+          </div>
+
+          <div class="flex items-center gap-2.5">
+            <span class="text-[11px] hidden md:inline" style="color: var(--text-3);">悬停标签可看说明 · 核验缓存 24h</span>
+            ${state.nodeFilter === "quarantine" ? `<button id="btn-retest-timeout" type="button" class="c-btn c-btn-xs">重测超时类</button>` : ""}
+            <button id="btn-scope-retest" type="button" class="c-btn c-btn-xs">
+              <svg class="w-[11px] h-[11px] ${isScopeRunning ? "spin-icon" : ""}" style="color: var(--text-2);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20.5 12a8.5 8.5 0 1 1-2.5-6"/><polyline points="20.5 3.5 20.5 9 15 9"/></svg>
+              <span>${isScopeRunning ? "重测中..." : scopeLabel}</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="c-card">
+          <div class="node-col-head">
+            <span>${state.nodeFilter === "quarantine" ? "隔离节点 / 协议" : "节点 / 出口 IP"}</span>
+            <span>${state.nodeFilter === "quarantine" ? "阻断原因" : "平台支持"}</span>
+            <span>节点类型</span>
+            <span>延迟 / 断连 / 稳定性</span>
+            <span>质量评分</span>
+            <span style="text-align: right;">${state.nodeFilter === "quarantine" ? "状态" : "操作"}</span>
+          </div>
+          <div>${listHtml}</div>
+        </div>
+      `;
+    }
+
+    /* 实时流量分析 v6.7：7 列紧贴内容宽 + space-between 绝对均分 6 处列间隙，持续时长左对齐与表头齐平 */
+    function renderTrafficView() {
+      const activeAnom = state.conns.filter(c => c.anomaly && !c.acked).length;
+      const totalAnom = state.conns.filter(c => c.anomaly).length;
+      const rejectedCount = state.conns.filter(c => c.rejected).length;
+      const safeCount = state.conns.filter(c => !c.anomaly && !c.rejected).length;
+      const shown = state.flowFilter === "anomaly"
+        ? state.conns.filter(c => c.anomaly)
+        : state.flowFilter === "rejected"
+        ? state.conns.filter(c => c.rejected)
+        : state.conns;
+
+      const rows = shown.length === 0
+        ? `<div class="p-8 text-center text-[12px]" style="color: var(--text-3);">当前条件下无实时连接记录</div>`
+        : shown.map(c => {
+            const pillCls = c.anomaly
+              ? (c.acked ? "c-pill-neutral" : "c-pill-bad")
+              : c.rejected
+              ? "c-pill-neutral"
+              : "c-pill-ok";
+            const pillTxt = c.anomaly
+              ? (c.acked ? "已确认" : "脱组风险")
+              : c.rejected
+              ? "已拦截"
+              : "安全放行";
+
+            const cleanHost = formatDisplayHost(c.host);
+            const hostTip = `完整目标：${c.host}\n来源进程：${c.process}`;
+            const durText = formatDuration(c.durationSecs, c.rejected);
+            const durTip = c.rejected
+              ? `触发时刻：${c.startedAt}\n该连接已被 REJECT-DROP 规则即时阻断，未建立实际传输。`
+              : `建连时刻：${c.startedAt}\n当前已持续连接 ${durText}，累计流量 ${c.bytes}。`;
+
+            const chainHtml = c.anomaly
+              ? `<div class="inline-block max-w-full cursor-help" data-tip="${encodeURIComponent(`完整链路：${c.fullChain}`)}">
+                   <div class="row-main truncate" style="color: var(--bad-fg);">${c.exitNode}</div>
+                   <div class="row-sub truncate" style="color: var(--bad-fg); opacity: 0.85;">${c.anomalySub}</div>
+                 </div>`
+              : c.rejected
+              ? `<div class="inline-block max-w-full cursor-help" data-tip="${encodeURIComponent(`完整链路：${c.fullChain}`)}">
+                   <div class="row-main truncate" style="color: var(--text-2);">${c.exitNode}</div>
+                   <div class="row-sub truncate">${c.anomalySub}</div>
+                 </div>`
+              : `<div class="inline-block max-w-full cursor-help" data-tip="${encodeURIComponent(`完整链路：${c.fullChain}\n已默认隐藏常规前缀 Claude-Fixed`)}">
+                   <div class="row-main truncate" style="color: var(--text-1);">${c.exitNode}</div>
+                 </div>`;
+
+            return `
+              <div class="conn-row-grid tabular">
+                <div class="min-w-0">
+                  <div class="inline-block max-w-full cursor-help" data-tip="${encodeURIComponent(hostTip)}">
+                    <div class="row-main truncate" style="color: var(--text-strong);">${cleanHost}</div>
+                    <div class="row-sub truncate">${c.process}</div>
+                  </div>
+                </div>
+
+                <div class="min-w-0">
+                  <div class="inline-block max-w-full cursor-help" data-tip="${encodeURIComponent(c.purposeTip)}">
+                    <div class="row-main truncate" style="color: ${c.rejected ? "var(--text-2)" : "var(--text-1)"};">${c.purposeLabel}</div>
+                    <div class="row-sub truncate">${c.purposeShort}</div>
+                  </div>
+                </div>
+
+                <div>
+                  <span class="c-pill ${pillCls}">${pillTxt}</span>
+                </div>
+
+                <div class="min-w-0">
+                  <div class="inline-block max-w-full cursor-help" data-tip="${encodeURIComponent(c.ruleTip)}">
+                    <div class="row-main truncate" style="color: ${c.anomaly ? "var(--bad-fg)" : "var(--text-1)"};">${c.ruleLabel}</div>
+                    <div class="row-sub truncate">${c.ruleCode}</div>
+                  </div>
+                </div>
+
+                <div class="min-w-0">
+                  ${chainHtml}
+                </div>
+
+                <div class="min-w-0">
+                  <div class="inline-block max-w-full cursor-help" data-tip="${encodeURIComponent(durTip)}">
+                    <div class="row-main truncate" data-dur-id="${c.id}" style="color: ${c.rejected ? "var(--text-3)" : "var(--text-1)"};">${durText}</div>
+                    <div class="row-sub truncate">${c.bytes}</div>
+                  </div>
+                </div>
+
+                <div class="flex items-center justify-end">
+                  <button type="button" data-close-conn="${c.id}" class="${c.anomaly && !c.acked ? "c-btn-danger-xs" : "c-btn c-btn-xs"}">掐断</button>
+                </div>
+              </div>
+            `;
+          }).join("");
+
+      return `
+        <div class="c-card metric-strip-equal tabular">
+          <div class="metric-cell">
+            <div class="text-[11px]" style="color: var(--text-3);">12h 未确认异常</div>
+            <div class="mt-1 flex items-baseline gap-1">
+              <span class="text-[15px]" style="color: ${activeAnom > 0 ? "var(--bad-fg)" : "var(--ok-fg)"}; font-weight: 500;">${activeAnom}</span>
+              <span class="text-[11px]" style="color: var(--text-3);">条</span>
+            </div>
+            <div class="mt-0.5 text-[10.5px] truncate" style="color: var(--text-3);">含防回传拦截 ${rejectedCount} 条</div>
+          </div>
+          <div class="metric-cell">
+            <div class="text-[11px]" style="color: var(--text-3);">活跃安全连接</div>
+            <div class="mt-1 flex items-baseline gap-1">
+              <span class="text-[15px]" style="color: var(--ok-fg); font-weight: 500;">${safeCount}</span>
+              <span class="text-[11px]" style="color: var(--text-3);">条</span>
+            </div>
+            <div class="mt-0.5 text-[10.5px] truncate" style="color: var(--text-3);">均经锁定出口稳定放行</div>
+          </div>
+          <div class="metric-cell">
+            <div class="text-[11px]" style="color: var(--text-3);">Claude 总连接</div>
+            <div class="mt-1 flex items-baseline gap-1">
+              <span class="text-[15px]" style="color: var(--text-strong); font-weight: 500;">${state.conns.length}</span>
+              <span class="text-[11px]" style="color: var(--text-3);">条</span>
+            </div>
+            <div class="mt-0.5 text-[10.5px] truncate" style="color: var(--text-3);">桌面端 / CLI / 网页端</div>
+          </div>
+          <div class="metric-cell">
+            <div class="text-[11px]" style="color: var(--text-3);">锁定策略组</div>
+            <div class="mt-1 text-[13.5px] truncate" style="color: var(--text-strong); font-weight: 500;">Claude-Fixed</div>
+            <div class="mt-0.5 text-[10.5px] truncate" style="color: var(--text-3);">常规连接已省略此组名前缀</div>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between gap-3 pt-0.5">
+          <div class="flex items-center gap-1">
+            <button type="button" data-flow-filter="all" class="filter-tab ${state.flowFilter === "all" ? "active" : ""}">
+              <span>全部连接</span><span class="tabular text-[11px]" style="color: var(--text-3);">${state.conns.length}</span>
+            </button>
+            <button type="button" data-flow-filter="anomaly" class="filter-tab ${state.flowFilter === "anomaly" ? "active" : ""}">
+              <span>仅看异常</span><span class="tabular text-[11px]" style="color: var(--text-3);">${totalAnom}</span>
+            </button>
+            <button type="button" data-flow-filter="rejected" class="filter-tab ${state.flowFilter === "rejected" ? "active" : ""}">
+              <span>遥测拦截</span><span class="tabular text-[11px]" style="color: var(--text-3);">${rejectedCount}</span>
+            </button>
+          </div>
+          <span class="text-[11px]" style="color: var(--text-3);">默认省略 :443 与 Claude-Fixed · 悬停查看原始明细</span>
+        </div>
+
+        <div class="c-card">
+          <div class="conn-col-head">
+            <span>目标 / 进程</span>
+            <span>链路意图</span>
+            <span>状态</span>
+            <span>命中规则</span>
+            <span>出口 / 异常链路</span>
+            <span>时长 / 流量</span>
+            <span style="text-align: right;">操作</span>
+          </div>
+          <div>${rows}</div>
+        </div>
+      `;
+    }
+
+    function renderAll() {
+      renderHeaderActions();
+      document.getElementById("tab-quality").classList.toggle("active", state.subTab === "quality");
+      document.getElementById("tab-traffic").classList.toggle("active", state.subTab === "traffic");
+      document.getElementById("main-scroll-body").innerHTML = state.subTab === "quality" ? renderQualityView() : renderTrafficView();
+      bindTooltips();
+
+      const list = getFilteredNodes();
+      const scopeLabel = state.nodeFilter === "usable" ? "重测可用节点" : state.nodeFilter === "same" ? "重测同区热备" : "重测隔离区";
+
+      document.querySelectorAll("[data-nfilter]").forEach(btn => btn.addEventListener("click", () => { state.nodeFilter = btn.dataset.nfilter; renderAll(); }));
+      document.getElementById("btn-scope-retest")?.addEventListener("click", () => startScopedAudit(state.nodeFilter, scopeLabel, list.length));
+      document.getElementById("btn-retest-timeout")?.addEventListener("click", () => startScopedAudit("timeout", "超时类节点", 1));
+      document.querySelectorAll("[data-switch-id]").forEach(btn => btn.addEventListener("click", () => {
+        const nid = btn.dataset.switchId;
+        const target = state.nodes.find(n => n.id === nid);
+        if (!target) return;
+        state.nodes.forEach(n => { n.isCurrent = n.id === nid; });
+        renderAll();
+        showToast(target.sameRegion ? `已切换锁定同区热备节点「${target.name}」` : `已切换至「${target.name}」· 跨洲建议静默 15~30 分钟`);
+      }));
+      document.querySelectorAll("[data-flow-filter]").forEach(b => b.addEventListener("click", () => { state.flowFilter = b.dataset.flowFilter; renderAll(); }));
+      document.querySelectorAll("[data-close-conn]").forEach(b => b.addEventListener("click", () => {
+        state.conns = state.conns.filter(c => c.id !== b.dataset.closeConn); renderAll();
+        showToast("已调用 Mihomo DELETE /connections 掐断连接");
+      }));
+
+      requestAnimationFrame(() => mainScroll.sync());
+    }
+
+    setInterval(() => {
+      state.conns.forEach(c => {
+        if (!c.liveTick) return;
+        c.durationSecs += 1;
+        const el = document.querySelector(`[data-dur-id="${c.id}"]`);
+        if (el) el.textContent = formatDuration(c.durationSecs, c.rejected);
+      });
+    }, 1000);
+
+    function setTheme(theme) {
+      state.theme = theme;
+      document.documentElement.setAttribute("data-theme", theme);
+      document.querySelectorAll("[data-theme-opt]").forEach(b => b.classList.toggle("active", b.dataset.themeOpt === theme));
+      document.getElementById("theme-ico-svg").innerHTML = theme === "dark"
+        ? `<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>`
+        : `<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>`;
+    }
+
+    document.querySelectorAll("[data-theme-opt]").forEach(b => b.addEventListener("click", () => setTheme(b.dataset.themeOpt)));
+    document.getElementById("top-btn-theme").addEventListener("click", () => setTheme(state.theme === "light" ? "dark" : "light"));
+    document.getElementById("tab-quality").addEventListener("click", () => { state.subTab = "quality"; renderAll(); });
+    document.getElementById("tab-traffic").addEventListener("click", () => { state.subTab = "traffic"; renderAll(); });
+
+    const procCard = document.getElementById("proc-card"), procDot = document.getElementById("proc-dot"), procSub = document.getElementById("proc-sub");
+    const holdBtn = document.getElementById("btn-kill-hold"), holdLbl = document.getElementById("hold-label");
+    holdBtn.addEventListener("click", () => {
+      state.holdOn = !state.holdOn; clearInterval(state.holdTimer);
+      if (state.holdOn) {
+        state.holdSecs = 45; procCard.classList.add("is-hold"); holdBtn.classList.add("is-active");
+        procDot.style.background = "var(--primary)"; procSub.textContent = "防复活中"; holdLbl.textContent = `解除 ${state.holdSecs}s`;
+        state.holdTimer = setInterval(() => {
+          state.holdSecs -= 1;
+          if (state.holdSecs <= 0) { state.holdOn = false; clearInterval(state.holdTimer); procCard.classList.remove("is-hold"); holdBtn.classList.remove("is-active"); procDot.style.background = "var(--ok-dot)"; procSub.textContent = "运行中"; holdLbl.textContent = "盯防 45s"; }
+          else { holdLbl.textContent = `解除 ${state.holdSecs}s`; }
+        }, 1000);
+      } else {
+        procCard.classList.remove("is-hold"); holdBtn.classList.remove("is-active"); procDot.style.background = "var(--ok-dot)"; procSub.textContent = "运行中"; holdLbl.textContent = "盯防 45s";
+      }
+    });
+
+    renderAll();
+  </script>
+</body>
+</html>

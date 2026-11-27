@@ -26,7 +26,258 @@ pub struct ClaudeConn {
     pub chain: String,
     pub action: String,
     pub time: String,
+    /// 建连 Unix 毫秒时间戳（由 Mihomo RFC3339 `start` 解析，供前端实时计算连接持续时长）
+    #[serde(default)]
+    pub started_at_ms: Option<i64>,
     pub bytes_label: String,
+    /// 域名业务分类（core_api / web_chat / feature_flag / asset_cdn / kyc_verify / cf_shield / payment / telemetry / update_status / oauth / local_ip / unknown_new）
+    #[serde(default)]
+    pub domain_category: String,
+    /// 紧凑中文用途徽标（如 "核心 API" / "主站与会话" / "功能开关" / "遥测 · 行为监控" / "未收录新域"）
+    #[serde(default)]
+    pub purpose_label: String,
+    /// 一句话大白话用途说明（供实时连接副文与悬停解释）
+    #[serde(default)]
+    pub purpose_detail: String,
+    /// 是否为仅靠 PROCESS-NAME 兜底发现的未收录新域名（方案 B 纯自动只读雷达，零用户配置）
+    #[serde(default)]
+    pub is_unlisted_domain: bool,
+}
+
+fn host_matches_suffix(host: &str, suffix: &str) -> bool {
+    host == suffix || host.ends_with(&format!(".{suffix}"))
+}
+
+fn is_ip_or_local_host(host: &str) -> bool {
+    let trimmed = host.trim().trim_matches(|c| c == '[' || c == ']');
+    trimmed.is_empty()
+        || trimmed == "unknown"
+        || trimmed == "localhost"
+        || trimmed.ends_with(".local")
+        || trimmed.ends_with(".lan")
+        || trimmed.parse::<std::net::IpAddr>().is_ok()
+}
+
+/// 区分每个 Claude 相关连接域名的具体用途（唯一真源），并自动识别未收录新域（方案 B 自动雷达）
+pub fn classify_claude_domain_purpose(
+    host_raw: &str,
+    is_rejected: bool,
+    via_claude_fixed: bool,
+) -> (&'static str, &'static str, &'static str, bool) {
+    let h = host_raw
+        .trim()
+        .split(':')
+        .next()
+        .unwrap_or("")
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+
+    // 1. 第 3 层第三方遥测与埋点域
+    if host_matches_suffix(&h, "sentry.io") {
+        return (
+            "telemetry",
+            "遥测 · 崩溃上报",
+            "Sentry 错误堆栈与异常遥测上报（建议 REJECT 拦截）",
+            false,
+        );
+    }
+    if host_matches_suffix(&h, "browser-intake-datadoghq.com")
+        || host_matches_suffix(&h, "datadoghq.com")
+        || host_matches_suffix(&h, "datadoghq.eu")
+    {
+        return (
+            "telemetry",
+            "遥测 · 行为监控",
+            "Datadog 客户端/网页指纹与性能事件上报（建议 REJECT 拦截）",
+            false,
+        );
+    }
+    if host_matches_suffix(&h, "statsigapi.net")
+        || host_matches_suffix(&h, "statsig.com")
+        || host_matches_suffix(&h, "statsigcdn.com")
+        || host_matches_suffix(&h, "featureassets.org")
+        || host_matches_suffix(&h, "prodregistryv2.org")
+    {
+        return (
+            "telemetry",
+            "遥测 · 埋点配置",
+            "第三方 Statsig 通用埋点与事件上报（建议 REJECT 拦截）",
+            false,
+        );
+    }
+    if host_matches_suffix(&h, "intercom.io") || host_matches_suffix(&h, "intercomcdn.com") {
+        return (
+            "telemetry",
+            "客服与追踪",
+            "Intercom 在线客服组件与会话埋点（建议 REJECT 拦截）",
+            false,
+        );
+    }
+    if host_matches_suffix(&h, "segment.io")
+        || host_matches_suffix(&h, "api.segment.com")
+        || host_matches_suffix(&h, "honeycomb.io")
+    {
+        return (
+            "telemetry",
+            "遥测 · 链路追踪",
+            "Segment / Honeycomb 事件追踪与埋点（建议 REJECT 拦截）",
+            false,
+        );
+    }
+
+    // 2. Anthropic / Claude 官方细分业务域
+    if h == "statsig.anthropic.com" {
+        return (
+            "feature_flag",
+            "功能开关",
+            "Claude 模型列表、Artifacts 与新特性灰度开关（刻意保留不拦截）",
+            false,
+        );
+    }
+    if h == "api.anthropic.com" || h == "a-api.anthropic.com" || h.ends_with("-api.anthropic.com") {
+        return (
+            "core_api",
+            "核心 API",
+            "Anthropic 官方模型推理、桌面端与 Claude Code 核心接口",
+            false,
+        );
+    }
+    if h == "portal.anthropic.com" || host_matches_suffix(&h, "withpersona.com") {
+        return (
+            "kyc_verify",
+            "KYC 身份核验",
+            "Anthropic 风控复审与 Persona 身份验证接口（需与主站同节点）",
+            false,
+        );
+    }
+    if h == "status.anthropic.com" {
+        return (
+            "update_status",
+            "官方状态页",
+            "Anthropic 服务可用性与宕机公告监测接口",
+            false,
+        );
+    }
+    if h == "console.anthropic.com" || h == "platform.anthropic.com" {
+        return (
+            "core_api",
+            "开发者控制台",
+            "Anthropic API 密钥、额度与组织管理控制台",
+            false,
+        );
+    }
+    if h == "downloads.claude.ai"
+        || h == "assets.claude.ai"
+        || h == "s-cdn.anthropic.com"
+        || h == "assets-proxy.anthropic.com"
+        || host_matches_suffix(&h, "servd-anthropic-website.b-cdn.net")
+        || host_matches_suffix(&h, "claudeusercontent.com")
+    {
+        return (
+            "asset_cdn",
+            "资源 / 沙箱",
+            "Artifacts 沙箱预览、客户端更新包与官方静态资源分发",
+            false,
+        );
+    }
+    if host_matches_suffix(&h, "mail.anthropic.com") {
+        return (
+            "web_chat",
+            "官方邮件验证",
+            "Anthropic 官方登录验证邮件与账号安全链接跳转",
+            false,
+        );
+    }
+    if host_matches_suffix(&h, "claude.ai")
+        || host_matches_suffix(&h, "claude.com")
+        || host_matches_suffix(&h, "clau.de")
+    {
+        return (
+            "web_chat",
+            "主站与会话",
+            "Claude 网页端 / 桌面端主界面、账号鉴权与对话通信",
+            false,
+        );
+    }
+    if host_matches_suffix(&h, "anthropic.com") || host_matches_suffix(&h, "anthropic.org") {
+        return (
+            "web_chat",
+            "官方站点",
+            "Anthropic 官方主站、文档与认证关联服务",
+            false,
+        );
+    }
+
+    // 3. 关联基础设施（人机盾 / 支付 / OAuth / 出口探测）
+    if host_matches_suffix(&h, "challenges.cloudflare.com") {
+        return (
+            "cf_shield",
+            "CF 人机盾",
+            "Cloudflare Turnstile 人机校验（与主站同节点可避免反复弹盾）",
+            false,
+        );
+    }
+    if host_matches_suffix(&h, "stripe.com") || host_matches_suffix(&h, "stripe.network") {
+        return (
+            "payment",
+            "Stripe 支付",
+            "Pro / Max 订阅绑卡与扣款反欺诈校验接口",
+            false,
+        );
+    }
+    if host_matches_suffix(&h, "accounts.google.com") {
+        return (
+            "oauth",
+            "Google 登录",
+            "第三方 Google OAuth 授权登录认证",
+            false,
+        );
+    }
+    if host_matches_suffix(&h, "ip-api.com")
+        || host_matches_suffix(&h, "ipapi.is")
+        || host_matches_suffix(&h, "ipinfo.io")
+    {
+        return (
+            "update_status",
+            "出口 IP 探测",
+            "本工具出口合规性与 IP 纯净度实时自检探针",
+            false,
+        );
+    }
+
+    // 4. 纯 IP 或局域网地址
+    if is_ip_or_local_host(&h) {
+        return (
+            "local_ip",
+            "直连 IP / 本地",
+            "按 IP 直连或本机回环通信（无域名 SNI）",
+            false,
+        );
+    }
+
+    // 5. 未收录新域名自动雷达（Claude 进程发出但不在已知业务/遥测清单中的外部域名）
+    if is_rejected {
+        (
+            "unknown_new",
+            "未收录新域",
+            "Claude 进程访问的未收录外部域名（当前已被规则拦截）",
+            true,
+        )
+    } else if via_claude_fixed {
+        (
+            "unknown_new",
+            "未收录新域",
+            "Claude 进程访问的新外部域名，已由进程规则兜底走 Claude-Fixed",
+            true,
+        )
+    } else {
+        (
+            "unknown_new",
+            "未收录新域",
+            "Claude 进程访问的新外部域名且未走 Claude-Fixed，请排查逃逸风险",
+            true,
+        )
+    }
 }
 
 /// 4 层紧急防回传 / 防火墙熔断状态
@@ -99,22 +350,33 @@ pub fn parse_claude_connections(raw_json: &str) -> Vec<ClaudeConn> {
         };
 
         let lower_proc = process.to_lowercase();
-        let lower_host = host.to_lowercase();
-        let is_claude = lower_proc.contains("claude")
-            || lower_host.contains("anthropic.com")
-            || lower_host.contains("claude.ai")
-            || lower_host.contains("claude.com")
-            || lower_host.contains("claudeusercontent.com");
-
-        if !is_claude {
+        // 修复 E8（真机实测发现）：排除本安全启动器自身进程（fd-claude-guard.exe 等）发起的 NTP/自检/更新探测，避免把自己报成「风险连接/未收录新域」
+        let is_self_guard_proc = lower_proc.contains("fd-claude-guard")
+            || lower_proc.contains("fd claude guard")
+            || lower_proc.contains("fd_claude_guard");
+        if is_self_guard_proc {
             continue;
         }
+        let lower_host = host.to_lowercase();
+        let host_only = lower_host.split(':').next().unwrap_or(&lower_host);
+        let is_claude_exclusive_domain = host_only == "anthropic.com"
+            || host_only.ends_with(".anthropic.com")
+            || host_only == "claude.ai"
+            || host_only.ends_with(".claude.ai")
+            || host_only == "claude.com"
+            || host_only.ends_with(".claude.com")
+            || host_only == "claudeusercontent.com"
+            || host_only.ends_with(".claudeusercontent.com")
+            || host_only == "anthropic.org"
+            || host_only.ends_with(".anthropic.org")
+            || host_only == "clau.de"
+            || host_only.ends_with(".clau.de")
+            || host_only == "servd-anthropic-website.b-cdn.net"
+            || host_only.ends_with(".servd-anthropic-website.b-cdn.net");
+        let is_kyc_domain = host_only == "withpersona.com" || host_only.ends_with(".withpersona.com");
+        let is_claude_proc = lower_proc.contains("claude")
+            || (lower_proc == "chrome-native-host.exe" && (is_claude_exclusive_domain || is_kyc_domain));
 
-        let rule = item
-            .get("rule")
-            .and_then(|v| v.as_str())
-            .unwrap_or("MATCH")
-            .to_string();
         let chains: Vec<String> = item
             .get("chains")
             .and_then(|c| c.as_array())
@@ -125,23 +387,46 @@ pub fn parse_claude_connections(raw_json: &str) -> Vec<ClaudeConn> {
                     .collect()
             })
             .unwrap_or_default();
+        let via_claude_fixed = chains.iter().any(|c| c == "Claude-Fixed");
+        let is_cf_or_stripe_on_claude = via_claude_fixed
+            && (host_matches_suffix(host_only, "challenges.cloudflare.com")
+                || host_matches_suffix(host_only, "stripe.com")
+                || host_matches_suffix(host_only, "stripe.network"));
+        let is_claude =
+            is_claude_proc || is_claude_exclusive_domain || is_kyc_domain || is_cf_or_stripe_on_claude;
+
+        if !is_claude {
+            continue;
+        }
+
+        let rule = item
+            .get("rule")
+            .and_then(|v| v.as_str())
+            .unwrap_or("MATCH")
+            .to_string();
         let chain_str = chains.join(" → ");
 
+        let is_rejected = chains
+            .iter()
+            .any(|c| c.eq_ignore_ascii_case("REJECT") || c.eq_ignore_ascii_case("REJECT-DROP"));
         let blocked_chain = chains
             .iter()
             .any(|c| is_blocked_node_name(c) || c.eq_ignore_ascii_case("DIRECT"));
-        let missed_rule = !chains.iter().any(|c| c == "Claude-Fixed") && rule == "MATCH";
-        let anomaly = blocked_chain || missed_rule;
+        // 修复 E2：不仅检测 MATCH 脱组；对于 Claude 专属域/KYC/Claude 进程，即便命中机场自带 DOMAIN-SUFFIX 规则走向其他代理组也判定为脱组异常
+        let escaped_claude_group = !is_rejected && !via_claude_fixed;
+        let anomaly = blocked_chain || escaped_claude_group;
+        let (domain_category, purpose_label, purpose_detail, is_unlisted_domain) =
+            classify_claude_domain_purpose(host_raw, is_rejected, via_claude_fixed);
 
         let upload = item.get("upload").and_then(|v| v.as_u64()).unwrap_or(0);
         let download = item.get("download").and_then(|v| v.as_u64()).unwrap_or(0);
         let bytes_label = format_bytes(upload + download);
-        let time = item
-            .get("start")
-            .and_then(|v| v.as_str())
-            .and_then(|s| s.get(11..19))
+        let start_raw = item.get("start").and_then(|v| v.as_str()).unwrap_or("");
+        let time = start_raw
+            .get(11..19)
             .unwrap_or("--:--:--")
             .to_string();
+        let started_at_ms = parse_rfc3339_start_ms(start_raw);
 
         out.push(ClaudeConn {
             id,
@@ -160,16 +445,36 @@ pub fn parse_claude_connections(raw_json: &str) -> Vec<ClaudeConn> {
             },
             action: if anomaly {
                 "风险连接（建议立即掐断）".into()
+            } else if is_rejected {
+                "已拦截（防回传）".into()
+            } else if is_unlisted_domain {
+                "进程兜底放行".into()
             } else {
                 "正常放行".into()
             },
             time,
+            started_at_ms,
             bytes_label,
+            domain_category: domain_category.into(),
+            purpose_label: purpose_label.into(),
+            purpose_detail: purpose_detail.into(),
+            is_unlisted_domain,
         });
     }
 
     out.sort_by(|a, b| b.anomaly.cmp(&a.anomaly));
     out
+}
+
+/// 解析 Mihomo /connections 的 RFC3339 `start` 字段为 Unix 毫秒时间戳（解析失败返回 None，不 panic）
+pub fn parse_rfc3339_start_ms(start_raw: &str) -> Option<i64> {
+    let trimmed = start_raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    chrono::DateTime::parse_from_rfc3339(trimmed)
+        .ok()
+        .map(|dt| dt.timestamp_millis())
 }
 
 fn format_bytes(bytes: u64) -> String {
@@ -668,5 +973,217 @@ mod tests {
     #[test]
     fn release_requires_explicit_confirmation() {
         assert!(release_killswitch(false, 0).is_err());
+    }
+
+    #[test]
+    fn v035_e2_detects_escaped_claude_and_kyc_connections_even_on_non_match_rules() {
+        let sample = r#"{
+            "connections": [
+                {
+                    "id": "c-kyc-escaped",
+                    "upload": 100,
+                    "download": 200,
+                    "start": "2026-11-26T10:00:00Z",
+                    "rule": "DomainSuffix",
+                    "chains": ["🇺🇸美国2", "天悦云"],
+                    "metadata": { "process": "chrome.exe", "host": "inquiry.withpersona.com", "destinationPort": "443" }
+                },
+                {
+                    "id": "c-claude-short-escaped",
+                    "upload": 100,
+                    "download": 200,
+                    "start": "2026-11-26T10:00:01Z",
+                    "rule": "DomainSuffix",
+                    "chains": ["🇺🇸美国2", "天悦云"],
+                    "metadata": { "process": "chrome.exe", "host": "clau.de", "destinationPort": "443" }
+                },
+                {
+                    "id": "c-ok",
+                    "upload": 100,
+                    "download": 200,
+                    "start": "2026-11-26T10:00:02Z",
+                    "rule": "DomainSuffix",
+                    "chains": ["🇺🇸美国1", "Claude-Fixed"],
+                    "metadata": { "process": "chrome-native-host.exe", "host": "api.anthropic.com", "destinationPort": "443" }
+                },
+                {
+                    "id": "c-rejected-telemetry",
+                    "upload": 0,
+                    "download": 0,
+                    "start": "2026-11-26T10:00:03Z",
+                    "rule": "DomainSuffix",
+                    "chains": ["REJECT"],
+                    "metadata": { "process": "Claude.exe", "host": "browser-intake-datadoghq.com", "destinationPort": "443" }
+                }
+            ]
+        }"#;
+        let conns = parse_claude_connections(sample);
+        let by_id = |id: &str| conns.iter().find(|c| c.id == id).unwrap();
+        assert!(by_id("c-kyc-escaped").anomaly, "KYC 域命中机场规则走非 Claude-Fixed 必须标异常");
+        assert!(by_id("c-claude-short-escaped").anomaly, "clau.de 走非 Claude-Fixed 必须标异常");
+        assert!(!by_id("c-ok").anomaly, "走 Claude-Fixed 的正常连接不得误报");
+        assert!(!by_id("c-rejected-telemetry").anomaly, "已被 REJECT 拦截的遥测连接不得误报为异常放行");
+        assert_eq!(by_id("c-kyc-escaped").purpose_label, "KYC 身份核验");
+        assert_eq!(by_id("c-ok").purpose_label, "核心 API");
+        assert_eq!(by_id("c-rejected-telemetry").purpose_label, "遥测 · 行为监控");
+        assert_eq!(by_id("c-rejected-telemetry").action, "已拦截（防回传）");
+    }
+
+    #[test]
+    fn v035_classifies_claude_domain_purposes_and_flags_unlisted_new_domains() {
+        let sample = r#"{
+            "connections": [
+                {
+                    "id": "c-flag",
+                    "upload": 10,
+                    "download": 20,
+                    "start": "2026-11-26T10:10:00Z",
+                    "rule": "DomainSuffix",
+                    "chains": ["🇺🇸美国1", "Claude-Fixed"],
+                    "metadata": { "process": "Claude.exe", "host": "statsig.anthropic.com", "destinationPort": "443" }
+                },
+                {
+                    "id": "c-cdn",
+                    "upload": 10,
+                    "download": 20,
+                    "start": "2026-11-26T10:10:01Z",
+                    "rule": "DomainSuffix",
+                    "chains": ["🇺🇸美国1", "Claude-Fixed"],
+                    "metadata": { "process": "Claude.exe", "host": "downloads.claude.ai", "destinationPort": "443" }
+                },
+                {
+                    "id": "c-cf",
+                    "upload": 10,
+                    "download": 20,
+                    "start": "2026-11-26T10:10:02Z",
+                    "rule": "DomainSuffix",
+                    "chains": ["🇺🇸美国1", "Claude-Fixed"],
+                    "metadata": { "process": "chrome.exe", "host": "challenges.cloudflare.com", "destinationPort": "443" }
+                },
+                {
+                    "id": "c-new-domain",
+                    "upload": 10,
+                    "download": 20,
+                    "start": "2026-11-26T10:10:03Z",
+                    "rule": "Process",
+                    "chains": ["🇺🇸美国1", "Claude-Fixed"],
+                    "metadata": { "process": "Claude.exe", "host": "new-agent-relay.anthropic-labs.dev", "destinationPort": "443" }
+                },
+                {
+                    "id": "c-self-ntp",
+                    "upload": 48,
+                    "download": 48,
+                    "start": "2026-11-26T10:10:04Z",
+                    "rule": "Match",
+                    "chains": ["🇺🇸美国1", "天悦云"],
+                    "metadata": { "process": "fd-claude-guard.exe", "host": "time.cloudflare.com", "destinationPort": "123" }
+                },
+                {
+                    "id": "c-mail",
+                    "upload": 10,
+                    "download": 20,
+                    "start": "2026-11-26T10:10:05Z",
+                    "rule": "DomainSuffix",
+                    "chains": ["🇺🇸美国1", "Claude-Fixed"],
+                    "metadata": { "process": "Claude.exe", "host": "url8792.mail.anthropic.com", "destinationPort": "443" }
+                }
+            ]
+        }"#;
+        let conns = parse_claude_connections(sample);
+        let by_id = |id: &str| conns.iter().find(|c| c.id == id).unwrap();
+
+        assert_eq!(by_id("c-flag").purpose_label, "功能开关");
+        assert!(!by_id("c-flag").is_unlisted_domain);
+
+        assert_eq!(by_id("c-cdn").purpose_label, "资源 / 沙箱");
+        assert!(!by_id("c-cdn").is_unlisted_domain);
+
+        assert_eq!(by_id("c-cf").purpose_label, "CF 人机盾");
+        assert!(!by_id("c-cf").is_unlisted_domain);
+
+        assert_eq!(by_id("c-mail").purpose_label, "官方邮件验证");
+        assert!(
+            conns.iter().all(|c| c.id != "c-self-ntp"),
+            "E8 回归：本安全启动器自身进程发起的 NTP 探测绝不得误报为 Claude 风险连接"
+        );
+
+        let new_c = by_id("c-new-domain");
+        assert!(!new_c.anomaly, "已被 PROCESS-NAME 锁在 Claude-Fixed 的未收录新域不应判为高危异常");
+        assert!(new_c.is_unlisted_domain, "未知新域名必须自动触发未收录新域雷达");
+        assert_eq!(new_c.purpose_label, "未收录新域");
+        assert!(new_c.action.contains("进程兜底"));
+    }
+
+    #[test]
+    fn v036_parses_rfc3339_start_timestamp_to_ms() {
+        // 标准 UTC Z 格式（2026-11-26T10:10:00Z）
+        let utc_ms = parse_rfc3339_start_ms("2026-11-26T10:10:00Z");
+        assert_eq!(utc_ms, Some(1_795_687_800_000));
+        // 带 9 位纳秒小数与 +08:00 时区偏移（与 UTC 10:10:00.123 相同瞬时）
+        assert_eq!(
+            parse_rfc3339_start_ms("2026-11-26T18:10:00.123456789+08:00"),
+            Some(1_795_687_800_123)
+        );
+        // 畸形或空字符串优雅返回 None
+        assert_eq!(parse_rfc3339_start_ms(""), None);
+        assert_eq!(parse_rfc3339_start_ms("not-a-timestamp"), None);
+
+        // 端到端 parse_claude_connections 验证 started_at_ms 同步产出且保留向后兼容 time 字段
+        let sample = r#"{
+            "connections": [
+                {
+                    "id": "c-ts-1",
+                    "upload": 64,
+                    "download": 128,
+                    "start": "2026-11-26T18:10:05.500123456+08:00",
+                    "rule": "DomainSuffix",
+                    "chains": ["🇺🇸美国1", "Claude-Fixed"],
+                    "metadata": { "process": "Claude.exe", "host": "api.anthropic.com", "destinationPort": "443" }
+                }
+            ]
+        }"#;
+        let conns = parse_claude_connections(sample);
+        assert_eq!(conns.len(), 1);
+        assert_eq!(conns[0].time, "18:10:05");
+        assert_eq!(conns[0].started_at_ms, Some(1_795_687_805_500));
+    }
+
+    #[tokio::test]
+    #[ignore = "真机只读实测：直连本机 Mihomo 管道拉取 /connections 并验证真实连接域名用途分类"]
+    async fn live_v035_real_mihomo_connections_purpose_audit() {
+        let ep = discover_endpoint().await.expect("本机 Clash Verge Mihomo 必须在线");
+        let (status, raw) = mihomo_request(&ep, "GET", "/connections", None)
+            .await
+            .expect("GET /connections 必须成功");
+        assert_eq!(status, 200);
+        let raw_val: Value = serde_json::from_str(&raw).expect("valid connections json");
+        let total_all = raw_val
+            .get("connections")
+            .and_then(|v| v.as_array())
+            .map(|a| a.len())
+            .unwrap_or(0);
+        let claude_conns = parse_claude_connections(&raw);
+        println!(
+            "=== LIVE MIHOMO /connections: endpoint={} total_all={} claude_matched={} ===",
+            ep.display_label(),
+            total_all,
+            claude_conns.len()
+        );
+        for c in &claude_conns {
+            println!(
+                "  [anom={} unlisted={}] {} -> {} | {} ({}) | rule={} | chain={} | action={}",
+                c.anomaly,
+                c.is_unlisted_domain,
+                c.process,
+                c.host,
+                c.purpose_label,
+                c.domain_category,
+                c.rule,
+                c.chain,
+                c.action
+            );
+            assert!(!c.purpose_label.is_empty(), "每条真实连接必须产出明确用途标签");
+            assert!(!c.purpose_detail.is_empty(), "每条真实连接必须产出中文用途说明");
+        }
     }
 }

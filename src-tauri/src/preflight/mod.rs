@@ -1,11 +1,14 @@
 use crate::config::AppConfig;
 use crate::maintenance::backup_and_clean_claude_dirs;
+#[cfg(test)]
+use crate::mihomo::{verify_claude_rules, verify_exit_probe_rules};
 use crate::mihomo::{
-    clash_verge_config_dir, discover_endpoint, extract_proxy_group, extract_region_code,
-    fetch_configs, fetch_proxies_raw, fetch_rules_raw, fetch_version, is_blocked_country,
-    is_blocked_node_name, patch_clash_mode_rule, patch_ipv6_disabled, patch_tun_enabled,
-    reload_config_via_payload, select_proxy_in_group, verify_claude_rules, verify_exit_probe_rules,
-    MihomoConfigs, MihomoEndpoint,
+    audit_claude_rules, clash_verge_config_dir, discover_endpoint, extract_proxy_group,
+    extract_region_code, fetch_configs, fetch_proxies_raw, fetch_rules_raw, fetch_version,
+    is_blocked_country, is_blocked_node_name, patch_clash_mode_rule, patch_ipv6_disabled,
+    patch_tun_enabled, reload_config_via_payload, select_proxy_in_group, ClaudeRuleAuditReport,
+    CrossGroupConflict, MihomoConfigs, MihomoEndpoint, CF_STRIPE_OPTIONAL_DOMAINS,
+    CLAUDE_CORE_DOMAINS, EXIT_PROBE_DOMAINS, TELEMETRY_REJECT_DOMAINS,
 };
 use crate::protocol::{
     FD_ERR_IPV6_LEAK, FD_ERR_LOG_POLLUTE, FD_ERR_PROXY_OFFLINE, FD_ERR_RULE_DRIFT,
@@ -61,6 +64,8 @@ pub struct PreflightBundle {
     pub detected_landing_sig: Option<String>,
     /// 本次检测到的主号 orgId 前缀
     pub detected_org_id: Option<String>,
+    /// 本次运行态规则深度审计报告（供账户审计槽位 12 等模块实时消费）
+    pub rule_audit: ClaudeRuleAuditReport,
 }
 
 pub fn is_fake_ip_v4(ip: Ipv4Addr) -> bool {
@@ -299,12 +304,18 @@ pub async fn run_all_preflight_checks(cfg: &AppConfig, bg_claude_procs: u32) -> 
     let (item_proxy, clash_online) =
         probe_proxy_and_ports(endpoint.as_ref(), &clash_version, mixed_port).await;
 
-    let (item_group, current_node, group_ok, node_is_blocked) = probe_group_and_rules(
+    let (item_group, current_node, group_ok, node_is_blocked, rule_audit) = probe_group_and_rules(
         proxies_res.as_ref().ok(),
         rules_res.as_ref().ok(),
         mihomo_cfg.as_ref(),
         cfg.locked_node_for_ip.as_deref(),
+        cfg.lock_cf_and_stripe_to_claude,
     );
+    let advisory_conflicts: Vec<CrossGroupConflict> = rule_audit
+        .advisory_cross_group_conflicts()
+        .into_iter()
+        .cloned()
+        .collect();
 
     let (
         item_tun,
@@ -337,7 +348,14 @@ pub async fn run_all_preflight_checks(cfg: &AppConfig, bg_claude_procs: u32) -> 
     ) = tokio::join!(
         probe_tun_adapter(mihomo_cfg.as_ref()),
         probe_dns_fake_ip(mihomo_cfg.as_ref()),
-        probe_exit_geo(mixed_port, clash_online, group_ok, &current_node, cfg),
+        probe_exit_geo(
+            mixed_port,
+            clash_online,
+            group_ok,
+            &current_node,
+            cfg,
+            &advisory_conflicts,
+        ),
         probe_ipv6_windows_only(),
         probe_system_proxy_and_env(mixed_port),
         probe_windows_location_privacy(),
@@ -604,12 +622,31 @@ pub async fn run_all_preflight_checks(cfg: &AppConfig, bg_claude_procs: u32) -> 
         })),
     );
 
+    if let Ok(mut guard) = latest_rule_audit_cache().write() {
+        *guard = rule_audit.clone();
+    }
+
     PreflightBundle {
         report,
         snapshot,
         detected_landing_sig: landing_sig,
         detected_org_id,
+        rule_audit,
     }
+}
+
+fn latest_rule_audit_cache() -> &'static std::sync::RwLock<ClaudeRuleAuditReport> {
+    static CACHE: std::sync::OnceLock<std::sync::RwLock<ClaudeRuleAuditReport>> =
+        std::sync::OnceLock::new();
+    CACHE.get_or_init(|| std::sync::RwLock::new(ClaudeRuleAuditReport::default()))
+}
+
+/// 读取最近一轮启动前体检产出的规则深度审计报告（供账户审计槽位 12 等模块零延迟消费）
+pub fn get_latest_rule_audit() -> ClaudeRuleAuditReport {
+    latest_rule_audit_cache()
+        .read()
+        .map(|g| g.clone())
+        .unwrap_or_default()
 }
 
 async fn probe_proxy_and_ports(
@@ -705,7 +742,8 @@ fn probe_group_and_rules(
     rules: Option<&Vec<Value>>,
     mihomo_cfg: Option<&MihomoConfigs>,
     _locked_baseline_node: Option<&str>,
-) -> (PreflightItem, String, bool, bool) {
+    lock_cf_and_stripe: bool,
+) -> (PreflightItem, String, bool, bool, ClaudeRuleAuditReport) {
     let mihomo_ipv6_off = mihomo_cfg.map(|c| !c.ipv6).unwrap_or(false);
     let clash_mode = mihomo_cfg
         .map(|c| c.mode.to_ascii_lowercase())
@@ -730,6 +768,7 @@ fn probe_group_and_rules(
             "未连接".into(),
             false,
             false,
+            ClaudeRuleAuditReport::default(),
         );
     };
 
@@ -739,8 +778,17 @@ fn probe_group_and_rules(
         .as_ref()
         .map(|g| g.now.as_str())
         .unwrap_or("");
-    let (rules_ok, rule_count) = rules.map(|r| verify_claude_rules(r)).unwrap_or((false, 0));
-    let exit_probe_rule_ok = rules.map(|r| verify_exit_probe_rules(r)).unwrap_or(false);
+    let mut audit = rules
+        .map(|r| audit_claude_rules(r, Some(proxies_map), mihomo_cfg, lock_cf_and_stripe))
+        .unwrap_or_default();
+    if clash_mode != "global" {
+        let disk_script = clash_verge_config_dir()
+            .map(|d| d.join("profiles").join("Script.js"))
+            .and_then(|p| fs::read_to_string(p).ok());
+        audit.script_drift_reason =
+            detect_script_js_drift(disk_script.as_deref(), lock_cf_and_stripe);
+    }
+    let rule_count = audit.matched_claude_rule_count;
 
     match group {
         Some(mut g) => {
@@ -752,14 +800,19 @@ fn probe_group_and_rules(
             let is_selector = g.group_type.eq_ignore_ascii_case("Selector");
             let blocked = is_blocked_node_name(&g.now) || g.now.eq_ignore_ascii_case("DIRECT");
 
-            // 严格策略组边界校验：
+            // 严格策略组与全量规则门禁（根治旧脚本假绿灯）：
             // 1) Direct 模式直接禁行（全直连裸奔）；
-            // 2) Global 模式下必须由 GLOBAL 指向 Claude-Fixed，若切到DemoAirport或其他非 Claude-Fixed 节点立刻标红（脱离策略组保护）；
-            // 3) Rule 模式下必须命中 Claude 全家桶规则且覆盖出口 IP 监测域名（保证出口体检与 Claude 100% 同源）；
-            // 4) 在 Claude-Fixed 内切换合规节点（软件内或 Clash 内均可）自动跟随生效，不重复卡死（3A）。
+            // 2) Global 模式下必须由 GLOBAL 指向 Claude-Fixed，并校验 dns.ipv6:false；
+            // 3) Rule 模式下要求自上而下首命中覆盖核心 8 域（含 KYC）、3 项出口监测、14 条遥测拦截、3 项桥接进程、find-process-mode!=off、dns.ipv6:false，及开启开关时的 CF 盾/Stripe 同源。
             let mode_direct_fail = clash_mode == "direct";
             let global_escaped = clash_mode == "global" && !global_now.eq_ignore_ascii_case("Claude-Fixed");
-            let rule_missing_exit = clash_mode == "rule" && rules_ok && !exit_probe_rule_ok;
+            let hard_rule_fail = clash_mode != "global" && audit.has_hard_core_failure();
+            let upgrade_rule_gap = if clash_mode == "global" {
+                audit.dns_ipv6_enabled
+            } else {
+                !hard_rule_fail && audit.has_required_upgrade_gap()
+            };
+            let gap_msgs = audit.required_gap_messages();
 
             let passed = is_selector
                 && !blocked
@@ -767,7 +820,24 @@ fn probe_group_and_rules(
                 && mihomo_ipv6_off
                 && !mode_direct_fail
                 && !global_escaped
-                && (clash_mode == "global" || (rules_ok && exit_probe_rule_ok));
+                && !hard_rule_fail
+                && !upgrade_rule_gap;
+
+            let status = if passed {
+                CheckStatus::Ok
+            } else if mode_direct_fail
+                || global_escaped
+                || blocked
+                || !is_selector
+                || !mihomo_ipv6_off
+                || hard_rule_fail
+            {
+                CheckStatus::Fail
+            } else {
+                // 遥测逃逸 / 关联域或桥接进程缺口 / CF 盾跨组串线 / find-process-mode:off / dns.ipv6:true
+                // 归入 Must 门禁标黄（同样阻断启动，点一下右侧一键升级 1 秒热修即绿）
+                CheckStatus::Warn
+            };
 
             let mode_label = match clash_mode.as_str() {
                 "global" => format!("GLOBAL 全局模式 → {global_now}"),
@@ -786,30 +856,112 @@ fn probe_group_and_rules(
                 format!("[{FD_ERR_RULE_DRIFT}] Claude-Fixed 当前落入禁区/直连节点：{}！请立即切换", g.now)
             } else if !is_selector {
                 format!("[{FD_ERR_RULE_DRIFT}] Claude-Fixed 类型为 {}（必须为手动固定单节点策略组，防自动测速跳区）", g.group_type)
-            } else if clash_mode != "global" && !rules_ok {
-                format!("[{FD_ERR_RULE_DRIFT}] 已创建 Claude-Fixed，但规则表尚未覆盖 anthropic.com / claude.ai")
-            } else if rule_missing_exit {
-                format!("[{FD_ERR_RULE_DRIFT}] 覆写脚本为旧版本（未锁定出口 IP 监测域名到 Claude-Fixed），请一键更新 Script.js")
             } else if !mihomo_ipv6_off {
                 format!("[{FD_ERR_IPV6_LEAK}] Mihomo 配置仍开启 ipv6: true（需关闭 Clash 内核代理隧道 IPv6）")
+            } else if hard_rule_fail || upgrade_rule_gap {
+                let first_reason = gap_msgs
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| "覆写规则存在待升级缺口".into());
+                let more = if gap_msgs.len() > 1 {
+                    format!(" 等 {} 项待升级", gap_msgs.len())
+                } else {
+                    String::new()
+                };
+                format!("[{FD_ERR_RULE_DRIFT}] {first_reason}{more}，请一键升级分流规则")
             } else {
                 format!(
                     "手动固定单节点已锁定 {} · {} · ipv6:false",
                     g.now,
                     if clash_mode == "global" {
                         "GLOBAL → Claude-Fixed"
+                    } else if lock_cf_and_stripe {
+                        "全家桶/遥测/CF盾同源已校验"
                     } else {
-                        "Claude 全家桶 + 出口监测规则生效"
+                        "全家桶与 14 项遥测拦截已校验"
                     }
                 )
             };
 
+            let telemetry_line = if clash_mode == "global" {
+                "GLOBAL 托管".to_string()
+            } else if audit.telemetry_escape_items.is_empty() {
+                format!("14/14 REJECT 已拦截 (OK)")
+            } else {
+                let items: Vec<String> = audit
+                    .telemetry_escape_items
+                    .iter()
+                    .take(4)
+                    .map(|(d, p)| format!("{d}→{p}"))
+                    .collect();
+                format!(
+                    "逃逸 {} 项: {}",
+                    audit.telemetry_escape_items.len(),
+                    items.join(", ")
+                )
+            };
+
+            let cf_stripe_line = if clash_mode == "global" {
+                "GLOBAL 托管".to_string()
+            } else if lock_cf_and_stripe {
+                if audit.optional_cf_stripe_missing.is_empty()
+                    && !audit.cross_group_conflicts.iter().any(|c| c.required)
+                {
+                    "已同步锁死至 Claude-Fixed (OK)".to_string()
+                } else {
+                    format!(
+                        "待同步 ({})",
+                        audit.optional_cf_stripe_missing.join(", ")
+                    )
+                }
+            } else {
+                "已在守卫配置关闭同步锁定".to_string()
+            };
+
+            let cross_conflict_line = if audit.cross_group_conflicts.is_empty() {
+                "0 项跨组双 IP 冲突".to_string()
+            } else {
+                audit
+                    .cross_group_conflicts
+                    .iter()
+                    .map(|c| {
+                        format!(
+                            "{}: {}({}) ≠ Claude-Fixed({})",
+                            c.domain, c.matched_group, c.matched_node, c.claude_fixed_node
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" | ")
+            };
+
             let evidence = format!(
-                "Clash Mode: {mode_label}\nGroup: Claude-Fixed (手动固定单节点={is_selector}) → {}\nNode Safe: {} | Claude Rules: {rule_count} | Exit Probe Rules: {}\nMihomo ipv6 (隧道层): {}",
+                "Clash Mode: {mode_label}\nGroup: Claude-Fixed (手动固定单节点={is_selector}) → {}\nNode Safe: {} | Claude Rules: {rule_count} | Core/KYC: {} | Exit Probe: {}\nTelemetry REJECT: {telemetry_line}\nCF Shield & Stripe: {cf_stripe_line} | Cross-Group: {cross_conflict_line}\nProcesses: {} | find-process-mode: {} | ipv6: {} | dns.ipv6: {}",
                 if g.now.is_empty() { "<empty>" } else { &g.now },
                 if blocked { format!("BLOCKED ({FD_ERR_RULE_DRIFT})") } else { "Safe (合规范围)".into() },
-                if exit_probe_rule_ok { "已锁死到 Claude-Fixed" } else if clash_mode == "global" { "GLOBAL 托管" } else { "未包含（旧版 Script.js）" },
-                if mihomo_ipv6_off { "false (OK)" } else { "true (FAIL)" }
+                if clash_mode == "global" {
+                    "GLOBAL 托管".into()
+                } else if audit.core_domains_missing.is_empty() && audit.core_domains_hijacked.is_empty() {
+                    "8/8 OK".into()
+                } else {
+                    format!("缺 {} / 截胡 {}", audit.core_domains_missing.len(), audit.core_domains_hijacked.len())
+                },
+                if clash_mode == "global" {
+                    "GLOBAL 托管".into()
+                } else if audit.exit_probe_missing.is_empty() {
+                    "3/3 同源 OK".into()
+                } else {
+                    format!("缺 {}", audit.exit_probe_missing.join(", "))
+                },
+                if clash_mode == "global" {
+                    "GLOBAL 托管".into()
+                } else if audit.missing_processes.is_empty() {
+                    "3/3 OK".into()
+                } else {
+                    format!("缺 {}", audit.missing_processes.join(", "))
+                },
+                if audit.find_process_mode_off { "off (FAIL)" } else { "strict/always (OK)" },
+                if mihomo_ipv6_off { "false (OK)" } else { "true (FAIL)" },
+                if audit.dns_ipv6_enabled { "true (FAIL)" } else { "false (OK)" }
             );
 
             let fix_label = if passed {
@@ -820,15 +972,30 @@ fn probe_group_and_rules(
                 Some("一键将 GLOBAL 锁回 Claude-Fixed 策略组".into())
             } else if blocked {
                 Some("一键切回安全节点并实测恢复".into())
-            } else if !mihomo_ipv6_off && is_selector && (clash_mode == "global" || (rules_ok && exit_probe_rule_ok)) {
+            } else if !mihomo_ipv6_off && is_selector && !hard_rule_fail && !upgrade_rule_gap {
                 Some("一键关闭 Mihomo IPv6 并复测".into())
-            } else if rule_missing_exit {
-                Some("一键直接更新策略组与规则并立即生效".into())
+            } else if upgrade_rule_gap || hard_rule_fail {
+                Some("一键升级分流规则并立即生效".into())
             } else {
                 Some("一键直接写入策略组与规则并立即生效".into())
             };
 
-            let can_auto_fix = true;
+            let guide = if mode_direct_fail {
+                "当前 Clash 为全局直连模式，Claude 流量未被策略组接管。点击下方按钮一键切回规则模式（同步更新内核与 config.yaml）并立即实测验收。".into()
+            } else if global_escaped {
+                format!(
+                    "当前 Clash 为全局模式且选了「{global_now}」，已超出 Claude-Fixed 策略组范围。点击下方一键将 GLOBAL 切回 Claude-Fixed，此后在软件内或 Clash 的 Claude-Fixed 组内切节点均可自动同步识别。"
+                )
+            } else if hard_rule_fail || upgrade_rule_gap {
+                format!(
+                    "检测到规则缺口：{}。点击下方将直接热注入最新版 Claude 分流、14 项第三方遥测防回传与进程兜底规则并立即生效；同时对全局 Script.js 执行标记块无损升级（完整保留你自定义的 AGY/Google 等其他扩展规则）。",
+                    gap_msgs.join("；")
+                )
+            } else if passed {
+                "手动固定单节点策略组、Claude 全家桶/KYC、14 项第三方遥测 REJECT、出口探针同源、进程匹配及 ipv6/dns.ipv6:false 均已实测通过；仅锁 Claude 关联流量，不干扰其他软件分流。".into()
+            } else {
+                "点击下方直接向 Clash 生效配置注入 Claude-Fixed 策略组与规则并自动热重载内核（1 秒内立即生效，无需手动操作），同时无损更新全局 Script.js 确保重启/更新订阅后持久保留。".into()
+            };
 
             (
                 PreflightItem {
@@ -836,32 +1003,12 @@ fn probe_group_and_rules(
                     part: CheckPart::Must,
                     cat: "1. 代理与节点（改 Clash 配置）".into(),
                     icon: "group".into(),
-                    mode: if can_auto_fix {
-                        "自动一键".into()
-                    } else {
-                        "向导 + 实测验收".into()
-                    },
+                    mode: "自动一键".into(),
                     title: "策略组与全家桶规则锁死".into(),
-                    status: if passed {
-                        CheckStatus::Ok
-                    } else {
-                        CheckStatus::Fail
-                    },
+                    status,
                     summary,
                     evidence,
-                    guide: if mode_direct_fail {
-                        "当前 Clash 为全局直连模式，Claude 流量未被策略组接管。点击下方按钮一键切回规则模式（同步更新内核与 config.yaml）并立即实测验收。".into()
-                    } else if global_escaped {
-                        format!(
-                            "当前 Clash 为全局模式且选了「{global_now}」，已超出 Claude-Fixed 策略组范围。点击下方一键将 GLOBAL 切回 Claude-Fixed，此后在软件内或 Clash 的 Claude-Fixed 组内切节点均可自动同步识别。"
-                        )
-                    } else if rule_missing_exit {
-                        "将直接注入新版规则到 Clash 生效配置并热重载 Mihomo（立即生效，无需手动点重载），同时同步写入全局 Script.js 保证更新订阅后持久有效（仅锁 Claude 全家桶与出口监测域名，不碰 AGY）。".into()
-                    } else if passed {
-                        "手动固定单节点策略组（防自动测速跳区）、Claude 全家桶规则与 Mihomo ipv6:false 均已实测生效；规则模式下 Clash 首页仍显示原订阅组（用于日常软件分流）属正常隔离，Claude 全家桶与本工具出口探针均已由顶部规则锁死至 Claude-Fixed，组内切合规节点会自动跟随同步。".into()
-                    } else {
-                        "点击下方直接向 Clash 生效配置注入 Claude-Fixed 策略组与规则并自动热重载内核（1 秒内立即生效，无需手动操作），同时写入全局 Script.js 与排雷损坏的订阅空脚本确保重启/更新订阅后永久保留。".into()
-                    },
+                    guide,
                     fix_label,
                     is_kill_item: blocked || mode_direct_fail || global_escaped,
                     is_failover: false,
@@ -873,6 +1020,7 @@ fn probe_group_and_rules(
                 },
                 passed,
                 blocked || mode_direct_fail || global_escaped,
+                audit,
             )
         }
         None => {
@@ -900,7 +1048,7 @@ fn probe_group_and_rules(
                         "Mihomo GET /proxies: 未找到 Claude-Fixed ({FD_ERR_RULE_DRIFT})\nClash Mode: {clash_mode}\nMatched Claude Rules: {rule_count}\nMihomo ipv6: {}\nReference Active Node: {fallback_node}",
                         if mihomo_ipv6_off { "false" } else { "true" }
                     ),
-                    guide: "点击下方按钮即可直接向 Clash 生效配置写入 Claude-Fixed 策略组与 Claude 全家桶规则，并通过 Mihomo API 自动热重载立即生效（同时持久化到 profiles\\Script.js 并自动修复可能阻断全局脚本的空订阅脚本，无需手动重载）。".into(),
+                    guide: "点击下方按钮即可直接向 Clash 生效配置写入 Claude-Fixed 策略组与 Claude 全家桶规则，并通过 Mihomo API 自动热重载立即生效（同时无损持久化到 profiles\\Script.js 并自动修复可能阻断全局脚本的空订阅脚本）。".into(),
                     fix_label: Some("一键直接写入策略组与规则并立即生效".into()),
                     is_kill_item: false,
                     is_failover: false,
@@ -908,6 +1056,7 @@ fn probe_group_and_rules(
                 fallback_node,
                 false,
                 false,
+                audit,
             )
         }
     }
@@ -922,6 +1071,7 @@ async fn probe_exit_geo(
     group_ok: bool,
     current_node: &str,
     cfg: &AppConfig,
+    advisory_conflicts: &[CrossGroupConflict],
 ) -> (
     PreflightItem,
     PreflightItem,
@@ -1280,7 +1430,9 @@ async fn probe_exit_geo(
             );
             let geo_cross_mismatch =
                 geo_cons == crate::account_audit::GeoConsistency::CrossContinentMismatch;
-            let opt_has_warn = geo_cross_mismatch || landing_drifted || web_cf_challenge;
+            let has_advisory_cross_ip = !advisory_conflicts.is_empty();
+            let opt_has_warn =
+                geo_cross_mismatch || landing_drifted || web_cf_challenge || has_advisory_cross_ip;
 
             let bound_geo_line = match &bound_geo {
                 Some(g) if geo_cross_mismatch => format!(
@@ -1296,6 +1448,16 @@ async fn probe_exit_geo(
                 None => "Bound Account Geo vs Exit: 尚未在「账户审计」绑定注册属地（待按需核验）".into(),
             };
 
+            let advisory_summary_line = advisory_conflicts
+                .first()
+                .map(|c| {
+                    format!(
+                        "{} 走「{} → {}」与 Claude-Fixed「{}」跨节点双 IP（不阻断启动）",
+                        c.domain, c.matched_group, c.matched_node, c.claude_fixed_node
+                    )
+                })
+                .unwrap_or_default();
+
             let opt_summary = if geo_cross_mismatch {
                 format!(
                     "账号绑定属地 {} 与当前出口 {country} 跨洲错配（{masked}），建议前往节点流量切回同区节点",
@@ -1303,6 +1465,8 @@ async fn probe_exit_geo(
                 )
             } else if landing_drifted {
                 format!("{country} · {asn_purity} · 24h 落地 IP 漂移 {drift_24h} 次预警（{masked}）")
+            } else if has_advisory_cross_ip {
+                advisory_summary_line.clone()
             } else if web_cf_challenge {
                 format!("{country} · {asn_purity} · claude.ai 网页触发 CF 人机盾（API 畅通，不阻断启动）")
             } else if let Some(ref g) = bound_geo {
@@ -1311,8 +1475,23 @@ async fn probe_exit_geo(
                 format!("{country} · {asn_purity} · 24h 0 漂移 · 无 CF 弹盾（注册属地可在账户审计按需绑定）")
             };
 
+            let cross_ip_evidence = if has_advisory_cross_ip {
+                let details: Vec<String> = advisory_conflicts
+                    .iter()
+                    .map(|c| {
+                        format!(
+                            "{}: {}({}) ≠ Claude-Fixed({})",
+                            c.domain, c.matched_group, c.matched_node, c.claude_fixed_node
+                        )
+                    })
+                    .collect();
+                format!("\nCross-Group CF/Stripe Advisory: {}", details.join(" | "))
+            } else {
+                String::new()
+            };
+
             let opt_evidence = format!(
-                "{bound_geo_line}\nExit IP & Purity: {masked} ({country}{loc_detail}) · {} → {asn_purity} ({risk_detail})\n24h Landing IP Drift: {} (count={drift_24h})\nClaude Web (claude.ai/login): {}",
+                "{bound_geo_line}\nExit IP & Purity: {masked} ({country}{loc_detail}) · {} → {asn_purity} ({risk_detail})\n24h Landing IP Drift: {} (count={drift_24h})\nClaude Web (claude.ai/login): {}{cross_ip_evidence}",
                 if asn_org.is_empty() { "Unknown".into() } else { asn_org },
                 if landing_drifted { "DRIFT DETECTED (机场后台切换落地 IP)" } else { "Stable (24h 内未漂移)" },
                 if web_cf_challenge { "触发 CF 人机盾（网页端可能反复弹人机验证）" } else { "无 CF 弹盾 (OK)" }
@@ -1325,6 +1504,8 @@ async fn probe_exit_geo(
                 )
             } else if landing_drifted {
                 "同一节点 24 小时内落地 IP 发生静默漂移（机场后台换了出口 IP）。若确认新 IP 已稳定可点击下方重置漂移基准，或前往「节点流量」更换更稳定的静态/ISP 节点。".into()
+            } else if has_advisory_cross_ip {
+                "你当前在「守卫配置」关闭了 CF 盾与 Stripe 同步锁定，但浏览器访问这些域名的主代理组节点与 Claude-Fixed 不一致。建议在 Clash 将主组选到同一节点，或前往「守卫配置」重新开启同步锁定（本提示不阻断启动）。".into()
             } else if web_cf_challenge {
                 "Anthropic API 畅通且不阻断启动，但 claude.ai 网页登录入口触发了 Cloudflare 人机盾；如频繁弹验证可前往「节点流量」更换无弹盾节点。".into()
             } else {
@@ -4245,8 +4426,26 @@ pub async fn execute_fix_item(
                 }
                 if let Ok(proxies) = fetch_proxies_raw(ep).await {
                     let rules = fetch_rules_raw(ep).await.ok();
-                    let (rules_ok, _) = rules.as_deref().map(verify_claude_rules).unwrap_or((false, 0));
-                    let exit_rule_ok = rules.as_deref().map(verify_exit_probe_rules).unwrap_or(false);
+                    let mut audit = rules
+                        .as_deref()
+                        .map(|r| {
+                            audit_claude_rules(
+                                r,
+                                Some(&proxies),
+                                m_cfg.as_ref(),
+                                cfg.lock_cf_and_stripe_to_claude,
+                            )
+                        })
+                        .unwrap_or_default();
+                    if clash_mode != "global" {
+                        let disk_script = clash_verge_config_dir()
+                            .map(|d| d.join("profiles").join("Script.js"))
+                            .and_then(|p| fs::read_to_string(p).ok());
+                        audit.script_drift_reason = detect_script_js_drift(
+                            disk_script.as_deref(),
+                            cfg.lock_cf_and_stripe_to_claude,
+                        );
+                    }
 
                     if let Some(g) = extract_proxy_group(&proxies, "Claude-Fixed") {
                         // 1) 若处于 GLOBAL 模式且指向了 Claude-Fixed 之外的组/节点，一键把 GLOBAL 锁回 Claude-Fixed
@@ -4280,9 +4479,10 @@ pub async fn execute_fix_item(
                             }
                         }
 
-                        // 3) 若策略组不是 Selector 或规则表缺失，仍必须走完整注入热重载
+                        // 3) 若策略组不是 Selector 或存在任何规则/遥测/进程/CF盾/dns.ipv6 缺口，均走完整无损注入热重载
                         if !g.group_type.eq_ignore_ascii_case("Selector")
-                            || (clash_mode != "global" && !(rules_ok && exit_rule_ok))
+                            || (clash_mode == "global" && audit.dns_ipv6_enabled)
+                            || (clash_mode != "global" && audit.has_required_upgrade_gap())
                         {
                             need_full_inject = true;
                         }
@@ -4296,8 +4496,13 @@ pub async fn execute_fix_item(
             if !need_full_inject && !quick_actions.is_empty() {
                 message = quick_actions.join("；") + "，正在复测验收。";
             } else if let Some(ep) = ep_opt.as_ref() {
-                // 直接持久化全局 Script.js + 自动排雷损坏的订阅空脚本 + 直接注入生效配置 clash-verge.yaml 并调用 Mihomo API 热重载（0 手动步骤立即生效！）
-                match apply_clash_rules_directly_and_reload(ep).await {
+                // 无损更新全局 Script.js + 自动排雷损坏的订阅空脚本 + 直接注入生效配置 clash-verge.yaml 并热重载 Mihomo（0 手动步骤立即生效！）
+                match apply_clash_rules_directly_and_reload_with_options(
+                    ep,
+                    cfg.lock_cf_and_stripe_to_claude,
+                )
+                .await
+                {
                     Ok(ok_msg) => {
                         message = if quick_actions.is_empty() {
                             ok_msg
@@ -4309,7 +4514,9 @@ pub async fn execute_fix_item(
                         let script_path = clash_verge_config_dir()
                             .map(|d| d.join("profiles").join("Script.js").to_string_lossy().to_string())
                             .unwrap_or_else(|| "%APPDATA%\\io.github.clash-verge-rev.clash-verge-rev\\profiles\\Script.js".into());
-                        let _ = write_clash_override_script();
+                        let _ = write_clash_override_script_with_options(
+                            cfg.lock_cf_and_stripe_to_claude,
+                        );
                         let _ = bring_clash_verge_to_front();
                         requires_manual_step = true;
                         message = format!(
@@ -4318,7 +4525,8 @@ pub async fn execute_fix_item(
                     }
                 }
             } else {
-                let backup_note = write_clash_override_script()?;
+                let backup_note =
+                    write_clash_override_script_with_options(cfg.lock_cf_and_stripe_to_claude)?;
                 let _ = bring_clash_verge_to_front();
                 requires_manual_step = true;
                 message = format!(
@@ -4553,8 +4761,8 @@ pub async fn execute_fix_item(
             }
         }
         "node_dns" => {
-            // BUG-P0-11：真正写入 Fake-IP DNS 配置至 clash-verge.yaml 与 Script.js 并热重载 Mihomo + 刷新本地 DNS 缓存，实测验收 claude.ai 落入 198.18.0.0/15
-            match apply_fake_ip_dns_and_reload().await {
+            // BUG-P0-11 + E3：真正写入 Fake-IP DNS 配置（含 dns.ipv6:false 与 fallback/fake-ip-filter 兜底）至 clash-verge.yaml 与 Script.js 并热重载 Mihomo + 刷新本地 DNS 缓存
+            match apply_fake_ip_dns_and_reload_with_options(cfg.lock_cf_and_stripe_to_claude).await {
                 Ok(ok_msg) => {
                     message = ok_msg;
                 }
@@ -4658,7 +4866,7 @@ pub async fn execute_one_click_fix_all(
             let _ = sync_clash_verge_tun_yaml(true);
         }
         if group_failed_init {
-            let _ = write_clash_override_script();
+            let _ = write_clash_override_script_with_options(cfg.lock_cf_and_stripe_to_claude);
             if let Some(dir) = clash_verge_config_dir() {
                 let _ = repair_broken_active_profile_script(&dir);
             }
@@ -4738,11 +4946,14 @@ pub async fn execute_one_click_fix_all(
         .filter(|i| i.part == CheckPart::Must && i.status != CheckStatus::Ok)
     {
         match item.id.as_str() {
-            "node_dns" => {
-                if apply_fake_ip_dns_and_reload().await.is_ok() {
-                    fixed_ids.push("node_dns".to_string());
-                }
+        "node_dns" => {
+            if apply_fake_ip_dns_and_reload_with_options(cfg.lock_cf_and_stripe_to_claude)
+                .await
+                .is_ok()
+            {
+                fixed_ids.push("node_dns".to_string());
             }
+        }
             "node_geo" => {
                 // 仅漂移风险提示 (Warn) 时按默认选项重置当前节点漂移基准并复测；
                 // 真不可用 (Fail：禁区/CF 403/离线/高危黑名单) 绝不擅自跨洲乱切，保留给用户点备用项去「节点流量」更换
@@ -4825,34 +5036,363 @@ fn fix_claude_privacy_and_telemetry() -> Result<(), String> {
     Ok(())
 }
 
-/// 与 clash-scripts/claude-verge-override.js 保持 100% 一致的 Claude 全家桶与出口监测规则（严禁干扰 AGY 或其他应用）
+/// 与 clash-scripts/claude-verge-override.js 保持 100% 一致的默认 Claude 全家桶、第 3 层遥测拦截、CF/Stripe 与出口监测规则（严禁干扰 AGY 或其他应用）
 const FD_CLAUDE_FIXED_RULES: &[&str] = &[
+    // 第 3 层防回传：拦截第三方纯遥测上报域名（刻意不拦 statsig.anthropic.com）
     "DOMAIN-SUFFIX,sentry.io,REJECT",
     "DOMAIN-SUFFIX,datadoghq.com,REJECT",
+    "DOMAIN-SUFFIX,browser-intake-datadoghq.com,REJECT",
+    "DOMAIN-SUFFIX,datadoghq.eu,REJECT",
     "DOMAIN-SUFFIX,statsigapi.net,REJECT",
     "DOMAIN-SUFFIX,statsig.com,REJECT",
+    "DOMAIN-SUFFIX,statsigcdn.com,REJECT",
+    "DOMAIN-SUFFIX,featureassets.org,REJECT",
+    "DOMAIN-SUFFIX,prodregistryv2.org,REJECT",
     "DOMAIN-SUFFIX,intercom.io,REJECT",
     "DOMAIN-SUFFIX,intercomcdn.com,REJECT",
+    "DOMAIN-SUFFIX,segment.io,REJECT",
+    "DOMAIN-SUFFIX,api.segment.com,REJECT",
+    "DOMAIN-SUFFIX,honeycomb.io,REJECT",
+    // Claude 官方全家桶 & KYC 核验域强制锁死 Claude-Fixed
     "DOMAIN-SUFFIX,anthropic.com,Claude-Fixed",
     "DOMAIN-SUFFIX,claude.ai,Claude-Fixed",
     "DOMAIN-SUFFIX,claude.com,Claude-Fixed",
     "DOMAIN-SUFFIX,claudeusercontent.com,Claude-Fixed",
+    "DOMAIN-SUFFIX,anthropic.org,Claude-Fixed",
+    "DOMAIN-SUFFIX,clau.de,Claude-Fixed",
+    "DOMAIN-SUFFIX,servd-anthropic-website.b-cdn.net,Claude-Fixed",
+    "DOMAIN-SUFFIX,withpersona.com,Claude-Fixed",
+    // Cloudflare 人机盾 & Stripe 支付同源（默认包含，受守卫配置 lock_cf_and_stripe_to_claude 控制）
+    "DOMAIN-SUFFIX,challenges.cloudflare.com,Claude-Fixed",
+    "DOMAIN-SUFFIX,stripe.com,Claude-Fixed",
+    "DOMAIN-SUFFIX,stripe.network,Claude-Fixed",
+    // 出口 IP 合规监测域名
     "DOMAIN-SUFFIX,ip-api.com,Claude-Fixed",
     "DOMAIN-SUFFIX,ipapi.is,Claude-Fixed",
     "DOMAIN-SUFFIX,ipinfo.io,Claude-Fixed",
+    // 进程级兜底（补齐官方 Chrome 桥接宿主，刻意不锁 node.exe）
     "PROCESS-NAME,Claude.exe,Claude-Fixed",
     "PROCESS-NAME,claude.exe,Claude-Fixed",
+    "PROCESS-NAME,chrome-native-host.exe,Claude-Fixed",
     "PROCESS-NAME,FD Claude Guard.exe,Claude-Fixed",
     "PROCESS-NAME,fd-claude-guard.exe,Claude-Fixed",
 ];
 
-/// 禁区节点 exclude-filter 正则（用于 proxy-providers 节点池订阅过滤 HK/MO/CN/RU/BY/KP/IR/SY/CU 与国旗 Emoji）
-const CLAUDE_BLOCKED_EXCLUDE_FILTER: &str = r"(?i)(香港|Hong\s*Kong|🇭🇰|澳门|澳門|Macau|Macao|🇲🇴|中国|中國|国内|China|🇨🇳|俄罗斯|俄羅斯|俄国|Russia|🇷🇺|白俄|Belarus|🇧🇾|朝鲜|朝鮮|North\s*Korea|🇰🇵|伊朗|Iran|🇮🇷|叙利亚|敘利亞|Syria|🇸🇾|古巴|Cuba|🇨🇺|(?:^|[^a-z])(HK|MO|CN|RU|BY|KP|IR|SY|CU)(?:[^a-z]|$))";
+/// 按守卫配置动态生成唯一真源分流规则列表（与 clash-scripts/claude-verge-override.js 100% 同步）
+pub fn build_claude_fixed_rules(lock_cf_and_stripe: bool) -> Vec<String> {
+    let mut rules = Vec::with_capacity(FD_CLAUDE_FIXED_RULES.len());
+    for &d in TELEMETRY_REJECT_DOMAINS {
+        rules.push(format!("DOMAIN-SUFFIX,{d},REJECT"));
+    }
+    for &d in CLAUDE_CORE_DOMAINS {
+        rules.push(format!("DOMAIN-SUFFIX,{d},Claude-Fixed"));
+    }
+    if lock_cf_and_stripe {
+        for &d in CF_STRIPE_OPTIONAL_DOMAINS {
+            rules.push(format!("DOMAIN-SUFFIX,{d},Claude-Fixed"));
+        }
+    }
+    for &d in EXIT_PROBE_DOMAINS {
+        rules.push(format!("DOMAIN-SUFFIX,{d},Claude-Fixed"));
+    }
+    for proc_name in [
+        "Claude.exe",
+        "claude.exe",
+        "chrome-native-host.exe",
+        "FD Claude Guard.exe",
+        "fd-claude-guard.exe",
+    ] {
+        rules.push(format!("PROCESS-NAME,{proc_name},Claude-Fixed"));
+    }
+    rules
+}
 
-/// P0-6 安全修复：严禁在商业版中用 include_str! 嵌入明文覆写脚本绕过 AES-256-GCM 资产保护；
-/// 所有覆写脚本必须且仅能来自 `licensing::get_override_script()` 解密后的受保护资产。
-fn upgrade_override_script_compat(raw: &str) -> String {
-    raw.to_string()
+/// 禁区节点 exclude-filter 正则（用于 proxy-providers 节点池订阅过滤 HK/MO/CN/RU/BY/KP/IR/SY/CU；移除裸 🇨🇳 避免误杀 🇨🇳台湾 合规节点，100% 兼容 Go RE2）
+pub const CLAUDE_BLOCKED_EXCLUDE_FILTER: &str = r"(?i)(香港|Hong\s*Kong|🇭🇰|澳门|澳門|Macau|Macao|🇲🇴|中国|中國|国内|回国|回國|China|俄罗斯|俄羅斯|俄国|Russia|🇷🇺|白俄|Belarus|🇧🇾|朝鲜|朝鮮|North\s*Korea|🇰🇵|伊朗|Iran|🇮🇷|叙利亚|敘利亞|Syria|🇸🇾|古巴|Cuba|🇨🇺|(?:^|[^a-z])(HK|MO|CN|RU|BY|KP|IR|SY|CU)(?:[^a-z]|$))";
+
+const SCRIPT_BLOCKED_BEGIN: &str = "// === FD-CLAUDE-GUARD:BLOCKED-REGION:BEGIN ===";
+const SCRIPT_BLOCKED_END: &str = "// === FD-CLAUDE-GUARD:BLOCKED-REGION:END ===";
+const SCRIPT_RULES_BEGIN: &str = "// === FD-CLAUDE-GUARD:CLAUDE-RULES:BEGIN ===";
+const SCRIPT_RULES_END: &str = "// === FD-CLAUDE-GUARD:CLAUDE-RULES:END ===";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScriptMergeMode {
+    FreshWrite,
+    Unchanged,
+    MarkerUpdated,
+    CustomPreservedInPlace,
+    FallbackReplaced,
+}
+
+fn render_blocked_region_js_block() -> String {
+    format!(
+        r#"{SCRIPT_BLOCKED_BEGIN}
+const BLOCKED_REGION_RE = /(香港|Hong\s*Kong|🇭🇰|澳门|澳門|Macau|Macao|🇲🇴|中国|中國|国内|回国|回國|China|俄罗斯|俄羅斯|俄国|Russia|🇷🇺|白俄|Belarus|🇧🇾|朝鲜|朝鮮|North\s*Korea|🇰🇵|伊朗|Iran|🇮🇷|叙利亚|敘利亞|Syria|🇸🇾|古巴|Cuba|🇨🇺|(?:^|[^a-z])(HK|MO|CN|RU|BY|KP|IR|SY|CU)(?:[^a-z]|$))/i;
+const BLOCKED_EXCLUDE_FILTER = "(?i)(香港|Hong\\s*Kong|🇭🇰|澳门|澳門|Macau|Macao|🇲🇴|中国|中國|国内|回国|回國|China|俄罗斯|俄羅斯|俄国|Russia|🇷🇺|白俄|Belarus|🇧🇾|朝鲜|朝鮮|North\\s*Korea|🇰🇵|伊朗|Iran|🇮🇷|叙利亚|敘利亞|Syria|🇸🇾|古巴|Cuba|🇨🇺|(?:^|[^a-z])(HK|MO|CN|RU|BY|KP|IR|SY|CU)(?:[^a-z]|$))";
+const TAIWAN_SAFE_RE = /(台湾|臺灣|Taiwan|🇹🇼)/i;
+const BLOCKED_HARD_CONFLICT_RE = /(香港|Hong\s*Kong|🇭🇰|澳门|澳門|Macau|Macao|🇲🇴|中国大陆|中國大陸|国内|直连|中转|回国|回國|China\s*Mainland)/i;
+function isBlockedClaudeNodeName(name) {{
+  if (typeof name !== "string" || !name) return false;
+  if (TAIWAN_SAFE_RE.test(name) && !BLOCKED_HARD_CONFLICT_RE.test(name)) return false;
+  return BLOCKED_REGION_RE.test(name);
+}}
+{SCRIPT_BLOCKED_END}"#
+    )
+}
+
+fn render_claude_rules_js_block(lock_cf_and_stripe: bool) -> String {
+    let rules = build_claude_fixed_rules(lock_cf_and_stripe);
+    let mut body = String::new();
+    body.push_str(SCRIPT_RULES_BEGIN);
+    body.push_str("\nconst CLAUDE_RULES = [\n");
+    for (idx, r) in rules.iter().enumerate() {
+        let comma = if idx + 1 < rules.len() { "," } else { "" };
+        body.push_str(&format!("  \"{r}\"{comma}\n"));
+    }
+    body.push_str("];\n");
+    body.push_str(SCRIPT_RULES_END);
+    body
+}
+
+fn replace_marker_block(src: &str, begin: &str, end: &str, replacement: &str) -> Option<String> {
+    let b_pos = src.find(begin)?;
+    let after_begin = b_pos + begin.len();
+    let e_rel = src[after_begin..].find(end)?;
+    let e_end = after_begin + e_rel + end.len();
+    let mut out = String::with_capacity(src.len() + replacement.len());
+    out.push_str(&src[..b_pos]);
+    out.push_str(replacement);
+    out.push_str(&src[e_end..]);
+    Some(out)
+}
+
+fn render_full_override_script(lock_cf_and_stripe: bool) -> String {
+    let base_script = include_str!("../../../clash-scripts/claude-verge-override.js");
+    if lock_cf_and_stripe {
+        base_script.to_string()
+    } else {
+        replace_marker_block(
+            base_script,
+            SCRIPT_RULES_BEGIN,
+            SCRIPT_RULES_END,
+            &render_claude_rules_js_block(false),
+        )
+        .unwrap_or_else(|| base_script.to_string())
+    }
+}
+
+/// 查找 JS 中某条顶层 `const IDENT = ...;` 语句的字节范围（支持跨行数组，跳过字符串字面量）
+fn find_js_const_stmt_span(src: &str, ident: &str) -> Option<(usize, usize)> {
+    let pat = format!(r"(?m)^[ \t]*const[ \t]+{}[ \t]*=", regex::escape(ident));
+    let re = regex::Regex::new(&pat).ok()?;
+    let m = re.find(src)?;
+    let start = m.start();
+    let bytes = src.as_bytes();
+    let mut i = m.end();
+    let mut quote: Option<u8> = None;
+    let mut in_regex = false;
+    let mut bracket_depth: i32 = 0;
+
+    // 判断 '=' 后首个非空白字符是否为正则字面量 '/'
+    let mut j = i;
+    while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+        j += 1;
+    }
+    if j < bytes.len() && bytes[j] == b'/' {
+        in_regex = true;
+        i = j + 1;
+    }
+
+    while i < bytes.len() {
+        let b = bytes[i];
+        if in_regex {
+            if b == b'\\' && i + 1 < bytes.len() {
+                i += 2;
+                continue;
+            }
+            if b == b'/' {
+                in_regex = false;
+            }
+            i += 1;
+            continue;
+        }
+        if let Some(q) = quote {
+            if b == b'\\' && i + 1 < bytes.len() {
+                i += 2;
+                continue;
+            }
+            if b == q {
+                quote = None;
+            }
+            i += 1;
+            continue;
+        }
+        if b == b'"' || b == b'\'' || b == b'`' {
+            quote = Some(b);
+            i += 1;
+            continue;
+        }
+        if b == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'/' {
+            i += 2;
+            while i < bytes.len() && bytes[i] != b'\n' {
+                i += 1;
+            }
+            continue;
+        }
+        if b == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'*' {
+            i += 2;
+            while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                i += 1;
+            }
+            i = (i + 2).min(bytes.len());
+            continue;
+        }
+        if b == b'[' || b == b'{' || b == b'(' {
+            bracket_depth += 1;
+        } else if b == b']' || b == b'}' || b == b')' {
+            bracket_depth = (bracket_depth - 1).max(0);
+        } else if b == b';' && bracket_depth == 0 {
+            return Some((start, i + 1));
+        }
+        i += 1;
+    }
+    None
+}
+
+/// 检测持久化 `profiles/Script.js` 是否落后于当前规则/正则标准（防止运行态暂新但更新订阅后回退为旧漏洞脚本）
+pub fn detect_script_js_drift(script_raw: Option<&str>, lock_cf_and_stripe: bool) -> Option<String> {
+    let Some(raw) = script_raw.filter(|s| !s.trim().is_empty()) else {
+        return Some("全局覆写脚本 Script.js 尚未写入（更新订阅后规则会丢失）".into());
+    };
+    let mut missing = Vec::new();
+    for needle in [
+        "browser-intake-datadoghq.com",
+        "withpersona.com",
+        "chrome-native-host.exe",
+        "isBlockedClaudeNodeName",
+    ] {
+        if !raw.contains(needle) {
+            missing.push(needle);
+        }
+    }
+    if lock_cf_and_stripe {
+        for needle in ["challenges.cloudflare.com", "stripe.com"] {
+            if !raw.contains(needle) {
+                missing.push(needle);
+            }
+        }
+    }
+    if raw.contains("🇨🇳") {
+        missing.push("移除误杀台湾的裸🇨🇳正则");
+    }
+    if missing.is_empty() {
+        None
+    } else {
+        let preview: Vec<&str> = missing.iter().take(3).copied().collect();
+        let extra = if missing.len() > 3 {
+            format!(" 等 {} 项", missing.len())
+        } else {
+            String::new()
+        };
+        Some(format!(
+            "持久化 Script.js 为旧版（缺 {}{extra}，更新订阅后将回退）",
+            preview.join("、")
+        ))
+    }
+}
+
+/// 纯函数：Script.js 标记块无损增量合并引擎（完整保护用户的 AGY / Google 等自定义扩展段）
+pub fn merge_clash_override_script(
+    existing: Option<&str>,
+    lock_cf_and_stripe: bool,
+) -> (String, ScriptMergeMode) {
+    let full = render_full_override_script(lock_cf_and_stripe);
+    let Some(raw) = existing.filter(|s| !s.trim().is_empty()) else {
+        return (full, ScriptMergeMode::FreshWrite);
+    };
+
+    if raw == full {
+        return (raw.to_string(), ScriptMergeMode::Unchanged);
+    }
+
+    let has_any_marker = raw.contains(SCRIPT_BLOCKED_BEGIN)
+        || raw.contains(SCRIPT_BLOCKED_END)
+        || raw.contains(SCRIPT_RULES_BEGIN)
+        || raw.contains(SCRIPT_RULES_END);
+
+    // 1) 已有完整标记块 → 仅原地替换两个标记块内部，100% 保留块外用户代码
+    if has_any_marker {
+        if let Some(step1) = replace_marker_block(
+            raw,
+            SCRIPT_BLOCKED_BEGIN,
+            SCRIPT_BLOCKED_END,
+            &render_blocked_region_js_block(),
+        ) {
+            if let Some(step2) = replace_marker_block(
+                &step1,
+                SCRIPT_RULES_BEGIN,
+                SCRIPT_RULES_END,
+                &render_claude_rules_js_block(lock_cf_and_stripe),
+            ) {
+                if step2 == raw {
+                    return (step2, ScriptMergeMode::Unchanged);
+                }
+                return (step2, ScriptMergeMode::MarkerUpdated);
+            }
+        }
+        // 标记块被手工破坏（如漏 END）→ 安全降级至备份 + 全量模板，绝不产出坏语法
+        return (full, ScriptMergeMode::FallbackReplaced);
+    }
+
+    // 2) 尚无标记块，但检测到用户自定义扩展（如 AGY_TELEMETRY_RULES / 自定义函数）
+    let has_user_custom = raw.contains("AGY_TELEMETRY_RULES")
+        || raw.contains("resolveMainProxyGroup")
+        || raw.contains("buildMainProxyFixRules")
+        || raw
+            .lines()
+            .any(|l| {
+                let t = l.trim();
+                (t.starts_with("function ") && !t.starts_with("function main("))
+                    || (t.starts_with("const ")
+                        && !t.starts_with("const BLOCKED_REGION_RE")
+                        && !t.starts_with("const BLOCKED_EXCLUDE_FILTER")
+                        && !t.starts_with("const CLAUDE_RULES"))
+            });
+
+    if has_user_custom {
+        if let (Some((b1_s, b1_e)), Some((b2_s, b2_e)), Some((r_s, r_e))) = (
+            find_js_const_stmt_span(raw, "BLOCKED_REGION_RE"),
+            find_js_const_stmt_span(raw, "BLOCKED_EXCLUDE_FILTER"),
+            find_js_const_stmt_span(raw, "CLAUDE_RULES"),
+        ) {
+            // 确保 BLOCKED_REGION_RE 与 BLOCKED_EXCLUDE_FILTER 紧邻（之间仅有空白或注释）
+            let between_blocked = if b1_e <= b2_s {
+                &raw[b1_e..b2_s]
+            } else {
+                ""
+            };
+            let blocked_adjacent = b1_e <= b2_s
+                && strip_js_comments_preserving_strings(between_blocked)
+                    .trim()
+                    .is_empty();
+            if blocked_adjacent && b2_e <= r_s {
+                let mut merged = String::with_capacity(raw.len() + 1024);
+                merged.push_str(&raw[..b1_s]);
+                merged.push_str(&render_blocked_region_js_block());
+                merged.push_str(&raw[b2_e..r_s]);
+                merged.push_str(&render_claude_rules_js_block(lock_cf_and_stripe));
+                let tail = raw[r_e..].replace(
+                    "!BLOCKED_REGION_RE.test(name)",
+                    "!isBlockedClaudeNodeName(name)",
+                );
+                merged.push_str(&tail);
+                return (merged, ScriptMergeMode::CustomPreservedInPlace);
+            }
+        }
+    }
+
+    // 3) 旧版标准 FD 模板或无法安全定位的结构 → 升级到完整 v2 模板（调用方会先做 .bak 备份）
+    (full, ScriptMergeMode::FallbackReplaced)
 }
 
 /// 检查并自动向 profiles.yaml 注册全局 `uid: Script`（解决全新安装 Clash Verge 从未启用过全局脚本导致更新/重导订阅后策略组丢失）
@@ -4920,7 +5460,7 @@ fn ensure_global_script_registered_in_profiles_yaml(dir: &Path) -> Result<bool, 
     Ok(true)
 }
 
-fn write_clash_override_script() -> Result<String, String> {
+fn write_clash_override_script_with_options(lock_cf_and_stripe: bool) -> Result<String, String> {
     let dir = clash_verge_config_dir()
         .ok_or_else(|| "无法定位 Clash Verge Rev 配置目录".to_string())?;
     // First-Write-Wins：首次改动 Clash 配置前锁定原始状态，供用户随时精准撤回
@@ -4928,9 +5468,6 @@ fn write_clash_override_script() -> Result<String, String> {
     let profiles_dir = dir.join("profiles");
     fs::create_dir_all(&profiles_dir).map_err(|e| format!("创建 profiles 目录失败: {e}"))?;
 
-    // 读取内置开源标准覆写脚本，并同步升级为支持 proxy-providers 与 find-process-mode 的兼容形态
-    let base_script = include_str!("../../../clash-scripts/claude-verge-override.js");
-    let script_content = upgrade_override_script_compat(base_script);
     let target = profiles_dir.join("Script.js");
     let registered_script = ensure_global_script_registered_in_profiles_yaml(&dir).unwrap_or(false);
     let reg_note = if registered_script {
@@ -4938,23 +5475,52 @@ fn write_clash_override_script() -> Result<String, String> {
     } else {
         ""
     };
-    if target.exists() {
-        if let Ok(existing) = fs::read_to_string(&target) {
-            if existing == script_content {
-                return Ok(format!("全局覆写脚本 Script.js 已是最新{reg_note}"));
-            }
+
+    let existing = if target.exists() {
+        fs::read_to_string(&target).ok()
+    } else {
+        None
+    };
+    let (script_content, mode) =
+        merge_clash_override_script(existing.as_deref(), lock_cf_and_stripe);
+
+    match mode {
+        ScriptMergeMode::Unchanged => {
+            Ok(format!("全局覆写脚本 Script.js 已是最新{reg_note}"))
         }
-        let ts = chrono::Local::now().format("%Y%m%d-%H%M%S");
-        let backup_path = profiles_dir.join(format!("Script.js.bak-{ts}"));
-        fs::copy(&target, &backup_path).map_err(|e| format!("备份原 Script.js 失败: {e}"))?;
-        fs::write(&target, &script_content)
-            .map_err(|e| format!("写入 Script.js 失败: {e}"))?;
-        return Ok(format!(
-            "已备份原脚本至 Script.js.bak-{ts} 并更新全局覆写脚本 Script.js{reg_note}"
-        ));
+        ScriptMergeMode::FreshWrite => {
+            fs::write(&target, &script_content)
+                .map_err(|e| format!("写入 Script.js 失败: {e}"))?;
+            Ok(format!(
+                "已写入 Clash Verge 全局覆写脚本 profiles\\Script.js{reg_note}"
+            ))
+        }
+        ScriptMergeMode::MarkerUpdated | ScriptMergeMode::CustomPreservedInPlace => {
+            let ts = chrono::Local::now().format("%Y%m%d-%H%M%S");
+            let backup_path = profiles_dir.join(format!("Script.js.bak-{ts}"));
+            let _ = fs::copy(&target, &backup_path);
+            fs::write(&target, &script_content)
+                .map_err(|e| format!("更新 Script.js 失败: {e}"))?;
+            let mode_desc = if mode == ScriptMergeMode::CustomPreservedInPlace {
+                "已无损原地升级 FD 规则块并完整保留你的自定义扩展段"
+            } else {
+                "已按标记块无损更新 Script.js 中的 FD 规则段"
+            };
+            Ok(format!(
+                "{mode_desc}（原文件已备份至 Script.js.bak-{ts}）{reg_note}"
+            ))
+        }
+        ScriptMergeMode::FallbackReplaced => {
+            let ts = chrono::Local::now().format("%Y%m%d-%H%M%S");
+            let backup_path = profiles_dir.join(format!("Script.js.bak-{ts}"));
+            fs::copy(&target, &backup_path).map_err(|e| format!("备份原 Script.js 失败: {e}"))?;
+            fs::write(&target, &script_content)
+                .map_err(|e| format!("写入 Script.js 失败: {e}"))?;
+            Ok(format!(
+                "已备份原脚本至 Script.js.bak-{ts} 并更新全局覆写脚本 Script.js{reg_note}"
+            ))
+        }
     }
-    fs::write(&target, &script_content).map_err(|e| format!("写入 Script.js 失败: {e}"))?;
-    Ok(format!("已写入 Clash Verge 全局覆写脚本 profiles\\Script.js{reg_note}"))
 }
 
 /// 词法安全地剥离 JS 单行/块级注释（跳过字符串字面量，防止误截断 `https://...` URL）
@@ -5108,8 +5674,17 @@ fn repair_broken_active_profile_script(dir: &Path) -> (Option<String>, Option<St
     (None, saved_node)
 }
 
-/// 纯函数：将 Claude-Fixed 手动选择策略组、Claude 全家桶与出口监测前置规则、以及 ipv6: false 直接注入 Clash 生效配置 YAML
+/// 纯函数：将 Claude-Fixed 手动选择策略组、Claude 全家桶与出口监测前置规则、以及 ipv6/dns.ipv6: false 直接注入 Clash 生效配置 YAML
+#[cfg(test)]
 fn inject_claude_fixed_into_yaml_value(doc: &mut serde_yaml::Value) -> Result<usize, String> {
+    inject_claude_fixed_into_yaml_value_with_options(doc, true)
+}
+
+/// 可配置版纯函数：按 `lock_cf_and_stripe` 开关精确注入或移除 CF 盾 / Stripe 同步锁规则，并加固 `dns.ipv6: false`
+pub fn inject_claude_fixed_into_yaml_value_with_options(
+    doc: &mut serde_yaml::Value,
+    lock_cf_and_stripe: bool,
+) -> Result<usize, String> {
     let map = doc
         .as_mapping_mut()
         .ok_or_else(|| "clash-verge.yaml 根节点不是有效的 YAML 映射".to_string())?;
@@ -5223,21 +5798,31 @@ fn inject_claude_fixed_into_yaml_value(doc: &mut serde_yaml::Value) -> Result<us
     }
     map.insert(pg_key, serde_yaml::Value::Sequence(groups_seq));
 
-    // 3. 在 rules 最顶部前置注入 FD_CLAUDE_FIXED_RULES（精确去重，确保最高优先级且不干扰其他应用/AGY）
+    // 3. 在 rules 最顶部前置注入最新规则（精确去重；若关闭 CF/Stripe 开关则同步移除旧写入的对应 3 条 Claude-Fixed 规则）
     let rules_key = serde_yaml::Value::String("rules".into());
     let existing_rules: Vec<serde_yaml::Value> = map
         .get(&rules_key)
         .and_then(|v| v.as_sequence())
         .cloned()
         .unwrap_or_default();
-    let fd_set: std::collections::HashSet<&str> = FD_CLAUDE_FIXED_RULES.iter().copied().collect();
-    let mut new_rules: Vec<serde_yaml::Value> = FD_CLAUDE_FIXED_RULES
+    let desired_rules = build_claude_fixed_rules(lock_cf_and_stripe);
+    let desired_set: std::collections::HashSet<&str> =
+        desired_rules.iter().map(String::as_str).collect();
+    let removable_optional: std::collections::HashSet<String> = if lock_cf_and_stripe {
+        std::collections::HashSet::new()
+    } else {
+        CF_STRIPE_OPTIONAL_DOMAINS
+            .iter()
+            .map(|d| format!("DOMAIN-SUFFIX,{d},Claude-Fixed"))
+            .collect()
+    };
+    let mut new_rules: Vec<serde_yaml::Value> = desired_rules
         .iter()
-        .map(|r| serde_yaml::Value::String((*r).to_string()))
+        .map(|r| serde_yaml::Value::String(r.clone()))
         .collect();
     for r in existing_rules {
         if let Some(s) = r.as_str() {
-            if fd_set.contains(s) {
+            if desired_set.contains(s) || removable_optional.contains(s) {
                 continue;
             }
         }
@@ -5245,11 +5830,18 @@ fn inject_claude_fixed_into_yaml_value(doc: &mut serde_yaml::Value) -> Result<us
     }
     map.insert(rules_key, serde_yaml::Value::Sequence(new_rules));
 
-    // 4. 强制关闭 Clash 内核 IPv6 隧道防泄漏
+    // 4. 强制关闭 Clash 内核 IPv6 与 DNS 侧 IPv6 防泄漏
     map.insert(
         serde_yaml::Value::String("ipv6".into()),
         serde_yaml::Value::Bool(false),
     );
+    let dns_key = serde_yaml::Value::String("dns".into());
+    if let Some(dns_map) = map.get_mut(&dns_key).and_then(|v| v.as_mapping_mut()) {
+        dns_map.insert(
+            serde_yaml::Value::String("ipv6".into()),
+            serde_yaml::Value::Bool(false),
+        );
+    }
 
     Ok(safe_count)
 }
@@ -5451,16 +6043,24 @@ pub async fn sync_clash_selection_everywhere(
 
 /// 一键直接将策略组与 Claude 全家桶规则写入 Clash 生效配置并热重载 Mihomo（0 手动重载、毫秒级生效 + 持久保留）
 async fn apply_clash_rules_directly_and_reload(endpoint: &MihomoEndpoint) -> Result<String, String> {
+    apply_clash_rules_directly_and_reload_with_options(endpoint, true).await
+}
+
+/// 可配置版热注入：根据守卫配置 `lock_cf_and_stripe` 同步无损更新 Script.js 并热重载 clash-verge.yaml
+async fn apply_clash_rules_directly_and_reload_with_options(
+    endpoint: &MihomoEndpoint,
+    lock_cf_and_stripe: bool,
+) -> Result<String, String> {
     let dir = clash_verge_config_dir()
         .ok_or_else(|| "无法定位 Clash Verge Rev 配置目录".to_string())?;
 
-    // 1. 持久化全局 Script.js（确保重启/更新订阅后继续生效）
-    let _script_note = write_clash_override_script()?;
+    // 1. 持久化全局 Script.js（标记块无损更新，完整保留用户自定义 AGY / Google 扩展段）
+    let script_note = write_clash_override_script_with_options(lock_cf_and_stripe)?;
 
     // 2. 自动排查并修复当前订阅损坏的空扩展脚本（如缺 return config 的脚本会吞掉全局 Script.js）
     let (repaired_note, saved_profile_node) = repair_broken_active_profile_script(&dir);
 
-    // 3. 仅当已存在 Claude-Fixed 历史合规节点时才保留；首次建组绝不盲抄其他策略组（如DemoAirport）节点，统一走最佳合规节点算法
+    // 3. 仅当已存在 Claude-Fixed 历史合规节点时才保留；首次建组绝不盲抄其他策略组节点，统一走最佳合规节点算法
     let proxies_before = fetch_proxies_raw(endpoint).await.ok();
     let preferred_node = proxies_before
         .as_ref()
@@ -5480,7 +6080,7 @@ async fn apply_clash_rules_directly_and_reload(endpoint: &MihomoEndpoint) -> Res
         .map_err(|e| format!("读取 clash-verge.yaml 失败: {e}"))?;
     let mut doc: serde_yaml::Value = serde_yaml::from_str(&raw_yaml)
         .map_err(|e| format!("解析 clash-verge.yaml 失败: {e}"))?;
-    let safe_count = inject_claude_fixed_into_yaml_value(&mut doc)?;
+    let safe_count = inject_claude_fixed_into_yaml_value_with_options(&mut doc, lock_cf_and_stripe)?;
 
     let bak_yaml = dir.join("clash-verge.yaml.fd-bak");
     if !bak_yaml.exists() {
@@ -5525,16 +6125,46 @@ async fn apply_clash_rules_directly_and_reload(endpoint: &MihomoEndpoint) -> Res
     crate::logger::log_info(
         "preflight",
         format!(
-            "Clash 策略组注入完成: config_dir={} safe_count={safe_count} script_note={_script_note}",
+            "Clash 策略组注入完成: config_dir={} safe_count={safe_count} lock_cf_stripe={lock_cf_and_stripe} script_note={script_note}",
             dir.display()
         ),
     );
     Ok(format!(
-        "已直接写入 Claude-Fixed 策略组（{safe_count} 个合规节点/节点池{chosen_node_note}）与 Claude 全家桶规则并热重载立即生效{extra}，已同步持久化至 Script.js。"
+        "已直接写入 Claude-Fixed 策略组（{safe_count} 个合规节点/节点池{chosen_node_note}）与最新版 Claude 分流/遥测规则并热重载立即生效{extra}（{script_note}）。"
     ))
 }
 
-/// 纯函数（BUG-P0-11）：将 Fake-IP DNS 段安全写入 Clash 配置 YAML，保留用户原有 `nameserver`
+/// 守卫配置切换 `lock_cf_and_stripe_to_claude` 开关时触发的无感热同步：
+/// - Clash 在线且已有 `Claude-Fixed` 策略组：立即同步无损更新 `Script.js` 并热重载 `clash-verge.yaml`；
+/// - Clash 离线但本地存在含 `Claude-Fixed` 的 `Script.js`：同步无损更新 `Script.js`。
+pub async fn sync_clash_rules_for_config(cfg: &AppConfig) -> Result<Option<String>, String> {
+    if let Some(ep) = discover_endpoint().await {
+        if let Ok(proxies) = fetch_proxies_raw(&ep).await {
+            if extract_proxy_group(&proxies, "Claude-Fixed").is_some() {
+                let msg = apply_clash_rules_directly_and_reload_with_options(
+                    &ep,
+                    cfg.lock_cf_and_stripe_to_claude,
+                )
+                .await?;
+                return Ok(Some(msg));
+            }
+        }
+    }
+    if let Some(dir) = clash_verge_config_dir() {
+        let script_path = dir.join("profiles").join("Script.js");
+        if script_path.exists()
+            && fs::read_to_string(&script_path)
+                .map(|s| s.contains("Claude-Fixed"))
+                .unwrap_or(false)
+        {
+            let note = write_clash_override_script_with_options(cfg.lock_cf_and_stripe_to_claude)?;
+            return Ok(Some(note));
+        }
+    }
+    Ok(None)
+}
+
+/// 纯函数（BUG-P0-11 + E3 加固）：将 Fake-IP DNS 段安全写入 Clash 配置 YAML，关闭 `dns.ipv6`、保留用户原有 `nameserver` / `fallback` / `fake-ip-filter`
 pub fn inject_fake_ip_dns_into_yaml_value(doc: &mut serde_yaml::Value) -> Result<(), String> {
     let map = doc
         .as_mapping_mut()
@@ -5548,6 +6178,10 @@ pub fn inject_fake_ip_dns_into_yaml_value(doc: &mut serde_yaml::Value) -> Result
     dns_map.insert(
         serde_yaml::Value::String("enable".into()),
         serde_yaml::Value::Bool(true),
+    );
+    dns_map.insert(
+        serde_yaml::Value::String("ipv6".into()),
+        serde_yaml::Value::Bool(false),
     );
     dns_map.insert(
         serde_yaml::Value::String("enhanced-mode".into()),
@@ -5580,16 +6214,74 @@ pub fn inject_fake_ip_dns_into_yaml_value(doc: &mut serde_yaml::Value) -> Result
             ]),
         );
     }
+    let fb_key = serde_yaml::Value::String("fallback".into());
+    let has_fb = dns_map
+        .get(&fb_key)
+        .and_then(|v| v.as_sequence())
+        .map(|s| !s.is_empty())
+        .unwrap_or(false);
+    if !has_fb {
+        dns_map.insert(
+            fb_key,
+            serde_yaml::Value::Sequence(vec![
+                serde_yaml::Value::String("https://1.1.1.1/dns-query".into()),
+                serde_yaml::Value::String("https://8.8.8.8/dns-query".into()),
+            ]),
+        );
+        let fbf_key = serde_yaml::Value::String("fallback-filter".into());
+        if !dns_map.contains_key(&fbf_key) {
+            let mut fbf = serde_yaml::Mapping::new();
+            fbf.insert(
+                serde_yaml::Value::String("geoip".into()),
+                serde_yaml::Value::Bool(true),
+            );
+            fbf.insert(
+                serde_yaml::Value::String("geoip-code".into()),
+                serde_yaml::Value::String("CN".into()),
+            );
+            fbf.insert(
+                serde_yaml::Value::String("ipcidr".into()),
+                serde_yaml::Value::Sequence(vec![serde_yaml::Value::String("240.0.0.0/4".into())]),
+            );
+            dns_map.insert(fbf_key, serde_yaml::Value::Mapping(fbf));
+        }
+    }
+    let fip_filter_key = serde_yaml::Value::String("fake-ip-filter".into());
+    let has_fip_filter = dns_map
+        .get(&fip_filter_key)
+        .and_then(|v| v.as_sequence())
+        .map(|s| !s.is_empty())
+        .unwrap_or(false);
+    if !has_fip_filter {
+        dns_map.insert(
+            fip_filter_key,
+            serde_yaml::Value::Sequence(
+                [
+                    "*.lan",
+                    "*.local",
+                    "localhost.ptlogin2.qq.com",
+                    "time.windows.com",
+                    "time.nist.gov",
+                    "ntp.*.com",
+                ]
+                .into_iter()
+                .map(|s| serde_yaml::Value::String(s.into()))
+                .collect(),
+            ),
+        );
+    }
     map.insert(dns_key, serde_yaml::Value::Mapping(dns_map));
     Ok(())
 }
 
 /// 一键向 clash-verge.yaml 与全局 Script.js 写入 Fake-IP DNS 配置并热重载 Mihomo + 刷新 Windows DNS 缓存
-async fn apply_fake_ip_dns_and_reload() -> Result<String, String> {
+async fn apply_fake_ip_dns_and_reload_with_options(
+    lock_cf_and_stripe: bool,
+) -> Result<String, String> {
     let dir = clash_verge_config_dir()
         .ok_or_else(|| "无法定位 Clash Verge Rev 配置目录".to_string())?;
     crate::rollback::capture_clash_rules_baseline_if_needed(&dir);
-    let _ = write_clash_override_script();
+    let _ = write_clash_override_script_with_options(lock_cf_and_stripe);
 
     let runtime_yaml = dir.join("clash-verge.yaml");
     if !runtime_yaml.exists() {
@@ -6116,9 +6808,11 @@ mod tests {
             tun_enable: true,
             dns_enhanced_mode: "fake-ip".into(),
             mode: "global".into(),
+            dns_ipv6: false,
+            find_process_mode: "strict".into(),
         };
-        let (escaped_item, _, escaped_ok, escaped_danger) =
-            probe_group_and_rules(Some(&proxies), Some(&new_rules), Some(&cfg_global), Some("🇯🇵日本1|流媒体AI"));
+        let (escaped_item, _, escaped_ok, escaped_danger, _) =
+            probe_group_and_rules(Some(&proxies), Some(&new_rules), Some(&cfg_global), Some("🇯🇵日本1|流媒体AI"), true);
         assert_eq!(escaped_item.status, CheckStatus::Fail);
         assert!(!escaped_ok);
         assert!(escaped_danger);
@@ -6129,8 +6823,8 @@ mod tests {
             "GLOBAL".to_string(),
             json!({"name": "GLOBAL", "type": "Selector", "now": "Claude-Fixed", "all": ["Claude-Fixed", "DemoAirport"]}),
         );
-        let (ok_item, cur_node, ok_pass, ok_danger) =
-            probe_group_and_rules(Some(&proxies), Some(&new_rules), Some(&cfg_global), Some("🇯🇵日本1|流媒体AI"));
+        let (ok_item, cur_node, ok_pass, ok_danger, _) =
+            probe_group_and_rules(Some(&proxies), Some(&new_rules), Some(&cfg_global), Some("🇯🇵日本1|流媒体AI"), true);
         assert_eq!(ok_item.status, CheckStatus::Ok);
         assert!(ok_pass);
         assert!(!ok_danger);
@@ -6766,5 +7460,359 @@ dns:
         // 额外端点键也应命中第三方反代检查
         assert!(should_clear_proxy_env_var("CLAUDE_CODE_API_BASE_URL", "https://relay.example.com", 7897));
         assert!(should_clear_proxy_env_var("ANTHROPIC_API_BASE_URL", "https://relay.example.com", 7897));
+    }
+
+    #[test]
+    fn v035_rust_and_override_js_rules_stay_100_percent_synced_and_re2_filter_allows_taiwan() {
+        // 1) 编译期单真源一致断言：build_claude_fixed_rules(true) == FD_CLAUDE_FIXED_RULES == claude-verge-override.js CLAUDE_RULES
+        let built = build_claude_fixed_rules(true);
+        let const_vec: Vec<String> = FD_CLAUDE_FIXED_RULES.iter().map(|s| (*s).to_string()).collect();
+        assert_eq!(built, const_vec, "build_claude_fixed_rules(true) 必须与 FD_CLAUDE_FIXED_RULES 100% 一致");
+
+        let js_src = include_str!("../../../clash-scripts/claude-verge-override.js");
+        let (span_s, span_e) = find_js_const_stmt_span(js_src, "CLAUDE_RULES")
+            .expect("override.js must define CLAUDE_RULES");
+        let stmt = &js_src[span_s..span_e];
+        let rule_re = regex::Regex::new(r#""([^"]+)""#).unwrap();
+        let js_rules: Vec<String> = rule_re
+            .captures_iter(stmt)
+            .map(|c| c[1].to_string())
+            .collect();
+        assert_eq!(
+            js_rules, built,
+            "clash-scripts/claude-verge-override.js 的 CLAUDE_RULES 必须与 Rust 单真源逐条 100% 一致"
+        );
+
+        // 守住第三档红线：严禁拦截 statsig.anthropic.com、严禁锁死 accounts.google.com 与 node.exe
+        for forbidden in ["statsig.anthropic.com", "accounts.google.com", "node.exe"] {
+            assert!(
+                !built.iter().any(|r| r.contains(forbidden)),
+                "不得在默认规则中包含第三档禁用项: {forbidden}"
+            );
+        }
+
+        // 2) CLAUDE_BLOCKED_EXCLUDE_FILTER 必须兼容 Go RE2（Rust regex 同源无 lookaround）且放行 🇨🇳台湾、拦截香港/大陆/回国
+        let re2 = regex::Regex::new(CLAUDE_BLOCKED_EXCLUDE_FILTER)
+            .expect("CLAUDE_BLOCKED_EXCLUDE_FILTER 必须可被无 lookaround 的 RE2 引擎正常编译");
+        assert!(!re2.is_match("🇨🇳台湾1|流媒体AI"), "exclude-filter 不得误杀 🇨🇳台湾1|流媒体AI");
+        assert!(re2.is_match("🇭🇰香港1|流媒体AI"));
+        assert!(re2.is_match("HK01"));
+        assert!(re2.is_match("🇨🇳中国直连"));
+        assert!(re2.is_match("🇨🇳 回国专线"));
+        assert!(re2.is_match("🇺🇸中国移动"));
+    }
+
+    #[test]
+    fn v035_script_js_lossless_merge_handles_all_four_shapes_and_preserves_custom_agy_google() {
+        // 形态 1：空文件 → FreshWrite
+        let (fresh, mode1) = merge_clash_override_script(None, true);
+        assert_eq!(mode1, ScriptMergeMode::FreshWrite);
+        assert!(fresh.contains(SCRIPT_RULES_BEGIN));
+        assert!(fresh.contains("browser-intake-datadoghq.com"));
+
+        // 形态 2：用户自定义扩展无标记脚本（含 AGY_TELEMETRY_RULES + Google 自定义函数）→ CustomPreservedInPlace
+        let custom_legacy = r#"
+const BLOCKED_REGION_RE = /(香港|\bHK\b|🇨🇳)/i;
+const BLOCKED_EXCLUDE_FILTER = "(?i)(香港|\\bHK\\b|🇨🇳)";
+const AGY_TELEMETRY_RULES = [
+  "DOMAIN-SUFFIX,play.googleapis.com,MyMainGroup"
+];
+const CLAUDE_RULES = [
+  "DOMAIN-SUFFIX,datadoghq.com,REJECT",
+  "DOMAIN-SUFFIX,anthropic.com,Claude-Fixed"
+];
+function resolveMainProxyGroup(config) { return "MyMainGroup"; }
+function main(config) {
+  const safeNodes = config.proxies.map((p) => p.name).filter((name) => !BLOCKED_REGION_RE.test(name));
+  return config;
+}
+"#;
+        let (preserved, mode2) = merge_clash_override_script(Some(custom_legacy), true);
+        assert_eq!(mode2, ScriptMergeMode::CustomPreservedInPlace);
+        assert!(preserved.contains("AGY_TELEMETRY_RULES"), "必须 100% 保留用户自定义 AGY 规则");
+        assert!(preserved.contains("function resolveMainProxyGroup"), "必须 100% 保留用户自定义函数");
+        assert!(preserved.contains("browser-intake-datadoghq.com"), "必须升级为新版遥测拦截规则");
+        assert!(preserved.contains("withpersona.com"), "必须补齐 KYC 域");
+        assert!(preserved.contains("!isBlockedClaudeNodeName(name)"), "必须同步升级台湾白名单过滤调用");
+        assert!(preserved.contains(SCRIPT_RULES_BEGIN) && preserved.contains(SCRIPT_RULES_END));
+
+        // 形态 3：带标记块的自定义脚本关闭 CF/Stripe 开关 → MarkerUpdated 且仍保留自定义段
+        let (toggled_off, mode3) = merge_clash_override_script(Some(&preserved), false);
+        assert_eq!(mode3, ScriptMergeMode::MarkerUpdated);
+        assert!(toggled_off.contains("AGY_TELEMETRY_RULES"));
+        assert!(!toggled_off.contains("challenges.cloudflare.com"));
+        assert!(!toggled_off.contains("stripe.com"));
+        assert!(toggled_off.contains("withpersona.com"));
+
+        // 形态 4：标记块被手工破坏（漏 END）→ 安全降级 FallbackReplaced
+        let broken_marker = format!("{SCRIPT_RULES_BEGIN}\nconst CLAUDE_RULES = [];\nfunction main(c) {{ return c; }}");
+        let (repaired, mode4) = merge_clash_override_script(Some(&broken_marker), true);
+        assert_eq!(mode4, ScriptMergeMode::FallbackReplaced);
+        assert!(repaired.contains(SCRIPT_RULES_END));
+
+        // 持久化 Script.js 漂移检测：旧脚本检出漂移，无损升级后消除漂移
+        assert!(detect_script_js_drift(Some(custom_legacy), true).is_some());
+        assert!(detect_script_js_drift(Some(&preserved), true).is_none());
+        assert!(detect_script_js_drift(Some(&toggled_off), false).is_none());
+        assert!(detect_script_js_drift(Some(&toggled_off), true).is_some());
+    }
+
+    #[test]
+    fn v035_yaml_injection_toggles_cf_stripe_and_hardens_dns_ipv6_fallback_and_fake_ip_filter() {
+        let yaml = r#"
+mode: rule
+ipv6: true
+find-process-mode: off
+dns:
+  enable: true
+  ipv6: true
+  enhanced-mode: fake-ip
+  nameserver:
+    - 223.5.5.5
+proxies:
+  - name: 🇨🇳台湾1|流媒体AI
+    type: vless
+  - name: 🇭🇰香港1|流媒体AI
+    type: vless
+proxy-groups: []
+rules:
+  - DOMAIN-SUFFIX,challenges.cloudflare.com,天悦云
+  - MATCH,天悦云
+"#;
+        let mut doc: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
+        let cnt = inject_claude_fixed_into_yaml_value_with_options(&mut doc, true).unwrap();
+        assert_eq!(cnt, 1, "应放行 🇨🇳台湾1|流媒体AI 并剔除 🇭🇰香港1");
+        assert_eq!(doc["ipv6"].as_bool(), Some(false));
+        assert_eq!(doc["dns"]["ipv6"].as_bool(), Some(false));
+        assert_eq!(doc["find-process-mode"].as_str(), Some("strict"));
+        let rules_on: Vec<&str> = doc["rules"].as_sequence().unwrap().iter().filter_map(|v| v.as_str()).collect();
+        assert!(rules_on.contains(&"DOMAIN-SUFFIX,challenges.cloudflare.com,Claude-Fixed"));
+        assert!(rules_on.contains(&"DOMAIN-SUFFIX,browser-intake-datadoghq.com,REJECT"));
+
+        // 关闭 CF/Stripe 开关后再次注入：移除 Claude-Fixed 的 3 条可选规则，但保留机场原有规则
+        inject_claude_fixed_into_yaml_value_with_options(&mut doc, false).unwrap();
+        let rules_off: Vec<&str> = doc["rules"].as_sequence().unwrap().iter().filter_map(|v| v.as_str()).collect();
+        assert!(!rules_off.contains(&"DOMAIN-SUFFIX,challenges.cloudflare.com,Claude-Fixed"));
+        assert!(rules_off.contains(&"DOMAIN-SUFFIX,challenges.cloudflare.com,天悦云"));
+        assert!(rules_off.contains(&"DOMAIN-SUFFIX,withpersona.com,Claude-Fixed"));
+
+        // DNS 深度加固：保留用户原有 nameserver，补全 dns.ipv6:false、fallback/fallback-filter 与 fake-ip-filter
+        inject_fake_ip_dns_into_yaml_value(&mut doc).unwrap();
+        assert_eq!(doc["dns"]["ipv6"].as_bool(), Some(false));
+        assert_eq!(doc["dns"]["nameserver"][0].as_str(), Some("223.5.5.5"));
+        assert!(doc["dns"]["fallback"].as_sequence().is_some_and(|s| !s.is_empty()));
+        assert_eq!(doc["dns"]["fallback-filter"]["geoip-code"].as_str(), Some("CN"));
+        assert!(doc["dns"]["fake-ip-filter"].as_sequence().is_some_and(|s| s.iter().any(|x| x.as_str() == Some("time.windows.com"))));
+    }
+
+    #[tokio::test]
+    #[ignore = "Gate 2 真机双向闭环实测：旧规则态检出异常 -> 一键无损升级并验证保留 AGY/Google 自定义段 -> 开关热同步 -> 反向撤回 100% 干净还原"]
+    async fn live_v035_bidirectional_clash_hardening_and_rollback_audit() {
+        let dir = clash_verge_config_dir().expect("必须能定位本机 Clash Verge 配置目录");
+        let ep = discover_endpoint().await.expect("本机 Clash Verge Mihomo 必须在线");
+        let script_path = dir.join("profiles").join("Script.js");
+        let runtime_yaml_path = dir.join("clash-verge.yaml");
+        let profiles_yaml_path = dir.join("profiles.yaml");
+        let baseline_path = crate::rollback::baseline_file_path();
+
+        // 完整记录测试前原始状态，测试结束确保零副作用还原
+        let orig_script = fs::read_to_string(&script_path).ok();
+        let orig_runtime_yaml = fs::read_to_string(&runtime_yaml_path).expect("read clash-verge.yaml");
+        let orig_profiles_yaml = fs::read_to_string(&profiles_yaml_path).ok();
+        let orig_baseline = fs::read_to_string(&baseline_path).ok();
+        let profiles_dir = dir.join("profiles");
+        let before_baks: std::collections::HashSet<String> = fs::read_dir(&profiles_dir)
+            .ok()
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+
+        // 清空历史 clash_rules 基线，确保本次正向注入严格捕获“测试前原始 Script.js”作为 First-Write-Wins 基线
+        let mut bl_clean = crate::rollback::load_baseline_from(&baseline_path);
+        bl_clean.clash_rules = None;
+        let _ = crate::rollback::save_baseline_to(&baseline_path, &bl_clean);
+
+        // 阶段 1A：先对本机真实原态跑一次预检（验证能精准检出持久化旧版 Script.js 漂移，绝不报假绿灯）
+        let cfg_on = AppConfig::default();
+        let real_before_bundle = run_all_preflight_checks(&cfg_on, 0).await;
+        let real_before_group = real_before_bundle
+            .report
+            .items
+            .iter()
+            .find(|i| i.id == "node_group")
+            .unwrap();
+        println!(
+            "[LIVE-1A 本机真实原态] status={:?} summary={} | script_drift={:?}",
+            real_before_group.status,
+            real_before_group.summary,
+            real_before_bundle.rule_audit.script_drift_reason
+        );
+        assert_ne!(
+            real_before_group.status,
+            CheckStatus::Ok,
+            "持久化 Script.js 为旧版时，node_group 必须检出脚本漂移预警"
+        );
+        assert!(
+            real_before_bundle.rule_audit.script_drift_reason.is_some(),
+            "必须精准识别本机旧版 Script.js 漂移"
+        );
+
+        // 阶段 1B：将运行态 clash-verge.yaml 模拟回退为旧规则（剥离新遥测/KYC/CF盾规则）并热重载，验证运行态体检同样精准抓出逃逸
+        let mut legacy_doc: serde_yaml::Value =
+            serde_yaml::from_str(&orig_runtime_yaml).expect("parse orig yaml");
+        if let Some(rules_seq) = legacy_doc.get_mut("rules").and_then(|v| v.as_sequence_mut()) {
+            rules_seq.retain(|r| {
+                let s = r.as_str().unwrap_or("");
+                !s.contains("browser-intake-datadoghq.com,REJECT")
+                    && !s.contains("withpersona.com,Claude-Fixed")
+                    && !s.contains("challenges.cloudflare.com,Claude-Fixed")
+                    && !s.contains("chrome-native-host.exe,Claude-Fixed")
+            });
+        }
+        let legacy_yaml = serde_yaml::to_string(&legacy_doc).expect("serialize legacy yaml");
+        reload_config_via_payload(&ep, &legacy_yaml)
+            .await
+            .expect("reload legacy yaml");
+        tokio::time::sleep(Duration::from_millis(250)).await;
+
+        let before_bundle = run_all_preflight_checks(&cfg_on, 0).await;
+        let before_group = before_bundle
+            .report
+            .items
+            .iter()
+            .find(|i| i.id == "node_group")
+            .unwrap();
+        println!(
+            "[LIVE-1B 模拟旧运行态] status={:?} summary={} | gaps={:?}",
+            before_group.status,
+            before_group.summary,
+            before_bundle.rule_audit.required_gap_messages()
+        );
+        assert_ne!(
+            before_group.status,
+            CheckStatus::Ok,
+            "旧规则态下 node_group 必须检出隐患，绝不得报假绿灯"
+        );
+        assert!(
+            before_bundle
+                .rule_audit
+                .telemetry_escape_items
+                .iter()
+                .any(|(d, _)| d == "browser-intake-datadoghq.com"),
+            "必须精准检出 browser-intake-datadoghq.com 遥测逃逸"
+        );
+
+        // 阶段 2：一键正向升级（无损更新 Script.js + 热重载 Mihomo）
+        let fix = execute_fix_item("node_group", &cfg_on, 0)
+            .await
+            .expect("execute_fix_item node_group must succeed");
+        let after_group = fix
+            .report
+            .items
+            .iter()
+            .find(|i| i.id == "node_group")
+            .unwrap();
+        println!(
+            "[LIVE-2 正向升级] success={} status={:?} msg={}",
+            fix.success, after_group.status, fix.message
+        );
+        assert!(fix.success, "正向一键升级必须一次变绿: {}", fix.message);
+        assert_eq!(after_group.status, CheckStatus::Ok);
+
+        // 验证 2A：Script.js 既升级了新规则与标记块，又 100% 保留了用户原有的 AGY/Google 自定义扩展段
+        let upgraded_script = fs::read_to_string(&script_path).expect("read upgraded Script.js");
+        assert!(upgraded_script.contains("browser-intake-datadoghq.com"));
+        assert!(upgraded_script.contains("withpersona.com"));
+        assert!(upgraded_script.contains("chrome-native-host.exe"));
+        if orig_script
+            .as_deref()
+            .map(|s| s.contains("AGY_TELEMETRY_RULES"))
+            .unwrap_or(false)
+        {
+            assert!(
+                upgraded_script.contains("AGY_TELEMETRY_RULES"),
+                "无损升级必须 100% 保留用户自定义 AGY_TELEMETRY_RULES"
+            );
+            assert!(
+                upgraded_script.contains("resolveMainProxyGroup"),
+                "无损升级必须 100% 保留用户自定义 Google/主组函数"
+            );
+        }
+
+        // 验证 2B：运行态 Mihomo /rules 审计全绿，且 statsig.anthropic.com 走 Claude-Fixed（不被 REJECT）
+        let rules_now = fetch_rules_raw(&ep).await.expect("fetch_rules_raw");
+        let proxies_now = fetch_proxies_raw(&ep).await.expect("fetch_proxies_raw");
+        let mcfg_now = fetch_configs(&ep).await.expect("fetch_configs");
+        let audit_ok = audit_claude_rules(&rules_now, Some(&proxies_now), Some(&mcfg_now), true);
+        assert!(
+            !audit_ok.has_required_upgrade_gap(),
+            "升级后运行态审计应 0 缺口: {:?}",
+            audit_ok.required_gap_messages()
+        );
+        assert_eq!(
+            crate::mihomo::resolve_first_matching_rule_proxy(&rules_now, "statsig.anthropic.com").as_deref(),
+            Some("Claude-Fixed")
+        );
+
+        // 阶段 3：测试守卫配置关闭 CF/Stripe 开关后的热同步
+        let mut cfg_off = AppConfig::default();
+        cfg_off.lock_cf_and_stripe_to_claude = false;
+        let sync_note = sync_clash_rules_for_config(&cfg_off)
+            .await
+            .expect("sync off must succeed")
+            .expect("should return sync note");
+        println!("[LIVE-3 关闭CF/Stripe热同步] {sync_note}");
+        let rules_off = fetch_rules_raw(&ep).await.expect("fetch_rules_raw off");
+        let cf_proxy_off =
+            crate::mihomo::resolve_first_matching_rule_proxy(&rules_off, "challenges.cloudflare.com");
+        assert_ne!(
+            cf_proxy_off.as_deref(),
+            Some("Claude-Fixed"),
+            "关闭开关热同步后 challenges.cloudflare.com 不应再强锁 Claude-Fixed"
+        );
+
+        // 阶段 4：反向撤回并验证 100% 干净还原（含 E1 遥测 REJECT 清理 + 原 Script.js 字节级一致）
+        let rb = crate::rollback::rollback_single_item("clash_rules").await;
+        println!("[LIVE-4 反向撤回] ok={} msg={}", rb.ok, rb.message);
+        assert!(rb.ok, "撤回必须成功: {}", rb.message);
+        if let Some(ref expected_orig_script) = orig_script {
+            let restored_script = fs::read_to_string(&script_path).expect("read restored Script.js");
+            assert_eq!(
+                &restored_script, expected_orig_script,
+                "撤回后 Script.js 必须 100% 字节级还原至测试前原样"
+            );
+        }
+        let yaml_after_rb = fs::read_to_string(&runtime_yaml_path).expect("read yaml after rollback");
+        assert!(!yaml_after_rb.contains("Claude-Fixed"), "撤回后 clash-verge.yaml 不得残留 Claude-Fixed");
+        assert!(
+            !yaml_after_rb.contains("browser-intake-datadoghq.com,REJECT"),
+            "E1 回归：撤回后 clash-verge.yaml 不得残留本工具注入的 REJECT 遥测规则"
+        );
+
+        // 收尾：把测试前用户原本生效的 clash-verge.yaml / profiles.yaml / system-baseline.json 原样恢复，不打扰用户当前日常环境
+        let _ = fs::write(&runtime_yaml_path, &orig_runtime_yaml);
+        let _ = reload_config_via_payload(&ep, &orig_runtime_yaml).await;
+        if let Some(orig_p) = orig_profiles_yaml {
+            let _ = fs::write(&profiles_yaml_path, orig_p);
+        }
+        match orig_baseline {
+            Some(b) => {
+                let _ = fs::write(&baseline_path, b);
+            }
+            None => {
+                let _ = fs::remove_file(&baseline_path);
+            }
+        }
+        // 清理本次测试期间生成的临时 Script.js.bak-* 副本
+        if let Ok(entries) = fs::read_dir(&profiles_dir) {
+            for e in entries.flatten() {
+                let name = e.file_name().to_string_lossy().to_string();
+                if name.starts_with("Script.js.bak-") && !before_baks.contains(&name) {
+                    let _ = fs::remove_file(e.path());
+                }
+            }
+        }
     }
 }

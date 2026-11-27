@@ -2,19 +2,50 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   BookOpen,
+  ChevronDown,
   Clock,
   EyeOff,
   Globe,
+  History,
   Link2,
   Loader2,
   RefreshCw,
   Shield,
+  Trash2,
   Users,
 } from "lucide-react";
+import { ThinScrollArea } from "@/components/ThinScrollArea";
 import { ipc } from "@/lib/ipc";
 import { LogAnalysisPage } from "@/pages/LogAnalysisPage";
 import { useGuardStore } from "@/stores/guardStore";
-import type { AccountAuditReport } from "@/types/guard";
+import type { AccountAuditReport, ArchivedAccountSummary } from "@/types/guard";
+
+function formatHistoryTimestamp(ms: number): string {
+  if (!ms || Number.isNaN(ms)) return "未知时间";
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(
+    d.getHours()
+  )}:${pad(d.getMinutes())}`;
+}
+
+function isKycPendingOrBlocked(status?: string | null): boolean {
+  if (!status) return false;
+  const s = status.trim().toLowerCase();
+  if (!s) return false;
+  return s !== "verified" && s !== "approved" && s !== "not_required";
+}
+
+function formatKycPendingDetail(status: string): string {
+  const s = status.trim().toLowerCase();
+  if (s === "expired") {
+    return "实名验证已过期（待重新完成 KYC · 未通过前属高敏态）";
+  }
+  if (s === "failed" || s === "declined" || s === "rejected") {
+    return `实名验证未通过 (${status}) · 风险偏高，请核实官方提示`;
+  }
+  return `待完成 Persona 实名验证 (${status}) · 未通过前属高敏态`;
+}
 
 function extractSkFromInput(raw: string): string | null {
   if (!raw) return null;
@@ -72,13 +103,13 @@ function formatBytesReadable(bytes: number): string {
 function scoreColorCss(colorToken: string): { pillCls: string; barColor: string } {
   switch (colorToken) {
     case "red":
-      return { pillCls: "s-crit", barColor: "var(--danger)" };
+      return { pillCls: "s-crit", barColor: "var(--bad-dot)" };
     case "orange":
-      return { pillCls: "s-mid", barColor: "#fb923c" };
+      return { pillCls: "s-mid", barColor: "var(--warning-dot)" };
     case "amber":
-      return { pillCls: "s-watch", barColor: "var(--warning)" };
+      return { pillCls: "s-watch", barColor: "var(--warning-dot)" };
     default:
-      return { pillCls: "s-safe", barColor: "var(--success)" };
+      return { pillCls: "s-safe", barColor: "var(--ok-dot)" };
   }
 }
 
@@ -113,8 +144,84 @@ export function AccountAuditPage() {
   const [showDenoised, setShowDenoised] = useState(false);
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
   const [showFullLogConsole, setShowFullLogConsole] = useState(false);
+  const [viewingHistoryOrg, setViewingHistoryOrg] = useState<string | null>(null);
+  const [historyReport, setHistoryReport] = useState<AccountAuditReport | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   const skInputRef = useRef<HTMLInputElement | null>(null);
+
+  const isViewingHistory = Boolean(viewingHistoryOrg && historyReport);
+  const activeReport = isViewingHistory ? historyReport : report;
+
+  const handleSelectCurrentAccount = () => {
+    setViewingHistoryOrg(null);
+    setHistoryReport(null);
+    setSubTab("audit");
+  };
+
+  const handleSelectHistoryAccount = async (item: ArchivedAccountSummary) => {
+    if (historyLoading) return;
+    setHistoryLoading(true);
+    try {
+      const loaded = await ipc.getAccountAuditHistoryReport(item.orgPrefix8);
+      if (loaded) {
+        setViewingHistoryOrg(item.orgPrefix8);
+        setHistoryReport(loaded);
+        setForceSkInputMode(false);
+        setSubTab("audit");
+      } else {
+        pushToast("未找到该历史档案", `组织 ${item.orgPrefix8} 的历史快照不存在或已被删除。`, "info");
+      }
+    } catch (err) {
+      pushToast("加载历史档案失败", String(err), "danger");
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const handleDeleteHistoryAccount = (item: ArchivedAccountSummary) => {
+    const label = item.emailMasked || `org ${item.orgPrefix8}`;
+    openRiskModal({
+      tone: "warn",
+      badge: "删除历史记录",
+      title: `确认删除历史账号档案「${label}」？`,
+      subtitle: "仅删除本工具保存的脱敏历史评分与状态快照，不会影响 Claude 客户端登录态或云端账号",
+      rows: [
+        {
+          label: "目标档案",
+          value: `${label} · 组织 ${item.orgPrefix8} · ${item.plan} · 上次评分 ${item.score} 分`,
+          tone: "normal",
+        },
+        {
+          label: "删除影响",
+          value: "删除后将从左侧历史归档列表移除，如需再次记录只需重新登录并审计该账号",
+          tone: "ok",
+        },
+      ],
+      primaryLabel: "确认删除记录",
+      onPrimary: async () => {
+        try {
+          const nextList = await ipc.deleteAccountAuditHistory(item.orgPrefix8);
+          if (viewingHistoryOrg?.toLowerCase() === item.orgPrefix8.toLowerCase()) {
+            setViewingHistoryOrg(null);
+            setHistoryReport(null);
+          }
+          if (report) {
+            const curOrg = report.orgIdPrefix8?.toLowerCase();
+            setAccountAudit({
+              ...report,
+              archivedAccounts: nextList.filter(
+                (a) => !curOrg || a.orgPrefix8.toLowerCase() !== curOrg
+              ),
+            });
+          }
+          pushToast("已删除历史账号档案", `已移除 ${label} (${item.orgPrefix8}) 的历史记录。`, "ok");
+        } catch (err) {
+          pushToast("删除历史记录失败", String(err), "danger");
+        }
+      },
+    });
+  };
 
   useEffect(() => {
     if (!report && !loading && !auditError) {
@@ -275,46 +382,80 @@ export function AccountAuditPage() {
 
   const unreadLogsCount = snapshot.unreadLogAnomalies ?? 0;
 
-  // 组装上下两段共 7 项（严格对齐 v12 结构）
+  // 组装上下两段共 7 项（严格对齐 v12 结构；查看历史快照时展示该历史账号的评估详情并保护本机写操作）
   const groups = useMemo<AuditGroupView[]>(() => {
-    if (!report) return [];
-    const { local, cloudSnapshot, cloudVerified, cloudStale, geoConsistency } = report;
+    if (!activeReport) return [];
+    const cur = activeReport;
+    const { local, cloudSnapshot, cloudVerified, cloudStale, geoConsistency } = cur;
     const isRealLocal = !cloudVerified;
 
-    const regDays = report.accountAgeDays;
-    const subDays = report.subscriptionAgeDays;
+    const regDays = cur.accountAgeDays;
+    const subDays = cur.subscriptionAgeDays;
+    const isFreePlan = cur.plan.toLowerCase().includes("free");
+    const kycStatusRaw = cloudSnapshot?.personaKycStatus ?? null;
+    const kycStatusLower = kycStatusRaw?.trim().toLowerCase() ?? "";
+    const kycVerified = kycStatusLower === "verified" || kycStatusLower === "approved";
+    const kycNotReq = kycStatusLower === "not_required";
+    const kycBlocked = isKycPendingOrBlocked(kycStatusRaw);
     const kycHours = cloudSnapshot?.personaKycAgeHours ?? null;
     const inNewWindow = regDays != null && regDays < 7;
-    const inPayWindow = subDays != null && subDays <= 1;
-    const inKycWindow = kycHours != null && kycHours <= 72;
+    const inPayWindow = !isFreePlan && subDays != null && subDays <= 1;
+    const inKycWindow = kycVerified && kycHours != null && kycHours <= 72;
     const planChanged = local.desktop.planChangedHits > 0;
-    const windowAnyWarn = inNewWindow || inPayWindow || inKycWindow || planChanged;
+    const windowAnyWarn = inNewWindow || inPayWindow || inKycWindow || planChanged || kycBlocked;
+    const windowMissingInfo =
+      regDays == null || (!isFreePlan && subDays == null) || isRealLocal || (!kycVerified && !kycNotReq && !kycBlocked);
+
+    const gWindowStatus: AuditGroupView["status"] = windowAnyWarn
+      ? "warn"
+      : windowMissingInfo
+      ? "pending"
+      : "ok";
+    const gWindowStatusText = kycBlocked
+      ? kycStatusLower === "expired"
+        ? "实名已过期"
+        : "待实名核验"
+      : inNewWindow || inPayWindow || inKycWindow || planChanged
+      ? "高敏观察"
+      : windowMissingInfo
+      ? "待核观察"
+      : "已过观察";
+
+    const kycSummaryPart = isRealLocal
+      ? "KYC 状态待云端核验"
+      : kycBlocked
+      ? kycStatusLower === "expired"
+        ? "Persona KYC 已过期（待重新完成实名）"
+        : `Persona KYC 待完成 (${kycStatusRaw})`
+      : kycVerified
+      ? inKycWindow
+        ? `过 KYC 仅 ${kycHours} 小时（观察期内）`
+        : "Persona KYC 已过 3 天经验复核期"
+      : "未触发实名抽检";
+
+    const subSummaryPart = isFreePlan
+      ? "Free 无订阅"
+      : subDays != null
+      ? `订阅 ${subDays} 天`
+      : "订阅时间待核";
 
     const gWindow: AuditGroupView = {
       part: "user",
       id: "g-window",
-      icon: <Clock size={15} strokeWidth={1.8} />,
+      icon: <Clock size={15} strokeWidth={1.45} />,
       prefix: "经验预警",
       prefixCls: "warn-exp",
       title: "新号、支付与 KYC 后高敏观察窗",
-      status: windowAnyWarn ? "warn" : "ok",
-      statusText: windowAnyWarn ? "高敏观察" : "已过观察",
-      summary: isRealLocal
-        ? `注册 ${regDays ?? "未知"} 天、订阅 ${subDays ?? "未知"} 天、${local.desktop.planChangedHits} 次套餐跳变；KYC 复核窗待云端核验。`
-        : `注册 ${regDays ?? "未知"} 天、订阅 ${subDays ?? "未知"} 天、${
-            cloudSnapshot?.personaKycStatus === "verified"
-              ? inKycWindow
-                ? `过 KYC 仅 ${kycHours} 小时（观察期内）`
-                : "Persona KYC 已过 3 天经验复核期"
-              : "未命中 KYC 复核观察"
-          }、${local.desktop.planChangedHits} 次套餐跳变。`,
+      status: gWindowStatus,
+      statusText: gWindowStatusText,
+      summary: `注册 ${regDays != null ? `${regDays} 天` : "待核"}、${subSummaryPart}、${kycSummaryPart}、${local.desktop.planChangedHits} 次套餐跳变。`,
       cols: 2,
       metrics: [
         {
           k: "新号注册观察窗 (<7 天)",
           v:
             regDays == null
-              ? "未读到注册时间"
+              ? "未读到注册时间（需云端核验）"
               : inNewWindow
               ? `仅注册 ${regDays} 天 · 高敏观察期内`
               : `已注册 ${regDays} 天 · 已过观察`,
@@ -323,26 +464,31 @@ export function AccountAuditPage() {
         },
         {
           k: "支付 / 升级复审窗 (<=24h)",
-          v:
-            subDays == null
-              ? "未读到订阅开通时间"
-              : inPayWindow
-              ? `刚订阅 ${subDays} 天 · 24h 复审窗内`
-              : `已订阅 ${subDays} 天 · 已过复审`,
+          v: isFreePlan
+            ? "Free 无订阅（不适用支付复审）"
+            : subDays == null
+            ? "未读到订阅开通时间（待核验）"
+            : inPayWindow
+            ? `刚订阅 ${subDays} 天 · 24h 复审窗内`
+            : `已订阅 ${subDays} 天 · 已过复审`,
           cls: inPayWindow ? "warn" : "ok",
           boxState: inPayWindow ? "is-warn" : "",
         },
         {
           k: "过 KYC 后复核窗 (<=72h · 社区经验)",
           v: isRealLocal
-            ? "待核 KYC 时间（仅前 3 天偏敏感）"
-            : cloudSnapshot?.personaKycStatus === "verified"
+            ? "待核 KYC 状态与时间（需云端核验）"
+            : kycBlocked && kycStatusRaw
+            ? formatKycPendingDetail(kycStatusRaw)
+            : kycVerified
             ? inKycWindow
               ? `通过不足 72h（${kycHours}h）· 建议稳健使用`
               : "已过 3 天 · 实名护城河缓冲"
-            : "当前无实名复核观察记录",
-          cls: inKycWindow ? "warn" : "ok",
-          boxState: inKycWindow ? "is-warn" : "",
+            : kycNotReq
+            ? "未触发实名抽检（无需复核观察）"
+            : "未返回 KYC 记录（待核）",
+          cls: inKycWindow || kycBlocked ? "warn" : "ok",
+          boxState: inKycWindow || kycBlocked ? "is-warn" : "",
         },
         {
           k: "近期套餐变动 (plan_changed)",
@@ -351,8 +497,9 @@ export function AccountAuditPage() {
           boxState: planChanged ? "is-warn" : "",
         },
       ],
-      advice:
-        "属社区经验参考（非官方明文规则）：新号(<7天)、支付/升级(<=24h)及过 KYC 前 72h 容错率偏低，期间建议锁死单一稳定节点低频使用；升级 Max 或换卡时发卡国、账单区、出口 IP 与证件地尽量一致，有助于降低复审概率。",
+      advice: kycBlocked
+        ? "当前账号已触发 Persona 实名抽检且尚未完成（或验证链接已过期），未通过前属高敏态：请锁死单一干净节点低频操作，按官方指引完成实名核验并平稳度过 72h 复核期。"
+        : "属社区经验参考（非官方明文规则）：新号(<7天)、支付/升级(<=24h)及过 KYC 前 72h 容错率偏低，期间建议锁死单一稳定节点低频使用；升级 Max 或换卡时发卡国、账单区、出口 IP 与证件地尽量一致，有助于降低复审概率。",
     };
 
     const activeSchedCount =
@@ -368,7 +515,7 @@ export function AccountAuditPage() {
     const gAuto: AuditGroupView = {
       part: "user",
       id: "g-auto",
-      icon: <Activity size={15} strokeWidth={1.8} />,
+      icon: <Activity size={15} strokeWidth={1.45} />,
       prefix: "官方红线",
       prefixCls: "redline",
       title: "自动化机刷与人机节律监测",
@@ -430,11 +577,11 @@ export function AccountAuditPage() {
         },
         {
           k: "缓存 5h / 7d 水位与软锁",
-          v: `${report.quota.fiveHourPct ?? "—"}% / ${report.quota.sevenDayPct ?? "—"}% · ${
-            report.quota.softLocked ? "命中软锁" : "无软锁"
+          v: `${cur.quota.fiveHourPct ?? "—"}% / ${cur.quota.sevenDayPct ?? "—"}% · ${
+            cur.quota.softLocked ? "命中软锁" : "无软锁"
           }`,
-          cls: report.quota.softLocked ? "warn" : "ok",
-          boxState: report.quota.softLocked ? "is-warn" : "",
+          cls: cur.quota.softLocked ? "warn" : "ok",
+          boxState: cur.quota.softLocked ? "is-warn" : "",
         },
       ],
       advice:
@@ -442,18 +589,18 @@ export function AccountAuditPage() {
     };
 
     // 第 3 项：注册归属地与出口一致性核对
-    const showSkInput = isRealLocal || forceSkInputMode;
+    const showSkInput = !isViewingHistory && (isRealLocal || forceSkInputMode);
     const isCrossMismatch = geoConsistency === "cross_continent_mismatch";
-    const geoLabel = report.workspaceGeo ?? "待核";
-    const exitLabel = `${report.exitCountry ?? "未知"}${
-      report.exitColo ? `(${report.exitColo})` : ""
+    const geoLabel = cur.workspaceGeo ?? "待核";
+    const exitLabel = `${cur.exitCountry ?? "未知"}${
+      cur.exitColo ? `(${cur.exitColo})` : ""
     }`;
 
     const gCloud: AuditGroupView = showSkInput
       ? {
           part: "tool",
           id: "g-cloud",
-          icon: <Globe size={15} strokeWidth={1.8} />,
+          icon: <Globe size={15} strokeWidth={1.45} />,
           prefix: "官方红线",
           prefixCls: "redline",
           title: "注册归属地与出口一致性核对",
@@ -466,29 +613,33 @@ export function AccountAuditPage() {
       : {
           part: "tool",
           id: "g-cloud",
-          icon: <Globe size={15} strokeWidth={1.8} />,
+          icon: <Globe size={15} strokeWidth={1.45} />,
           prefix: "官方红线",
           prefixCls: "redline",
           title: "注册归属地与出口一致性核对",
-          status: isCrossMismatch ? "danger" : "ok",
-          statusText: isCrossMismatch ? "跨洲错配" : "同区一致",
+          status: isCrossMismatch ? "danger" : isRealLocal ? "pending" : "ok",
+          statusText: isCrossMismatch ? "跨洲错配" : isRealLocal ? "待核归属" : "同区一致",
           summary: isCrossMismatch
             ? `账号注册属地 ${geoLabel} 与当前出口 ${exitLabel} 跨洲错配，强烈建议切回同区稳定节点。`
+            : isRealLocal
+            ? "该历史快照尚未做云端核验，归属地为待核状态。"
             : cloudStale
             ? `已绑定注册属地 ${geoLabel}（与当前出口 ${exitLabel} 一致）；云端状态为 ${
-                report.cloudAgeDays ?? 8
+                cur.cloudAgeDays ?? 8
               } 天前快照，建议按需重验。`
             : `账号注册属地 ${geoLabel} 与当前出口 ${exitLabel} 同区一致。`,
           readonlyMetrics: [
             {
               k: "出口 IP 纯净度",
-              v: report.exitIpPurity ?? "节点流量体检联动中",
+              v: cur.exitIpPurity ?? "节点流量体检联动中",
             },
             {
               k: "属地绑定状态",
-              v: cloudStale
-                ? `属地 ${geoLabel} 长期有效 · 云端 ${report.cloudAgeDays ?? 8} 天前核验`
-                : `已绑定属地 ${geoLabel} · 第 ${Math.max(1, report.verifyCount)} 次核验`,
+              v: isRealLocal
+                ? "该历史快照未绑定云端属地"
+                : cloudStale
+                ? `属地 ${geoLabel} 长期有效 · 云端 ${cur.cloudAgeDays ?? 8} 天前核验`
+                : `已绑定属地 ${geoLabel} · 第 ${Math.max(1, cur.verifyCount)} 次核验`,
               cls: cloudStale ? "warn" : "",
               boxState: cloudStale ? "is-warn" : "",
             },
@@ -497,12 +648,16 @@ export function AccountAuditPage() {
           metrics: [
             {
               k: "注册属地 × 当前出口节点",
-              v: isCrossMismatch
+              v: isRealLocal
+                ? `属地待核 × ${exitLabel}`
+                : isCrossMismatch
                 ? `${geoLabel} × ${exitLabel} · 跨洲错配（高风险诱因）`
                 : `${geoLabel} × ${exitLabel} · 同区一致（持续自动比对）`,
               cls: isCrossMismatch ? "danger" : "ok",
               boxState: isCrossMismatch ? "is-danger" : "",
-              btn: isCrossMismatch
+              btn: isViewingHistory
+                ? { label: "历史快照只读", primary: false, disabled: true }
+                : isCrossMismatch
                 ? {
                     label: "前往切换同区节点 →",
                     primary: true,
@@ -514,20 +669,22 @@ export function AccountAuditPage() {
                 : { label: "节点已匹配", primary: false, disabled: true },
             },
           ],
-          advice: isCrossMismatch
+          advice: isViewingHistory
+            ? "当前正在查阅该历史账号的存档快照；如需重新核验，请先在客户端切换至该账号并回到本机当前档案。"
+            : isCrossMismatch
             ? "归属地与出口跨洲错配属已知高风险诱因，强烈建议切回同区稳定节点；切换后随时可点击右侧「重验 sk」刷新云端状态。"
             : "绑定注册属地后工具会自动持续比对当前出口；如需更新对话状态、警告标或实时额度，可随时点击右侧重验。",
-          allowReverify: true,
+          allowReverify: !isViewingHistory,
         };
 
-    // 第 4 项：多号混登、设备指纹与旧号残留防连坐（100% 由单一真源 report.topology 6 态驱动，彻底告别假绿与按钮误置灰）
+    // 第 4 项：多号混登、设备指纹与旧号残留防连坐（100% 由单一真源 cur.topology 6 态驱动，彻底告别假绿与按钮误置灰）
     const cliOrg = local.claudeJson.orgUuidPrefix8;
     const desktopOrgs = local.desktop.orgIdPrefixes;
-    const detectedList = report.detectedAccounts ?? [];
+    const detectedList = cur.detectedAccounts ?? [];
     const lookupOrgLabel = (org: string) =>
       detectedList.find((d) => d.orgPrefix8.toLowerCase() === org.toLowerCase())?.displayLabel ??
       `org ${org}`;
-    const topo = report.topology;
+    const topo = cur.topology;
     const hygieneState =
       topo?.hygieneState ??
       (local.desktop.accountBannedHits > 0 || local.desktop.crossOrg404Hits > 0
@@ -590,7 +747,7 @@ export function AccountAuditPage() {
     const gMix: AuditGroupView = {
       part: "tool",
       id: "g-mix",
-      icon: <Users size={15} strokeWidth={1.8} />,
+      icon: <Users size={15} strokeWidth={1.45} />,
       prefix: "官方红线",
       prefixCls: "redline",
       title: "多号混登、设备指纹与旧号残留防连坐",
@@ -683,7 +840,7 @@ export function AccountAuditPage() {
     const gEndpoint: AuditGroupView = {
       part: "tool",
       id: "g-endpoint",
-      icon: <Link2 size={15} strokeWidth={1.8} />,
+      icon: <Link2 size={15} strokeWidth={1.45} />,
       prefix: "官方红线",
       prefixCls: "redline",
       title: "官方 API 端点防反代检测",
@@ -733,13 +890,17 @@ export function AccountAuditPage() {
     };
 
     // 第 6 项：Clash 断连回传 Cookie 403 防护（5 重严格防漏链判定：运行中全就绪绝不误判漏链，任一缺口精准标出）
-    const disProxyBad = !report.runtimeProxyOk;
-    const holdActiveNow = Boolean(snapshot.killHoldActive || report.runtimeKillHoldActive);
-    const bgProcsNow = snapshot.bgClaudeProcs ?? report.runtimeBgProcs;
-    const disGaps = report.runtimeDisconnectGaps ?? [];
+    const disProxyBad = !cur.runtimeProxyOk;
+    const holdActiveNow = isViewingHistory
+      ? cur.runtimeKillHoldActive
+      : Boolean(snapshot.killHoldActive || cur.runtimeKillHoldActive);
+    const bgProcsNow = isViewingHistory
+      ? cur.runtimeBgProcs
+      : snapshot.bgClaudeProcs ?? cur.runtimeBgProcs;
+    const disGaps = cur.runtimeDisconnectGaps ?? [];
     const disGuardOk =
-      report.runtimeDisconnectGuardOk !== undefined
-        ? report.runtimeDisconnectGuardOk
+      cur.runtimeDisconnectGuardOk !== undefined
+        ? cur.runtimeDisconnectGuardOk
         : !disProxyBad;
     const disRuntimeGap = !disGuardOk || disGaps.length > 0;
     const dis403Bad = local.desktop.cookie403Hits > 0;
@@ -749,7 +910,7 @@ export function AccountAuditPage() {
     const gDisconnect: AuditGroupView = {
       part: "tool",
       id: "g-disconnect",
-      icon: <Shield size={15} strokeWidth={1.8} />,
+      icon: <Shield size={15} strokeWidth={1.45} />,
       prefix: "经验防护",
       prefixCls: "warn-exp",
       title: "Clash 断连回传 Cookie 403 防护",
@@ -852,7 +1013,7 @@ export function AccountAuditPage() {
     const gTelemetry: AuditGroupView = {
       part: "tool",
       id: "g-telemetry",
-      icon: <EyeOff size={15} strokeWidth={1.8} />,
+      icon: <EyeOff size={15} strokeWidth={1.45} />,
       prefix: "隐私降噪",
       prefixCls: "privacy-low",
       title: "本机遥测开关与缓存清理（仅作用于 CLI）",
@@ -918,9 +1079,29 @@ export function AccountAuditPage() {
         "【遥测与降噪是什么】「遥测（Telemetry）」是 Claude Code CLI 后台自动向官方发送的使用统计、崩溃堆栈与版本检查请求，断网失败后会囤积在 ~/.claude/telemetry/ 等联网重试；开启「4 项官方降噪开关」代表通知 CLI 关闭这些非必要后台上报（减少无关设备指纹与断网回传噪音，完全不影响正常对话与登录）。补齐开关前会自动保存首次基线，随时可一键撤回；安全退出或熔断时也会自动清空待传目录。",
     };
 
-    return [gWindow, gAuto, gCloud, gMix, gEndpoint, gDisconnect, gTelemetry];
+    const list = [gWindow, gAuto, gCloud, gMix, gEndpoint, gDisconnect, gTelemetry];
+    if (!isViewingHistory) return list;
+    return list.map((g) => ({
+      ...g,
+      allowReverify: false,
+      metrics: g.metrics?.map((m) =>
+        m.btn
+          ? {
+              ...m,
+              btn: {
+                ...m.btn,
+                primary: false,
+                disabled: true,
+                label: "历史快照只读",
+                onClick: undefined,
+              },
+            }
+          : m
+      ),
+    }));
   }, [
-    report,
+    activeReport,
+    isViewingHistory,
     forceSkInputMode,
     busyKey,
     snapshot.killHoldActive,
@@ -986,16 +1167,7 @@ export function AccountAuditPage() {
             </div>
             <div className="audit-right">
               <span className={`audit-status-pill ${stCls}`}>{g.statusText}</span>
-              <span
-                style={{
-                  color: "var(--text-3)",
-                  fontSize: 11,
-                  width: 12,
-                  textAlign: "center",
-                }}
-              >
-                {isOpen ? "▴" : "▾"}
-              </span>
+              <ChevronDown size={12.5} strokeWidth={1.5} className="audit-chev" />
             </div>
           </div>
 
@@ -1490,7 +1662,7 @@ export function AccountAuditPage() {
       return (
         <section className="audit-page" data-testid="account-audit-page">
           <div className="audit-page-hd">
-            <div style={{ minWidth: 0 }}>
+            <div className="audit-page-hd-left">
               <h1 className="audit-page-title">账户审计</h1>
               <p className="audit-page-sub">本地只读体检与按需云端核验，提前排查账号风控隐患</p>
             </div>
@@ -1560,9 +1732,11 @@ export function AccountAuditPage() {
     );
   }
 
-  const { scoreResult } = report;
+  const viewReport = activeReport ?? report;
+  const { scoreResult } = viewReport;
   const { pillCls, barColor } = scoreColorCss(scoreResult.colorToken);
-  const needCloudPrompt = !report.cloudVerified || report.cloudStale;
+  const needCloudPrompt = !isViewingHistory && (!viewReport.cloudVerified || viewReport.cloudStale);
+  const archivedAccounts = report.archivedAccounts ?? [];
 
   const visibleFlowLogs = report.logFlowItems.filter((item) => {
     if (!showDenoised && item.denoised) return false;
@@ -1578,7 +1752,7 @@ export function AccountAuditPage() {
     <section className="audit-page" data-testid="account-audit-page">
       {/* 页头 */}
       <div className="audit-page-hd">
-        <div style={{ minWidth: 0 }}>
+        <div className="audit-page-hd-left">
           <h1 className="audit-page-title">账户审计</h1>
           <p className="audit-page-sub">本地只读体检与按需云端核验，提前排查账号风控隐患</p>
         </div>
@@ -1589,9 +1763,30 @@ export function AccountAuditPage() {
             className="audit-guide-btn"
             onClick={() => setGuideOpen(true)}
           >
-            <BookOpen size={13.5} strokeWidth={2} />
+            <BookOpen size={13.5} strokeWidth={1.45} />
             <span>防封宝典</span>
           </button>
+
+          <button
+            type="button"
+            data-testid="btn-rescan-account-audit"
+            disabled={loading}
+            className="guard-btn guard-btn-flat guard-btn-sm"
+            onClick={() => {
+              setViewingHistoryOrg(null);
+              setHistoryReport(null);
+              void refreshAccountAudit(false);
+            }}
+          >
+            {loading ? (
+              <Loader2 size={13} strokeWidth={1.85} className="guard-spin" />
+            ) : (
+              <RefreshCw size={13} strokeWidth={1.45} />
+            )}
+            <span>{loading ? "审计中..." : "重新审计"}</span>
+          </button>
+
+          <span className="audit-hd-sep" aria-hidden="true" />
 
           <div className="audit-seg-wrap" role="tablist">
             <button
@@ -1616,35 +1811,21 @@ export function AccountAuditPage() {
               {unreadLogsCount > 0 && (
                 <span
                   className="guard-chip guard-chip-warn tabular"
-                  style={{ padding: "0 5px", fontSize: 10.5 }}
+                  style={{ height: 17, padding: "0 5px", fontSize: 10 }}
                 >
                   {unreadLogsCount}
                 </span>
               )}
             </button>
           </div>
-
-          <button
-            type="button"
-            data-testid="btn-rescan-account-audit"
-            disabled={loading}
-            className="guard-btn guard-btn-flat guard-btn-sm"
-            onClick={() => void refreshAccountAudit(false)}
-          >
-            {loading ? (
-              <Loader2 size={13.5} strokeWidth={2} className="guard-spin" />
-            ) : (
-              <RefreshCw size={13.5} strokeWidth={2} />
-            )}
-            <span>{loading ? "审计中..." : "重新审计"}</span>
-          </button>
         </div>
       </div>
 
       {/* Master-Detail 双栏骨架 */}
       <div className="audit-workspace">
-        {/* 左栏 244px */}
-        <section className="audit-acct-pane">
+        {/* 左栏 244px（ThinScrollArea 悬浮细滑块） */}
+        <ThinScrollArea className="audit-acct-pane-host">
+          <section className="audit-acct-pane">
           <div className="audit-acct-top">
             {(() => {
               const extraAccounts = (report.detectedAccounts ?? []).filter((a) => !a.isPrimary);
@@ -1667,8 +1848,15 @@ export function AccountAuditPage() {
                   </div>
 
                   <div
-                    className="audit-acct-card tabular"
-                    onClick={() => setSubTab("audit")}
+                    className={`audit-acct-card tabular ${!isViewingHistory ? "is-selected" : ""}`}
+                    data-testid="audit-current-account-card"
+                    onClick={handleSelectCurrentAccount}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        handleSelectCurrentAccount();
+                      }
+                    }}
                     role="button"
                     tabIndex={0}
                   >
@@ -1727,40 +1915,43 @@ export function AccountAuditPage() {
                     </div>
 
                     <div className="audit-acct-quota">
-                      <div
-                        className="audit-q-row"
-                        title={report.quota.fiveHourOfflineNote ?? report.quota.stampTooltip}
-                      >
-                        <span>5h 额度</span>
-                        <span style={{ fontWeight: 600 }}>
-                          {report.quota.fiveHourPct != null ? `${report.quota.fiveHourPct}%` : "—"}
-                        </span>
-                      </div>
-                      <div className="audit-q-track">
+                      <div className="audit-q-col">
                         <div
-                          className="audit-q-fill"
-                          style={{ width: `${report.quota.fiveHourPct ?? 0}%` }}
-                        />
+                          className="audit-q-row"
+                          title={report.quota.fiveHourOfflineNote ?? report.quota.stampTooltip}
+                        >
+                          <span>5h 额度</span>
+                          <span style={{ fontWeight: 500, color: "var(--text-1)" }}>
+                            {report.quota.fiveHourPct != null ? `${report.quota.fiveHourPct}%` : "—"}
+                          </span>
+                        </div>
+                        <div className="audit-q-track">
+                          <div
+                            className="audit-q-fill"
+                            style={{ width: `${report.quota.fiveHourPct ?? 0}%` }}
+                          />
+                        </div>
                       </div>
-                      <div
-                        className="audit-q-row"
-                        style={{ marginTop: 2 }}
-                        title={report.quota.sevenDayOfflineNote ?? report.quota.stampTooltip}
-                      >
-                        <span>7d 额度</span>
-                        <span>
-                          {report.quota.sevenDayPct != null
-                            ? `${report.quota.sevenDayPct}%`
-                            : report.quota.sevenDayOfflineNote
-                            ? "已过窗·待核"
-                            : "—"}
-                        </span>
-                      </div>
-                      <div className="audit-q-track">
+                      <div className="audit-q-col">
                         <div
-                          className="audit-q-fill soft"
-                          style={{ width: `${report.quota.sevenDayPct ?? 0}%` }}
-                        />
+                          className="audit-q-row"
+                          title={report.quota.sevenDayOfflineNote ?? report.quota.stampTooltip}
+                        >
+                          <span>7d 额度</span>
+                          <span style={{ fontWeight: 500, color: "var(--text-1)" }}>
+                            {report.quota.sevenDayPct != null
+                              ? `${report.quota.sevenDayPct}%`
+                              : report.quota.sevenDayOfflineNote
+                              ? "待核"
+                              : "—"}
+                          </span>
+                        </div>
+                        <div className="audit-q-track">
+                          <div
+                            className="audit-q-fill soft"
+                            style={{ width: `${report.quota.sevenDayPct ?? 0}%` }}
+                          />
+                        </div>
                       </div>
                     </div>
 
@@ -1768,11 +1959,11 @@ export function AccountAuditPage() {
                       <span
                         style={{
                           color: report.hasDangerIssue
-                            ? "var(--danger-bright)"
+                            ? "var(--bad-fg)"
                             : report.pendingIssueCount > 0
-                            ? "var(--warning)"
+                            ? "var(--warning-fg)"
                             : "var(--text-2)",
-                          fontWeight: report.pendingIssueCount > 0 ? 600 : 500,
+                          fontWeight: report.pendingIssueCount > 0 ? 500 : 400,
                         }}
                       >
                         {report.pendingIssueCount > 0
@@ -1833,6 +2024,116 @@ export function AccountAuditPage() {
                       </div>
                     </div>
                   ))}
+
+                  {archivedAccounts.length > 0 && (
+                    <div className="audit-history-section" data-testid="audit-history-section">
+                      <div className="audit-pane-hd" style={{ marginTop: 4 }}>
+                        <span
+                          className="audit-pane-title tabular"
+                          style={{ display: "inline-flex", alignItems: "center", gap: 5 }}
+                        >
+                          <History size={11.5} strokeWidth={1.6} />
+                          <span>历史归档 ({archivedAccounts.length})</span>
+                        </span>
+                        <span style={{ fontSize: 10.5, color: "var(--text-3)" }}>点击切换</span>
+                      </div>
+
+                      {archivedAccounts.map((item) => {
+                        const selected =
+                          isViewingHistory &&
+                          viewingHistoryOrg?.toLowerCase() === item.orgPrefix8.toLowerCase();
+                        const kycPending = isKycPendingOrBlocked(item.personaKycStatus);
+                        const dotCls =
+                          item.isBanned || item.portalHold || item.hasDangerIssue
+                            ? "danger"
+                            : kycPending || item.hasMonitoringNotice || item.pendingIssueCount > 0
+                            ? "warn"
+                            : "";
+                        const statusTag = item.isBanned
+                          ? "已封禁"
+                          : item.portalHold
+                          ? "Portal挂起"
+                          : kycPending
+                          ? item.personaKycStatus?.toLowerCase() === "expired"
+                            ? "KYC过期"
+                            : "待KYC"
+                          : item.hasMonitoringNotice
+                          ? "有警告标"
+                          : item.cloudVerified
+                          ? `${item.score}分`
+                          : `${item.score}分·估`;
+                        return (
+                          <div
+                            key={item.orgPrefix8}
+                            data-testid={`audit-history-card-${item.orgPrefix8}`}
+                            className={`audit-history-card tabular ${selected ? "is-selected" : ""}`}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => void handleSelectHistoryAccount(item)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                void handleSelectHistoryAccount(item);
+                              }
+                            }}
+                          >
+                            <div className="audit-acct-row1">
+                              <div className="audit-acct-mail" style={{ fontSize: 12 }}>
+                                <span className={`guard-dot ${dotCls}`} />
+                                <span className="audit-acct-mail-txt">
+                                  {item.emailMasked.startsWith("桌面端账号")
+                                    ? `org ${item.orgPrefix8}`
+                                    : item.emailMasked}
+                                </span>
+                              </div>
+                              <div style={{ display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+                                <span
+                                  className="guard-chip guard-chip-neutral"
+                                  style={{ fontSize: 10, padding: "1px 5px" }}
+                                >
+                                  {item.plan === "未知" ? "历史" : item.plan}
+                                </span>
+                                <button
+                                  type="button"
+                                  data-testid={`btn-delete-history-${item.orgPrefix8}`}
+                                  className="audit-history-del"
+                                  title="删除该历史账号记录"
+                                  aria-label={`删除历史账号 ${item.emailMasked}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteHistoryAccount(item);
+                                  }}
+                                >
+                                  <Trash2 size={12} strokeWidth={1.6} />
+                                </button>
+                              </div>
+                            </div>
+                            <div className="audit-acct-sub">
+                              <span>
+                                {item.workspaceGeo
+                                  ? `归属 ${item.workspaceGeo} · ${item.orgPrefix8}`
+                                  : `org ${item.orgPrefix8}`}
+                              </span>
+                              <span
+                                style={{
+                                  color:
+                                    dotCls === "danger"
+                                      ? "var(--bad-fg)"
+                                      : dotCls === "warn"
+                                      ? "var(--warning-fg)"
+                                      : "var(--text-3)",
+                                  fontWeight: dotCls ? 500 : 400,
+                                  flexShrink: 0,
+                                }}
+                              >
+                                {statusTag}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </>
               );
             })()}
@@ -1849,7 +2150,8 @@ export function AccountAuditPage() {
                   alignItems: "center",
                   justifyContent: "space-between",
                   fontSize: 12,
-                  fontWeight: 600,
+                  fontWeight: 500,
+                  color: "var(--text-strong)",
                 }}
               >
                 <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -1871,6 +2173,13 @@ export function AccountAuditPage() {
                   ? `捕获 ${report.local.desktop.cookie403Hits} 条退出回传 Cookie 403 高危前兆；${report.denoisedOauth403Count} 条 OAuth 403 已降噪。`
                   : report.local.desktop.cfShield403Hits > 0
                   ? `403 消歧：${report.local.desktop.cfShield403Hits} 条 CF 入口盾（非封号）；${report.denoisedOauth403Count} 条背景 OAuth 403 已自动降噪。`
+                  : unreadLogsCount > 0 || nonDenoisedLogCount > 0
+                  ? `捕获 ${Math.max(
+                      unreadLogsCount,
+                      nonDenoisedLogCount
+                    )} 条待核异常事件（含鉴权 / 403 预警，未降噪）；另有 ${
+                      report.denoisedOauth403Count
+                    } 条背景 OAuth 403 已静默降噪。`
                   : `近 24 小时日志平稳；${report.denoisedOauth403Count} 条背景 OAuth 403 已静默降噪。`}
               </div>
               <div style={{ fontSize: 11.5, color: "var(--primary)", fontWeight: 500 }}>
@@ -1882,46 +2191,95 @@ export function AccountAuditPage() {
           <div className="audit-foot-hint">
             Anthropic 风控为黑盒模型，无“集齐必封”公式；本页仅保留经真机验证有效的防封项。
           </div>
-        </section>
+          </section>
+        </ThinScrollArea>
 
-        {/* 右栏视图 A：账号安全审计 */}
+        {/* 右栏视图 A：账号安全审计（ThinScrollArea 悬浮细滑块） */}
         {subTab === "audit" ? (
-          <section className="audit-detail-pane" data-testid="audit-detail-view">
+          <ThinScrollArea>
+            <section className="audit-detail-pane" data-testid="audit-detail-view">
+            {isViewingHistory && (
+              <div className="audit-history-banner tabular" data-testid="audit-history-banner">
+                <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                  <History size={14} strokeWidth={1.65} style={{ color: "var(--primary)", flexShrink: 0 }} />
+                  <span>
+                    正在查看历史档案快照（记录于{" "}
+                    <strong>{formatHistoryTimestamp(viewReport.auditedAtMs)}</strong> ·
+                    只读回溯，非本机当前登录态）
+                  </span>
+                </div>
+                <div className="audit-history-banner-actions">
+                  <button
+                    type="button"
+                    data-testid="btn-back-current-account"
+                    className="guard-btn guard-btn-primary guard-btn-xs"
+                    onClick={handleSelectCurrentAccount}
+                  >
+                    返回本机当前账号
+                  </button>
+                  {viewingHistoryOrg && (
+                    <button
+                      type="button"
+                      data-testid="btn-delete-viewing-history"
+                      className="guard-btn guard-btn-flat guard-btn-xs"
+                      onClick={() => {
+                        const target = archivedAccounts.find(
+                          (a) => a.orgPrefix8.toLowerCase() === viewingHistoryOrg.toLowerCase()
+                        );
+                        if (target) handleDeleteHistoryAccount(target);
+                      }}
+                    >
+                      删除此记录
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* 顶部双层档案总览卡 */}
             <div className="guard-card tabular">
               <div className="audit-profile-top">
                 <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
                   <div className="audit-profile-id-line">
-                    <span className="audit-profile-email">{report.emailMasked}</span>
+                    <span className="audit-profile-email">{viewReport.emailMasked}</span>
                     <span
                       className="guard-chip guard-chip-neutral"
                       style={{ padding: "1px 6px" }}
                       title={
-                        report.cloudVerified
+                        viewReport.cloudVerified
                           ? "云端实时核验套餐"
                           : "来自本机配置文件缓存（若已到期降级为 Free，请点击右侧「云端核验」实时刷新）"
                       }
                     >
-                      {report.cloudVerified ? report.plan : `${report.plan} · 缓存`}
+                      {viewReport.cloudVerified ? viewReport.plan : `${viewReport.plan} · 缓存`}
                     </span>
-                    {report.primarySource && report.primarySource !== "none" && (
-                      <span
-                        className={`guard-chip ${
-                          report.primarySource === "cli_stale" ? "guard-chip-warn" : "guard-chip-mode"
-                        }`}
-                        style={{ padding: "1px 6px" }}
-                        title="当前顶部主档案的识别来源"
-                      >
-                        {report.primarySource === "desktop_web"
-                          ? "桌面/网页主号"
-                          : report.primarySource === "cli_and_desktop"
-                          ? "桌面+CLI 同号"
-                          : report.primarySource === "cli_stale"
-                          ? "CLI 残留 · 凭据失效/跨号"
-                          : "仅 CLI 账号"}
+                    {isViewingHistory ? (
+                      <span className="guard-chip guard-chip-mode" style={{ padding: "1px 6px" }}>
+                        历史归档快照
                       </span>
+                    ) : (
+                      viewReport.primarySource &&
+                      viewReport.primarySource !== "none" && (
+                        <span
+                          className={`guard-chip ${
+                            viewReport.primarySource === "cli_stale"
+                              ? "guard-chip-warn"
+                              : "guard-chip-mode"
+                          }`}
+                          style={{ padding: "1px 6px" }}
+                          title="当前顶部主档案的识别来源"
+                        >
+                          {viewReport.primarySource === "desktop_web"
+                            ? "桌面/网页主号"
+                            : viewReport.primarySource === "cli_and_desktop"
+                            ? "桌面+CLI 同号"
+                            : viewReport.primarySource === "cli_stale"
+                            ? "CLI 残留 · 凭据失效/跨号"
+                            : "仅 CLI 账号"}
+                        </span>
+                      )
                     )}
-                    {!report.plan.toLowerCase().includes("free") && (
+                    {!viewReport.plan.toLowerCase().includes("free") && (
                       <button
                         type="button"
                         data-testid="btn-sub-toggle"
@@ -1931,15 +2289,14 @@ export function AccountAuditPage() {
                       >
                         <span>
                           {subShowExpire
-                            ? report.subscriptionRenewLabel
-                            : report.subscriptionAgeDays != null
-                            ? `订阅 ${report.subscriptionAgeDays} 天`
+                            ? viewReport.subscriptionRenewLabel
+                            : viewReport.subscriptionAgeDays != null
+                            ? `订阅 ${viewReport.subscriptionAgeDays} 天`
                             : "订阅时长未知"}
                         </span>
                         <span style={{ opacity: 0.55, fontSize: 10 }}>⇄</span>
                       </button>
                     )}
-                    <span>{report.merchantChannel}</span>
                   </div>
 
                   <div
@@ -1955,48 +2312,58 @@ export function AccountAuditPage() {
                     <span>
                       组织{" "}
                       <span className="font-mono-code" style={{ color: "var(--text-2)" }}>
-                        {report.orgIdPrefix8 ?? "未知"}
+                        {viewReport.orgIdPrefix8 ?? "未知"}
                       </span>
                     </span>
                     <span style={{ opacity: 0.55 }}>·</span>
                     <span
-                      className={`audit-geo-pill ${report.workspaceGeo ? "is-verified" : ""}`}
+                      className={`audit-geo-pill ${viewReport.workspaceGeo ? "is-verified" : ""}`}
                     >
-                      {report.workspaceGeo ? `属地 ${report.workspaceGeo}` : "属地 待核"}
+                      {viewReport.workspaceGeo ? `属地 ${viewReport.workspaceGeo}` : "属地 待核"}
                     </span>
+                    {viewReport.merchantChannel && (
+                      <>
+                        <span style={{ opacity: 0.55 }}>·</span>
+                        <span style={{ color: "var(--text-2)" }}>{viewReport.merchantChannel}</span>
+                      </>
+                    )}
                     <span style={{ opacity: 0.55 }}>·</span>
                     <span>
-                      注册 {report.accountAgeDays != null ? `${report.accountAgeDays} 天` : "未知"}
+                      注册 {viewReport.accountAgeDays != null ? `${viewReport.accountAgeDays} 天` : "未知"}
                     </span>
                     <span style={{ opacity: 0.55 }}>·</span>
                     <span>
                       本机{" "}
-                      {report.localDeviceAgeDays != null
-                        ? `${report.localDeviceAgeDays} 天`
+                      {viewReport.localDeviceAgeDays != null
+                        ? `${viewReport.localDeviceAgeDays} 天`
                         : "未知"}
                     </span>
                   </div>
                 </div>
 
                 <div className="audit-profile-actions">
-                  {needCloudPrompt ? (
+                  {isViewingHistory ? (
+                    <span className="audit-verify-age tabular">
+                      存档于 {formatHistoryTimestamp(viewReport.auditedAtMs)}
+                    </span>
+                  ) : needCloudPrompt ? (
                     <button
                       type="button"
                       data-testid="btn-cloud-prompt-pill"
                       className="audit-verify-age is-prompt tabular"
-                      title="云端核验后可补全官方本体状态与归属地，评分更真实完整"
+                      title="云端核验后可补全官方本体状态与归属地，评分更真实完整（未核验本地估分封顶 85）"
                       onClick={focusCloudVerifyInput}
                     >
                       <span className="audit-pulse-blue-dot" />
                       <span>
-                        {!report.cloudVerified
-                          ? "本地估上限85 · 补验云端更准 →"
-                          : `${report.cloudAgeDays ?? 8}天前核验 · 重验更新更准 →`}
+                        {!viewReport.cloudVerified
+                          ? "本地封顶 85"
+                          : `${viewReport.cloudAgeDays ?? 8} 天前核验`}
                       </span>
                     </button>
                   ) : (
                     <span className="audit-verify-age tabular">
-                      刚刚同步{report.verifyCount > 1 ? ` (第 ${report.verifyCount} 次)` : ""}
+                      刚刚同步{viewReport.verifyCount > 1 ? ` (第 ${viewReport.verifyCount} 次)` : ""}
                     </span>
                   )}
 
@@ -2007,25 +2374,35 @@ export function AccountAuditPage() {
                     title="点击查看账户风险评分明细与防封宝典权重依据"
                     onClick={() => setGuideOpen(true)}
                   >
-                    {!report.cloudVerified
+                    {!viewReport.cloudVerified
                       ? `${scoreResult.score} 分 · 本地估`
                       : `${scoreResult.score} 分 · ${scoreResult.levelLabel}`}
                   </button>
 
-                  <button
-                    type="button"
-                    data-testid="btn-top-cloud-verify"
-                    className={`guard-btn ${
-                      needCloudPrompt ? "guard-btn-primary" : "guard-btn-flat"
-                    } guard-btn-sm`}
-                    onClick={focusCloudVerifyInput}
-                  >
-                    {!report.cloudVerified ? "云端核验" : "重验 sk"}
-                  </button>
+                  {isViewingHistory ? (
+                    <button
+                      type="button"
+                      className="guard-btn guard-btn-flat guard-btn-sm"
+                      onClick={handleSelectCurrentAccount}
+                    >
+                      返回本机账号
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      data-testid="btn-top-cloud-verify"
+                      className={`guard-btn ${
+                        needCloudPrompt ? "guard-btn-primary" : "guard-btn-flat"
+                      } guard-btn-sm`}
+                      onClick={focusCloudVerifyInput}
+                    >
+                      {!viewReport.cloudVerified ? "云端核验" : "重验 sk"}
+                    </button>
+                  )}
                 </div>
               </div>
 
-              {renderTopCloudStats(report)}
+              {renderTopCloudStats(viewReport)}
 
               {showKycExplain && (
                 <div className="audit-kyc-explain" data-testid="kyc-explain-box">
@@ -2073,10 +2450,12 @@ export function AccountAuditPage() {
               </div>
               <div className="guard-card">{renderGroupList(toolGroups)}</div>
             </div>
-          </section>
+            </section>
+          </ThinScrollArea>
         ) : (
-          /* 右栏视图 B：实时异常日志流（403 精准消歧 + 完整实时取证日志控制台切换） */
-          <section className="audit-detail-pane" data-testid="audit-logs-view">
+          /* 右栏视图 B：实时异常日志流（ThinScrollArea 悬浮细滑块） */
+          <ThinScrollArea>
+            <section className="audit-detail-pane" data-testid="audit-logs-view">
             <div className="audit-log-banner">
               <span>
                 <strong>7 类 403 精准消歧引擎：</strong>结合本机 {report.plan} 套餐自动区分「无害背景
@@ -2097,11 +2476,8 @@ export function AccountAuditPage() {
             </div>
 
             {showFullLogConsole ? (
-              <div
-                className="guard-card"
-                style={{ flex: 1, minHeight: 480, display: "flex", flexDirection: "column" }}
-              >
-                <LogAnalysisPage />
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <LogAnalysisPage embedded />
               </div>
             ) : (
               <>
@@ -2114,27 +2490,37 @@ export function AccountAuditPage() {
                     flexWrap: "wrap",
                   }}
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                     <button
                       type="button"
-                      className={`audit-filter-pill ${logFilter === "all" ? "active" : ""}`}
+                      className={`filter-tab ${logFilter === "all" ? "active" : ""}`}
                       onClick={() => setLogFilter("all")}
                     >
-                      全部安全异常 ({nonDenoisedLogCount})
+                      <span>全部安全异常</span>
+                      <span className="tabular" style={{ fontSize: 11, color: "var(--text-3)" }}>
+                        {nonDenoisedLogCount}
+                      </span>
                     </button>
                     <button
                       type="button"
-                      className={`audit-filter-pill ${logFilter === "403" ? "active" : ""}`}
+                      className={`filter-tab ${logFilter === "403" ? "active" : ""}`}
                       onClick={() => setLogFilter("403")}
                     >
-                      403 精准消歧 ({log403Count} + {report.denoisedOauth403Count}降噪)
+                      <span>403 精准消歧</span>
+                      <span className="tabular" style={{ fontSize: 11, color: "var(--text-3)" }}>
+                        {log403Count}
+                        {report.denoisedOauth403Count > 0 ? ` + ${report.denoisedOauth403Count} 降噪` : ""}
+                      </span>
                     </button>
                     <button
                       type="button"
-                      className={`audit-filter-pill ${logFilter === "net" ? "active" : ""}`}
+                      className={`filter-tab ${logFilter === "net" ? "active" : ""}`}
                       onClick={() => setLogFilter("net")}
                     >
-                      代理断连 ({logNetCount})
+                      <span>代理断连</span>
+                      <span className="tabular" style={{ fontSize: 11, color: "var(--text-3)" }}>
+                        {logNetCount}
+                      </span>
                     </button>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -2144,16 +2530,17 @@ export function AccountAuditPage() {
                         color: "var(--text-2)",
                         display: "inline-flex",
                         alignItems: "center",
-                        gap: 5,
+                        gap: 6,
                         cursor: "pointer",
                       }}
                     >
                       <input
                         type="checkbox"
+                        className="guard-checkbox"
                         checked={showDenoised}
                         onChange={(e) => setShowDenoised(e.target.checked)}
                       />
-                      显示已降噪的 OAuth 403 ({report.denoisedOauth403Count})
+                      <span>显示已降噪的 OAuth 403 ({report.denoisedOauth403Count})</span>
                     </label>
                     <button
                       type="button"
@@ -2241,11 +2628,12 @@ export function AccountAuditPage() {
                 </div>
               </>
             )}
-          </section>
+            </section>
+          </ThinScrollArea>
         )}
       </div>
 
-      {/* 右侧滑出「防封宝典」白皮书级抽屉（零卡片套娃 + 底部折叠 100 分权重表） */}
+      {/* 右侧滑出「防封宝典」白皮书级抽屉（零卡片套娃 + ThinScrollArea） */}
       {guideOpen && (
         <div
           className="audit-drawer-backdrop"
@@ -2261,14 +2649,15 @@ export function AccountAuditPage() {
             <div className="audit-drawer-hd">
               <div
                 style={{
-                  fontSize: 15,
-                  fontWeight: 600,
+                  fontSize: 14.5,
+                  fontWeight: 500,
+                  color: "var(--text-strong)",
                   display: "flex",
                   alignItems: "center",
                   gap: 8,
                 }}
               >
-                <BookOpen size={16} strokeWidth={2} style={{ color: "var(--primary-hover)" }} />
+                <BookOpen size={15} strokeWidth={1.55} style={{ color: "var(--primary)" }} />
                 <span>防封宝典 · 风险权重与审计依据</span>
               </div>
               <button
@@ -2280,7 +2669,8 @@ export function AccountAuditPage() {
               </button>
             </div>
 
-            <div className="audit-drawer-body">
+            <ThinScrollArea>
+              <div className="audit-drawer-body">
               {/* 单层动态评分卡（零嵌套子卡片） */}
               <div className="audit-score-card tabular">
                 <div
@@ -2305,8 +2695,8 @@ export function AccountAuditPage() {
                     >
                       <span
                         style={{
-                          fontSize: 24,
-                          fontWeight: 700,
+                          fontSize: 22,
+                          fontWeight: 500,
                           lineHeight: 1,
                           color: barColor,
                         }}
@@ -2314,7 +2704,7 @@ export function AccountAuditPage() {
                         {scoreResult.score}
                       </span>
                       <span style={{ fontSize: 12, color: "var(--text-2)" }}>
-                        / 100 · <strong>{scoreResult.levelLabel}</strong>
+                        / 100 · <span style={{ color: "var(--text-strong)", fontWeight: 500 }}>{scoreResult.levelLabel}</span>
                       </span>
                     </div>
                   </div>
@@ -2349,8 +2739,8 @@ export function AccountAuditPage() {
                     style={{
                       fontSize: 11.5,
                       color: "var(--text-2)",
-                      background: "rgba(0,111,238,0.08)",
-                      border: "1px solid rgba(51,142,247,0.28)",
+                      background: "var(--primary-soft)",
+                      border: "1px solid var(--primary-border)",
                       borderRadius: 7,
                       padding: "7px 9px",
                       display: "flex",
@@ -2387,8 +2777,8 @@ export function AccountAuditPage() {
                             <div
                               style={{
                                 fontSize: 12.5,
-                                fontWeight: 600,
-                                color: "var(--text-1)",
+                                fontWeight: 500,
+                                color: "var(--text-strong)",
                                 lineHeight: 1.4,
                               }}
                             >
@@ -2406,10 +2796,10 @@ export function AccountAuditPage() {
                             </div>
                           </div>
                           <span
-                            className="font-mono-code"
+                            className="tabular"
                             style={{
                               fontSize: 12,
-                              fontWeight: 700,
+                              fontWeight: 500,
                               color: col,
                               whiteSpace: "nowrap",
                               flexShrink: 0,
@@ -2426,8 +2816,8 @@ export function AccountAuditPage() {
                         <div
                           style={{
                             fontSize: 12.5,
-                            fontWeight: 600,
-                            color: "var(--text-1)",
+                            fontWeight: 500,
+                            color: "var(--text-strong)",
                           }}
                         >
                           全部检查项均无扣分
@@ -2437,8 +2827,8 @@ export function AccountAuditPage() {
                         </div>
                       </div>
                       <span
-                        className="font-mono-code"
-                        style={{ color: "var(--success)", fontWeight: 700 }}
+                        className="tabular"
+                        style={{ color: "var(--ok-fg)", fontWeight: 500 }}
                       >
                         100
                       </span>
@@ -2457,7 +2847,7 @@ export function AccountAuditPage() {
                     gap: 8,
                   }}
                 >
-                  <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text-1)" }}>
+                  <span style={{ fontSize: 13.5, fontWeight: 500, color: "var(--text-strong)" }}>
                     一、最易触发封号的 4 大核心雷区
                   </span>
                   <span style={{ fontSize: 11.5, color: "var(--text-3)" }}>建议优先排查</span>
@@ -2532,7 +2922,7 @@ export function AccountAuditPage() {
                     gap: 8,
                   }}
                 >
-                  <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text-1)" }}>
+                  <span style={{ fontSize: 13.5, fontWeight: 500, color: "var(--text-strong)" }}>
                     二、3 个关键防翻车阶段与护航习惯
                   </span>
                   <span style={{ fontSize: 11.5, color: "var(--text-3)" }}>社区高频实战经验</span>
@@ -2583,7 +2973,7 @@ export function AccountAuditPage() {
                     gap: 8,
                   }}
                 >
-                  <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text-1)" }}>
+                  <span style={{ fontSize: 13.5, fontWeight: 500, color: "var(--text-strong)" }}>
                     三、云端状态、403 报错与数据边界速查
                   </span>
                   <span style={{ fontSize: 11.5, color: "var(--text-3)" }}>看懂信号不误判</span>
@@ -2705,7 +3095,8 @@ export function AccountAuditPage() {
                 <strong>启发式防御参考分</strong>
                 ，绝不等同于 Anthropic 内部黑盒风控分；高分不承诺永不封号，低分仅代表存在较多已知可优化隐患。
               </div>
-            </div>
+              </div>
+            </ThinScrollArea>
           </div>
         </div>
       )}

@@ -1,11 +1,16 @@
-import { useEffect, useState, type MouseEvent } from "react";
-import { ChevronDown, ChevronRight, Loader2, RefreshCw, ShieldAlert } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Check, Loader2, RefreshCw, Search } from "lucide-react";
+import { HoverTooltip, useHoverTooltip } from "@/components/HoverTooltip";
+import { ThinScrollArea } from "@/components/ThinScrollArea";
 import { ipc } from "@/lib/ipc";
 import { DROP_RATE_REDLINE, extractRegionCode, isSameRegionSwitch } from "@/lib/protocol";
 import { useGuardStore } from "@/stores/guardStore";
 import type { ClaudeConn, NodeItem } from "@/types/guard";
 
-/** 大白话状态悬停解释（鼠标放上 0ms 浮现，让普通用户一秒看懂拉黑/弹盾/落地禁区/AGY 限区/超时原因） */
+type NodeFilterTab = "usable" | "same" | "quarantine";
+type FlowFilterTab = "all" | "anomaly" | "rejected" | "unlisted";
+
+/** 大白话状态悬停解释（0ms 浮现，让普通用户一秒看懂拉黑/弹盾/落地禁区/AGY 限区/超时原因） */
 function getClaudeBadgeTip(status: string, label: string, detail?: string): string {
   const detailSuffix = detail && detail.trim() ? `\n实测明细：${detail.trim()}` : "";
   if (status === "cf_403" || label.includes("拉黑")) {
@@ -18,16 +23,22 @@ function getClaudeBadgeTip(status: string, label: string, detail?: string): stri
     return `落地禁区：节点名称虽看似合规，但实测真实出口 IP 落入 HK / MO / CN / RU 等 Anthropic 禁区黑名单（常见于广播 IP 或香港落地伪装线路），严禁使用 Claude。${detailSuffix}`;
   }
   if (status === "offline" || label.includes("超时")) {
-    return `Claude 超时：节点在 Clash 中基础网络可能正常，但访问 api.anthropic.com 连续 2 次超时或连接被重置；仅短缓存 5 分钟，可点右侧「重测」单独复核。${detailSuffix}`;
+    return `Claude 超时：节点在 Clash 中基础网络可能正常，但访问 api.anthropic.com 连续 2 次超时或连接被重置；仅短缓存 5 分钟，可点右上「重测超时类」批量复核。${detailSuffix}`;
   }
   if (status === "ok") {
     return `Anthropic API 与 claude.ai 网页登录均实测畅通，无 Cloudflare 拦截盾。${detailSuffix}`;
   }
-  return "尚未完成真实代理深度核验（我们绝不造假绿灯）；后台会自动逐个慢速核验，也可点右上角「深度核验全部」或切换锁定立即实测。";
+  return "尚未完成真实代理深度核验（我们绝不造假绿灯）；后台会自动逐个慢速核验，也可点右上角「深度核验全部」或按分类重测立即实测。";
 }
 
 function getGeminiBadgeTip(status: string, label: string): string {
-  if (status === "cn_redirect" || status === "restricted" || label.includes("限区") || label.includes("送中")) {
+  if (
+    status === "cn_redirect" ||
+    status === "restricted" ||
+    status === "limited" ||
+    label.includes("限区") ||
+    label.includes("送中")
+  ) {
     return "AGY 限区（标记风险 · 不禁用）：Google 将该节点出口识别为中国香港或受限地区（如跳转 google.com.hk / 返回地区不支持），说明该 IP 在 Google 侧存在地区混杂或送中风险，Antigravity (AGY) 不可用；但实测 Claude 畅通，故仅标记风险、允许继续用于 Claude。";
   }
   if (status === "ok") {
@@ -58,21 +69,114 @@ function getNodeTypeTip(riskLevel: string, asnShort: string): string {
   return "尚未对该节点执行真实出口 IP 核验；核验结果将永久缓存 24 小时（超时节点仅缓存 5 分钟，发生漂移会自动失效重测）。";
 }
 
+/** 隐藏常规 HTTPS 默认 :443 端口，保留非 443 端口 */
+function formatDisplayHost(rawHost: string): string {
+  if (!rawHost) return "";
+  return rawHost.endsWith(":443") ? rawHost.slice(0, -4) : rawHost;
+}
+
+/** 将 Mihomo 原始 rule 字段精炼为去重后的中文规则名 + 简短类型码（彻底去除与左侧主机重复的域名后缀） */
+function formatRuleSummary(
+  rawRule: string,
+  isRejected: boolean,
+  isAnomaly: boolean
+): { label: string; code: string; tip: string } {
+  const trimmed = (rawRule || "Match").trim();
+  const baseType = trimmed.split(/[(\s,]/)[0] || trimmed;
+  const upper = baseType.toUpperCase();
+
+  let label = "分流规则";
+  if (isRejected) {
+    label = "防回传拦截";
+  } else if (upper === "MATCH") {
+    label = isAnomaly ? "兜底直连" : "兜底规则";
+  } else if (upper.includes("PROCESS")) {
+    label = "进程兜底";
+  } else if (upper === "DOMAINSUFFIX" || upper === "DOMAIN-SUFFIX") {
+    label = "域名规则";
+  } else if (upper === "DOMAINKEYWORD" || upper === "DOMAIN-KEYWORD") {
+    label = "关键词规则";
+  } else if (upper === "DOMAIN") {
+    label = "精确域名";
+  } else if (upper.includes("IPCIDR") || upper.includes("IP-CIDR")) {
+    label = "IP 网段";
+  } else if (upper.includes("RULESET") || upper.includes("RULE-SET")) {
+    label = "规则集";
+  }
+
+  return {
+    label,
+    code: baseType,
+    tip: `原始命中规则：${trimmed}`,
+  };
+}
+
+/** 解析出口链路：正常经 Claude-Fixed 放行默认隐藏组名前缀只显示落地节点；仅异常或阻断展示完整状态 */
+function formatChainSummary(
+  conn: ClaudeConn,
+  groupName: string,
+  isRejected: boolean
+): { main: string; sub: string; tone: "ok" | "bad" | "muted"; tip: string } {
+  const parts = (conn.chain || "")
+    .split("→")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const lastNode = parts[parts.length - 1] || conn.chain || "DIRECT";
+
+  if (conn.anomaly) {
+    return {
+      main: lastNode,
+      sub: `脱出 ${groupName}`,
+      tone: "bad",
+      tip: `完整链路：${conn.chain}\n该连接未走锁定策略组 ${groupName}，存在暴露真实 IP 或串区风险。`,
+    };
+  }
+  if (isRejected) {
+    return {
+      main: lastNode,
+      sub: "防回传已阻断",
+      tone: "muted",
+      tip: `完整链路：${conn.chain}\n已由防回传规则自动静默拦截，不影响正常对话。`,
+    };
+  }
+  const withoutGroup = parts.filter((p) => p !== groupName);
+  const cleanExit = withoutGroup[withoutGroup.length - 1] || lastNode;
+  return {
+    main: cleanExit,
+    sub: "",
+    tone: "ok",
+    tip: `完整链路：${conn.chain}\n常规连接已默认隐藏策略组前缀 ${groupName}。`,
+  };
+}
+
+/** 基于 startedAtMs 实时格式化持续时长；阻断态显「已阻断」；缺时间戳优雅回退 c.time */
+function formatConnDuration(conn: ClaudeConn, nowMs: number, isRejected: boolean): string {
+  if (isRejected) return "已阻断";
+  if (typeof conn.startedAtMs === "number" && Number.isFinite(conn.startedAtMs)) {
+    const secs = Math.max(0, Math.floor((nowMs - conn.startedAtMs) / 1000));
+    if (secs < 60) return `${secs}s`;
+    const mins = Math.floor(secs / 60);
+    const remS = secs % 60;
+    if (mins < 60) return `${mins}m ${String(remS).padStart(2, "0")}s`;
+    const hours = Math.floor(mins / 60);
+    const remM = mins % 60;
+    return `${hours}h ${String(remM).padStart(2, "0")}m`;
+  }
+  return conn.time || "--:--:--";
+}
+
 export function NodesTrafficPage() {
   const subTab = useGuardStore((s) => s.nodesSubTab);
   const setSubTab = useGuardStore((s) => s.setNodesSubTab);
-  const [flowFilter, setFlowFilter] = useState<"anomaly" | "all">("all");
+  const [nodeFilter, setNodeFilter] = useState<NodeFilterTab>("usable");
+  const [flowFilter, setFlowFilter] = useState<FlowFilterTab>("all");
   const [conns, setConns] = useState<ClaudeConn[]>([]);
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
   const [refreshingNodes, setRefreshingNodes] = useState(false);
   const [loadingConns, setLoadingConns] = useState(false);
   const [closingConnId, setClosingConnId] = useState<string | null>(null);
-  const [hoverTip, setHoverTip] = useState<{
-    text: string;
-    x: number;
-    y: number;
-    placeBelow: boolean;
-  } | null>(null);
-  const [showQuarantine, setShowQuarantine] = useState(true);
+  const { tip, showTip, hideTip } = useHoverTooltip();
+
   const snapshot = useGuardStore((s) => s.snapshot);
   const nodeReport = useGuardStore((s) => s.nodeReport);
   const deepAudit = useGuardStore((s) => s.deepAudit);
@@ -94,6 +198,7 @@ export function NodesTrafficPage() {
     try {
       const list = await ipc.getLiveConnections();
       setConns(list);
+      setNowMs(Date.now());
     } catch (err) {
       pushToast("拉取实时连接失败", String(err), "danger");
     } finally {
@@ -102,19 +207,26 @@ export function NodesTrafficPage() {
   };
 
   useEffect(() => {
-    setHoverTip(null);
+    hideTip();
     if (subTab !== "traffic") return;
     let cancelled = false;
     void ipc
       .getLiveConnections()
       .then((list) => {
-        if (!cancelled) setConns(list);
+        if (!cancelled) {
+          setConns(list);
+          setNowMs(Date.now());
+        }
       })
       .catch(() => {});
+    const timer = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
     return () => {
       cancelled = true;
+      window.clearInterval(timer);
     };
-  }, [subTab]);
+  }, [subTab, hideTip]);
 
   const handleCloseConn = async (id: string) => {
     if (closingConnId) return;
@@ -150,16 +262,13 @@ export function NodesTrafficPage() {
     }
   };
 
-  /**
-   * 增量 8：严格比对当前节点与目标节点地区前缀（修复 JP -> US 误判同区热备）
-   */
+  /** 严格比对当前节点与目标节点地区前缀（绝不将 JP -> US 误判为同区热备） */
   const requestSwitch = (nodeName: string) => {
     const curNode = nodeReport.currentNode;
     const sameRegion = isSameRegionSwitch(curNode, nodeName);
     const fromCode = extractRegionCode(curNode);
     const toCode = extractRegionCode(nodeName);
     const hasProcs = snapshot.bgClaudeProcs > 0;
-
     const calmLocked = config.calm24h && !snapshot.nodeDown;
 
     openRiskModal({
@@ -242,13 +351,18 @@ export function NodesTrafficPage() {
     });
   };
 
-  const activeAnomCount = conns.filter((c) => c.anomaly && !ackedFlowIds.includes(c.id)).length;
-  const totalAnomCount = conns.filter((c) => c.anomaly).length;
-  const shownConns = flowFilter === "anomaly" ? conns.filter((c) => c.anomaly) : conns;
-  // 严格互斥分类，确保所有数字加总 100% 与订阅总节点数对得上：
-  // 订阅总数 = 名称直筛禁区(未入组) + 入组评估数(可用 + 实测落地禁区 + 其他不可用)
+  // ---- 节点分类统计 ----
   const usableNodes = nodeReport.nodes.filter((n) => !n.blocked && !n.cfBlocked);
   const unusableNodes = nodeReport.nodes.filter((n) => n.blocked || n.cfBlocked);
+  const curNodeItem = nodeReport.nodes.find((n) => n.isCurrent);
+  const curRegionCode =
+    curNodeItem?.regionCode || extractRegionCode(nodeReport.currentNode) || "GL";
+  const sameRegionUsableNodes = usableNodes.filter(
+    (n) =>
+      n.isCurrent ||
+      isSameRegionSwitch(nodeReport.currentNode, n.name) ||
+      (curNodeItem && n.regionCode === curNodeItem.regionCode)
+  );
   const landingBlockedNodes = unusableNodes.filter(
     (n) =>
       n.claudeStatus === "blocked" ||
@@ -257,6 +371,9 @@ export function NodesTrafficPage() {
       n.recommendation?.includes("禁区")
   );
   const otherUnusableNodes = unusableNodes.filter((n) => !landingBlockedNodes.includes(n));
+  const timeoutNodes = unusableNodes.filter(
+    (n) => n.claudeStatus === "offline" || n.claudeLabel?.includes("超时")
+  );
   const nameBlockedCount =
     nodeReport.nameBlockedCount ??
     Math.max(0, nodeReport.filteredBlockedCount - landingBlockedNodes.length);
@@ -264,78 +381,422 @@ export function NodesTrafficPage() {
     nodeReport.subscriptionTotalNodes && nodeReport.subscriptionTotalNodes >= nodeReport.nodes.length
       ? nodeReport.subscriptionTotalNodes
       : nodeReport.nodes.length + nameBlockedCount;
-  const totalUnavailableAndBlocked = nameBlockedCount + unusableNodes.length;
-  const usableNodeCount = usableNodes.length;
-  const unusableInListCount = unusableNodes.length;
 
-  const showTip = (e: MouseEvent<HTMLElement>, text: string) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = Math.max(150, Math.min(window.innerWidth - 150, rect.left + rect.width / 2));
-    const placeBelow = rect.top < 160;
-    const y = placeBelow ? rect.bottom + 8 : rect.top - 8;
-    setHoverTip({ text, x, y, placeBelow });
+  const displayedNodes =
+    nodeFilter === "usable"
+      ? usableNodes
+      : nodeFilter === "same"
+      ? sameRegionUsableNodes
+      : unusableNodes;
+
+  const scopeRetestLabel =
+    nodeFilter === "usable"
+      ? "重测可用节点"
+      : nodeFilter === "same"
+      ? "重测同区热备"
+      : "重测隔离区";
+
+  // ---- 实时流量统计 ----
+  const isConnRejected = (c: ClaudeConn) =>
+    c.chain.toUpperCase().includes("REJECT") || c.action.includes("已拦截");
+  const activeAnomCount = conns.filter((c) => c.anomaly && !ackedFlowIds.includes(c.id)).length;
+  const totalAnomCount = conns.filter((c) => c.anomaly).length;
+  const rejectedCount = conns.filter(isConnRejected).length;
+  const safeCount = conns.filter((c) => !c.anomaly && !isConnRejected(c)).length;
+  const unlistedDomainCount = conns.filter((c) => c.isUnlistedDomain).length;
+
+  const shownConns =
+    flowFilter === "anomaly"
+      ? conns.filter((c) => c.anomaly)
+      : flowFilter === "rejected"
+      ? conns.filter(isConnRejected)
+      : flowFilter === "unlisted"
+      ? conns.filter((c) => c.isUnlistedDomain)
+      : conns;
+
+  const renderNodeRow = (n: NodeItem) => {
+    const isQ = n.blocked || n.cfBlocked;
+    const isSwitchingThis = switchingNodeName === n.name;
+    const isAuditingThis = deepAudit.running && deepAudit.currentNode === n.name;
+    const isSame =
+      !isQ &&
+      !n.isCurrent &&
+      (isSameRegionSwitch(nodeReport.currentNode, n.name) ||
+        (curNodeItem != null && n.regionCode === curNodeItem.regionCode));
+
+    const claudeStatus = n.claudeStatus ?? (n.cfBlocked ? "cf_403" : isQ ? "blocked" : "ok");
+    const claudeLabel =
+      n.claudeLabel ?? (n.cfBlocked ? "Claude 拉黑" : isQ ? "落地禁区" : "Claude ✓");
+    const claudeTip = getClaudeBadgeTip(claudeStatus, claudeLabel, n.claudeProbeDetail);
+    const claudeIsOk = claudeStatus === "ok" && !isQ && !n.webCfChallenge;
+    const claudeIsWarn = !isQ && (claudeStatus === "cf_challenge" || Boolean(n.webCfChallenge));
+
+    const geminiStatus = n.geminiStatus ?? "unknown";
+    const geminiLabel =
+      n.geminiLabel === "Gemini 送中" ||
+      n.geminiLabel === "Gemini ✗" ||
+      n.geminiLabel === "Gemini 限区"
+        ? "AGY 限区"
+        : n.geminiLabel === "Gemini ✓"
+        ? "AGY ✓"
+        : n.geminiLabel ?? "AGY 待测";
+    const geminiTip = getGeminiBadgeTip(geminiStatus, geminiLabel);
+    const geminiIsOk = geminiStatus === "ok";
+    const geminiIsWarn =
+      geminiStatus === "cn_redirect" ||
+      geminiStatus === "restricted" ||
+      geminiStatus === "limited" ||
+      geminiLabel.includes("限区");
+
+    const riskLevel =
+      n.riskLevel ??
+      (n.cfBlocked
+        ? "abuser"
+        : n.asnPurity?.includes("高危")
+        ? "abuser"
+        : n.asnPurity?.includes("共享")
+        ? "proxy"
+        : n.asnPurity?.includes("ISP")
+        ? "isp"
+        : n.asnPurity?.includes("机房")
+        ? "hosting"
+        : isQ
+        ? "blocked"
+        : "unknown");
+    const asnShort =
+      n.asnShort ??
+      (riskLevel === "abuser"
+        ? "高危滥用"
+        : riskLevel === "proxy"
+        ? "共享代理"
+        : riskLevel === "isp"
+        ? "ISP 住宅"
+        : riskLevel === "hosting"
+        ? "常规机房"
+        : isQ
+        ? "落地禁区"
+        : "待验 IP");
+    const riskDetail =
+      n.riskDetail ??
+      (riskLevel === "abuser"
+        ? "命中滥用黑名单"
+        : riskLevel === "proxy"
+        ? "公共 VPN / 代理段"
+        : riskLevel === "isp"
+        ? "无代理标记"
+        : riskLevel === "hosting"
+        ? "0 滥用记录"
+        : isQ
+        ? "已隔离"
+        : "切入后实测 IP");
+    const nodeTypeTip = getNodeTypeTip(riskLevel, asnShort);
+    const isTypeWarn = !isQ && riskLevel === "proxy";
+
+    const driftCount = n.driftCount24h ?? 0;
+    const dropFail = n.dropRatePct >= DROP_RATE_REDLINE;
+    const dropWarn = !isQ && !dropFail && n.dropRatePct > 0.5;
+    const stabWarn = !isQ && (driftCount > 0 || n.jitterMs >= 25);
+    const stabilityTip =
+      driftCount > 0
+        ? `最近 24 小时检测到该节点落地 IP 静默切换 ${driftCount} 次（抖动 ±${n.jitterMs} ms），会话中途变 IP 易触发风控。`
+        : `多轮实测延迟抖动 ±${n.jitterMs} ms，最近 24 小时落地 IP 稳定（0 次漂移）。`;
+
+    const boxCls = isQ
+      ? "is-bad"
+      : n.isCurrent
+      ? "is-cur"
+      : claudeIsWarn || isTypeWarn
+      ? "is-warn"
+      : "";
+    const scoreWarn = !isQ && (n.score < 75 || claudeIsWarn || driftCount > 0 || isTypeWarn);
+    const scoreColor = isQ
+      ? "var(--text-3)"
+      : scoreWarn
+      ? "var(--warning-fg)"
+      : "var(--text-strong)";
+    const barColor = isQ
+      ? "var(--bad-dot)"
+      : scoreWarn
+      ? "var(--warning-dot)"
+      : "var(--ok-dot)";
+    const subRegion = n.regionLabel ?? `${n.regionCode} · ${n.nodeType}`;
+
+    return (
+      <div key={n.name} className={`node-row-grid tabular ${n.isCurrent ? "is-cur" : ""}`}>
+        {/* 列 1：节点 / 出口 IP */}
+        <div style={{ display: "flex", alignItems: "center", gap: 11, minWidth: 0 }}>
+          <div className={`region-box ${boxCls}`}>{n.regionCode || "GL"}</div>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div
+              className="row-main"
+              style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}
+            >
+              <span
+                title={n.name}
+                style={{
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  color: isQ
+                    ? "var(--text-2)"
+                    : n.isCurrent
+                    ? "var(--text-strong)"
+                    : "var(--text-1)",
+                  fontWeight: n.isCurrent ? 500 : 400,
+                }}
+              >
+                {n.name}
+              </span>
+              {isSame && (
+                <span
+                  style={{
+                    fontSize: 10,
+                    padding: "0.5px 5px",
+                    borderRadius: 4,
+                    background: "var(--bg-subtle)",
+                    color: "var(--text-3)",
+                    flexShrink: 0,
+                  }}
+                >
+                  同区
+                </span>
+              )}
+            </div>
+            <div
+              className="row-sub"
+              style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+            >
+              {subRegion}
+            </div>
+          </div>
+        </div>
+
+        {/* 列 2：平台支持 / 阻断原因 */}
+        <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+          {isAuditingThis ? (
+            <span className="guard-chip guard-chip-warn" style={{ height: 19, fontSize: 10.5 }}>
+              <Loader2 size={10} strokeWidth={2} className="guard-spin" />
+              <span>检测中...</span>
+            </span>
+          ) : (
+            <>
+              {claudeIsOk ? (
+                <span
+                  className="plat-ok"
+                  onMouseEnter={(e) => showTip(e, claudeTip)}
+                  onMouseLeave={hideTip}
+                >
+                  <Check size={11} strokeWidth={2} />
+                  <span>Claude</span>
+                </span>
+              ) : (
+                <span
+                  className={`guard-chip ${claudeIsWarn ? "guard-chip-warn" : "guard-chip-fail"}`}
+                  style={{ height: 19, fontSize: 10.5, cursor: "help" }}
+                  onMouseEnter={(e) => showTip(e, claudeTip)}
+                  onMouseLeave={hideTip}
+                >
+                  {claudeLabel}
+                </span>
+              )}
+
+              {geminiIsOk ? (
+                <span
+                  className="plat-ok"
+                  onMouseEnter={(e) => showTip(e, geminiTip)}
+                  onMouseLeave={hideTip}
+                >
+                  <Check size={11} strokeWidth={2} />
+                  <span>AGY</span>
+                </span>
+              ) : (
+                <span
+                  className={`guard-chip ${
+                    geminiIsWarn
+                      ? "guard-chip-warn"
+                      : geminiLabel.includes("离线")
+                      ? "guard-chip-fail"
+                      : "guard-chip-neutral"
+                  }`}
+                  style={{ height: 19, fontSize: 10.5, cursor: "help" }}
+                  onMouseEnter={(e) => showTip(e, geminiTip)}
+                  onMouseLeave={hideTip}
+                >
+                  {geminiLabel}
+                </span>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* 列 3：节点类型 */}
+        <div style={{ minWidth: 0 }}>
+          <div
+            style={{ display: "inline-block", maxWidth: "100%", cursor: "help" }}
+            onMouseEnter={(e) => showTip(e, nodeTypeTip)}
+            onMouseLeave={hideTip}
+          >
+            <div
+              className="row-main"
+              style={{
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                color: isTypeWarn
+                  ? "var(--warning-fg)"
+                  : isQ
+                  ? "var(--text-2)"
+                  : "var(--text-1)",
+              }}
+            >
+              {asnShort}
+            </div>
+            <div
+              className="row-sub"
+              style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+            >
+              {riskDetail}
+            </div>
+          </div>
+        </div>
+
+        {/* 列 4：延迟 / 断连 / 稳定性 */}
+        <div style={{ minWidth: 0 }}>
+          <div
+            className="row-main"
+            style={{
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              color: isQ ? "var(--text-2)" : "var(--text-1)",
+            }}
+          >
+            <span>{n.delayMs !== null ? `${n.delayMs} ms` : "超时"}</span>
+            <span style={{ margin: "0 4px", color: "var(--text-4)" }}>·</span>
+            <span
+              style={{
+                color: dropFail
+                  ? "var(--bad-fg)"
+                  : dropWarn
+                  ? "var(--warning-fg)"
+                  : "var(--text-2)",
+              }}
+            >
+              {n.dropRatePct.toFixed(1)}% 断连
+            </span>
+          </div>
+          <div
+            className="row-sub"
+            style={{
+              display: "inline-block",
+              maxWidth: "100%",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              cursor: "help",
+              color: stabWarn ? "var(--warning-fg)" : "var(--text-3)",
+            }}
+            onMouseEnter={(e) => showTip(e, stabilityTip)}
+            onMouseLeave={hideTip}
+          >
+            抖动 ±{n.jitterMs} ms · {driftCount > 0 ? `漂移 ${driftCount} 次` : "0 漂移"}
+          </div>
+        </div>
+
+        {/* 列 5：质量评分 */}
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 12.5, fontWeight: 500, color: scoreColor }}>
+              {n.score}{" "}
+              <span style={{ fontSize: 10.5, fontWeight: 400, color: "var(--text-3)" }}>分</span>
+            </span>
+            <div className="mini-bar-track">
+              <div
+                className="mini-bar-fill"
+                style={{
+                  width: `${Math.min(100, Math.max(0, n.score))}%`,
+                  background: barColor,
+                }}
+              />
+            </div>
+          </div>
+          <div
+            className="row-sub"
+            style={{
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              color: scoreWarn ? "var(--warning-fg)" : "var(--text-3)",
+            }}
+          >
+            {n.recommendation || (isQ ? "不可用" : "可用")}
+          </div>
+        </div>
+
+        {/* 列 6：操作 / 状态（已移除单行重测按钮，改由列表顶部分类批量重测） */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end" }}>
+          {n.isCurrent ? (
+            <span className="guard-chip guard-chip-ok">当前锁定</span>
+          ) : isQ ? (
+            <span className="guard-chip guard-chip-fail">已隔离</span>
+          ) : (
+            <button
+              type="button"
+              disabled={fixing}
+              className="guard-btn guard-btn-flat guard-btn-xs"
+              onClick={() => requestSwitch(n.name)}
+            >
+              {isSwitchingThis && <Loader2 size={11} strokeWidth={2} className="guard-spin" />}
+              <span>{isSwitchingThis ? "切换中..." : "切换锁定"}</span>
+            </button>
+          )}
+        </div>
+      </div>
+    );
   };
-  const hideTip = () => setHoverTip(null);
 
   return (
     <section
-      style={{ display: "flex", flex: 1, minHeight: 0, flexDirection: "column" }}
-      onScrollCapture={hideTip}
+      style={{
+        display: "flex",
+        flex: 1,
+        minHeight: 0,
+        flexDirection: "column",
+        background: "var(--bg-canvas)",
+      }}
     >
-      {hoverTip && (
-        <div
-          role="tooltip"
-          data-testid="node-hover-tooltip"
-          style={{
-            position: "fixed",
-            left: hoverTip.x,
-            top: hoverTip.y,
-            transform: hoverTip.placeBelow ? "translate(-50%, 0)" : "translate(-50%, -100%)",
-            maxWidth: 270,
-            padding: "7px 10px",
-            borderRadius: 8,
-            background: "var(--bg-card)",
-            border: "1px solid var(--border-strong)",
-            color: "var(--text-1)",
-            fontSize: 11.5,
-            lineHeight: 1.5,
-            whiteSpace: "pre-line",
-            boxShadow: "0 10px 28px rgba(0, 0, 0, 0.28)",
-            pointerEvents: "none",
-            zIndex: 9999,
-          }}
-        >
-          {hoverTip.text}
+      <HoverTooltip tip={tip} testId="node-hover-tooltip" />
+
+      {/* 58px 单行页头 */}
+      <div className="page-hd">
+        <div className="page-hd-left">
+          <h1 className="page-title">节点流量</h1>
+          <span className="page-sub">Claude + AGY 双平台评估 · 同区容灾 · 12h 流量监控</span>
         </div>
-      )}
-      <div style={pageHdStyle}>
-        <div>
-          <h1 style={pageTitleStyle}>节点流量</h1>
-          <div style={pageSubStyle}>
-            Claude + Google Antigravity (AGY) 双平台风控评估 · 主备同区容灾 · 12 小时滚动流量监控
-          </div>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
           {subTab === "traffic" && activeAnomCount > 0 && !snapshot.killSwitchActive && (
             <button
               type="button"
-              className="guard-btn guard-btn-flat guard-btn-sm"
-              onClick={handleAckAllFlows}
+              className="guard-btn guard-btn-flat"
+              onClick={() => void handleAckAllFlows()}
             >
-              全部标为已处理
+              <Check size={13} strokeWidth={1.55} style={{ color: "var(--text-2)" }} />
+              <span>全部标为已处理</span>
             </button>
           )}
+
           {subTab === "quality" &&
             (deepAudit.running ? (
               <button
                 type="button"
                 data-testid="btn-cancel-deep-audit"
-                className="guard-btn guard-btn-flat guard-btn-sm"
-                style={{ color: "var(--warning)" }}
+                className="guard-btn guard-btn-flat tabular"
+                style={{ color: "var(--warning-fg)", borderColor: "var(--warning-border)" }}
                 onClick={() => void cancelDeepNodeAudit()}
                 title={deepAudit.message}
               >
-                <Loader2 size={13} strokeWidth={2} className="guard-spin" />
+                <Loader2 size={12.5} strokeWidth={1.9} className="guard-spin" />
                 <span>
                   核验中 {deepAudit.currentIndex}/{deepAudit.total || "?"} · 停止
                 </span>
@@ -345,18 +806,19 @@ export function NodesTrafficPage() {
                 type="button"
                 data-testid="btn-start-deep-audit"
                 disabled={refreshingNodes || fixing}
-                className="guard-btn guard-btn-flat guard-btn-sm"
+                className="guard-btn guard-btn-flat"
                 onClick={() => void startDeepNodeAudit(true)}
-                title="在 Claude 0 进程时按 1.5s/个慢速逐个实测全部节点的真实 IP 类型、CF 盾与 AGY 限区并永久缓存 24h（漂移自动重测）"
+                title="在 Claude 0 进程时慢速逐个实测全部节点的真实 IP 类型、CF 盾与 AGY 限区并永久缓存 24h"
               >
-                <RefreshCw size={13} strokeWidth={1.85} />
+                <Search size={13} strokeWidth={1.45} style={{ color: "var(--text-2)" }} />
                 <span>深度核验全部</span>
               </button>
             ))}
+
           <button
             type="button"
             disabled={refreshingNodes || loadingConns}
-            className="guard-btn guard-btn-flat guard-btn-sm"
+            className="guard-btn guard-btn-flat"
             onClick={async () => {
               if (subTab === "quality") {
                 setRefreshingNodes(true);
@@ -378,10 +840,10 @@ export function NodesTrafficPage() {
               }
             }}
           >
-            {refreshingNodes ? (
-              <Loader2 size={13} strokeWidth={2} className="guard-spin" />
+            {refreshingNodes || loadingConns ? (
+              <Loader2 size={13} strokeWidth={1.85} className="guard-spin" />
             ) : (
-              <RefreshCw size={13} strokeWidth={1.85} />
+              <RefreshCw size={13} strokeWidth={1.45} style={{ color: "var(--text-2)" }} />
             )}
             <span>
               {subTab === "quality"
@@ -391,17 +853,27 @@ export function NodesTrafficPage() {
                 : "刷新连接"}
             </span>
           </button>
-          <div style={segWrapStyle}>
+
+          <span
+            aria-hidden="true"
+            style={{ width: 1, height: 16, background: "var(--divider-strong)", margin: "0 2px" }}
+          />
+
+          <div className="in-seg" role="tablist">
             <button
               type="button"
-              style={segBtnStyle(subTab === "quality")}
+              role="tab"
+              aria-selected={subTab === "quality"}
+              className={`in-seg-btn ${subTab === "quality" ? "active" : ""}`}
               onClick={() => setSubTab("quality")}
             >
               节点质量与容灾
             </button>
             <button
               type="button"
-              style={segBtnStyle(subTab === "traffic")}
+              role="tab"
+              aria-selected={subTab === "traffic"}
+              className={`in-seg-btn ${subTab === "traffic" ? "active" : ""}`}
               onClick={() => setSubTab("traffic")}
             >
               实时流量分析
@@ -410,895 +882,672 @@ export function NodesTrafficPage() {
         </div>
       </div>
 
-      <div
-        style={{
-          padding: "16px 22px",
-          overflowY: "auto",
-          display: "flex",
-          flexDirection: "column",
-          gap: 16,
-        }}
-      >
-        {subTab === "quality" ? (
-          <>
-            <div
-              className="tabular"
-              style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}
-            >
-              <div className="guard-card" style={statPadStyle}>
-                <div style={statLblStyle}>当前策略组 / 节点</div>
-                <div
-                  style={{
-                    fontSize: 14.5,
-                    fontWeight: 600,
-                    marginTop: 6,
-                    lineHeight: 1.35,
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                  }}
-                  title={nodeReport.currentNode}
-                >
-                  {nodeReport.currentNode}
-                </div>
-                {nodeReport.currentExitSummary && (
+      {/* 主滚动区（单列全宽通透布局 + ThinScrollArea） */}
+      <ThinScrollArea onScrollCapture={hideTip}>
+        <div
+          style={{
+            padding: "16px 24px 24px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 14,
+          }}
+        >
+          {subTab === "quality" ? (
+            <>
+              {/* 顶部 4 段一体化统计条（策略组名归位第 4 格副行，管道文案沿用防歧义「管道已连接」） */}
+              <div className="guard-card metric-strip-nodes tabular">
+                <div className="metric-cell">
+                  <div style={metricLblStyle}>当前锁定节点</div>
                   <div
                     style={{
-                      fontSize: 11,
-                      color: "var(--text-3)",
                       marginTop: 4,
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                    title={nodeReport.currentExitSummary}
-                  >
-                    {nodeReport.currentExitSummary}
-                  </div>
-                )}
-              </div>
-              <div className="guard-card" style={statPadStyle}>
-                <div style={statLblStyle}>受支持可用节点</div>
-                <div data-testid="nodes-usable-count" style={statNumStyle}>
-                  {usableNodeCount}
-                  <span style={statUnitStyle}>个</span>
-                </div>
-                <div
-                  data-testid="nodes-usable-breakdown"
-                  style={{ fontSize: 11, color: "var(--text-3)", marginTop: 3 }}
-                >
-                  订阅共 {subscriptionTotalNodes} · 评估 {nodeReport.nodes.length}
-                  {nodeReport.nodes.length === 0
-                    ? "（暂无评估节点）"
-                    : unusableInListCount > 0
-                    ? `（${unusableInListCount} 个不可用）`
-                    : "（全部可用）"}
-                </div>
-              </div>
-              <div className="guard-card" style={statPadStyle}>
-                <div style={statLblStyle}>已屏蔽禁区与不可用</div>
-                <div
-                  data-testid="nodes-blocked-count"
-                  style={{ ...statNumStyle, color: "var(--text-2)" }}
-                >
-                  {totalUnavailableAndBlocked}
-                  <span style={statUnitStyle}>个</span>
-                </div>
-                <div
-                  data-testid="nodes-blocked-breakdown"
-                  style={{ fontSize: 11, color: "var(--text-3)", marginTop: 3 }}
-                >
-                  名称禁区 {nameBlockedCount} · 落地禁区 {landingBlockedNodes.length}
-                  {otherUnusableNodes.length > 0 ? ` · 其他不可用 ${otherUnusableNodes.length}` : ""}
-                </div>
-              </div>
-              <div className="guard-card" style={statPadStyle}>
-                <div style={statLblStyle}>Mihomo 连接状态</div>
-                <div
-                  data-testid="mihomo-conn-status"
-                  style={{
-                    fontSize: 14.5,
-                    fontWeight: 600,
-                    marginTop: 6,
-                    lineHeight: 1.35,
-                    color: nodeReport.connected ? "var(--success)" : "var(--danger-bright)",
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                  }}
-                >
-                  {nodeReport.connected ? `管道已连接 (${nodeReport.groupName})` : "未连接"}
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  marginBottom: 10,
-                }}
-              >
-                <div style={{ fontSize: 14, fontWeight: 600 }}>
-                  可用节点评估（{usableNodes.length} 个）
-                </div>
-                <span style={{ fontSize: 12, color: "var(--text-3)" }}>
-                  {deepAudit.running
-                    ? deepAudit.message
-                    : "已剔除 HK / MO / CN / RU 禁区 · 核验结果持久化缓存 24h（漂移自动重测）· AGY 仅作附带参考"}
-                </span>
-              </div>
-              <div className="guard-card" style={{ overflowX: "auto" }}>
-                {usableNodes.length === 0 ? (
-                  <div style={{ padding: 18, fontSize: 12.5, color: "var(--text-2)" }}>
-                    {nodeReport.connected
-                      ? nodeReport.nodes.length > 0
-                        ? "当前组内评估节点均已移入下方不可用隔离区，请更换订阅或重新深度核验。"
-                        : "当前策略组中暂无非禁区代理节点，请检查 Clash 订阅或完成 Script.js 覆写配置。"
-                      : "尚未检测到在线的 Clash Verge Mihomo 命名管道，请先启动 Clash Verge Rev。"}
-                  </div>
-                ) : (
-                  <table
-                    data-testid="nodes-eval-table"
-                    style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}
-                  >
-                    <colgroup>
-                      <col style={{ width: "20%" }} />
-                      <col style={{ width: "20%" }} />
-                      <col style={{ width: "14%" }} />
-                      <col style={{ width: "22%" }} />
-                      <col style={{ width: "12%" }} />
-                      <col style={{ width: "12%" }} />
-                    </colgroup>
-                    <thead>
-                      <tr
-                        style={{
-                          borderBottom: "1px solid var(--border)",
-                          color: "var(--text-3)",
-                          fontSize: 11.5,
-                        }}
-                      >
-                        <th style={thStyle}>节点 / 地区</th>
-                        <th style={thCompactStyle}>平台支持</th>
-                        <th style={thCompactStyle}>节点类型</th>
-                        <th style={thCompactStyle}>延迟 / 断连 / 稳定性</th>
-                        <th style={thCompactStyle}>质量评分</th>
-                        <th style={{ ...thStyle, textAlign: "right" }}>操作</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {usableNodes.map((n: NodeItem) => {
-                        const isSwitchingThis = switchingNodeName === n.name;
-                        const isAuditingThis =
-                          deepAudit.running && deepAudit.currentNode === n.name;
-                        const claudeStatus = n.claudeStatus ?? (n.cfBlocked ? "cf_403" : "ok");
-                        const claudeLabel = n.claudeLabel ?? (n.cfBlocked ? "Claude 拉黑" : "Claude ✓");
-                        const claudeTip = getClaudeBadgeTip(claudeStatus, claudeLabel, n.claudeProbeDetail);
-                        const claudeCls =
-                          n.cfBlocked ||
-                          claudeStatus === "cf_403" ||
-                          claudeStatus === "blocked" ||
-                          claudeStatus === "offline"
-                            ? "guard-chip-fail"
-                            : claudeStatus === "cf_challenge" || n.webCfChallenge
-                            ? "guard-chip-warn"
-                            : "guard-chip-neutral";
-
-                        const geminiStatus = n.geminiStatus ?? "unknown";
-                        const geminiLabel =
-                          n.geminiLabel === "Gemini 送中" ||
-                          n.geminiLabel === "Gemini ✗" ||
-                          n.geminiLabel === "Gemini 限区"
-                            ? "AGY 限区"
-                            : n.geminiLabel === "Gemini ✓"
-                            ? "AGY ✓"
-                            : n.geminiLabel ?? "AGY 待测";
-                        const geminiTip = getGeminiBadgeTip(geminiStatus, geminiLabel);
-                        const geminiCls =
-                          geminiStatus === "cn_redirect" || geminiStatus === "restricted"
-                            ? "guard-chip-warn"
-                            : "guard-chip-neutral";
-
-                        const riskLevel =
-                          n.riskLevel ??
-                          (n.cfBlocked
-                            ? "abuser"
-                            : n.asnPurity?.includes("高危")
-                            ? "abuser"
-                            : n.asnPurity?.includes("共享")
-                            ? "proxy"
-                            : n.asnPurity?.includes("ISP")
-                            ? "isp"
-                            : n.asnPurity?.includes("机房")
-                            ? "hosting"
-                            : "unknown");
-                        const asnShort =
-                          n.asnShort ??
-                          (riskLevel === "abuser"
-                            ? "高危滥用"
-                            : riskLevel === "proxy"
-                            ? "共享代理"
-                            : riskLevel === "isp"
-                            ? "ISP 住宅"
-                            : riskLevel === "hosting"
-                            ? "常规机房"
-                            : "待验 IP");
-                        const riskDetail =
-                          n.riskDetail ??
-                          (riskLevel === "abuser"
-                            ? "命中滥用黑名单"
-                            : riskLevel === "proxy"
-                            ? "公共 VPN / 代理段"
-                            : riskLevel === "isp"
-                            ? "无代理标记"
-                            : riskLevel === "hosting"
-                            ? "0 滥用记录"
-                            : "切入后实测 IP");
-                        const nodeTypeTip = getNodeTypeTip(riskLevel, asnShort);
-                        const isTypeFail = riskLevel === "abuser" || asnShort.includes("禁区") || asnShort.includes("拉黑");
-                        const isTypeWarn = riskLevel === "proxy";
-
-                        const driftCount = n.driftCount24h ?? 0;
-                        const dropFail = n.dropRatePct >= DROP_RATE_REDLINE;
-                        const dropWarn = !dropFail && n.dropRatePct > 0.5;
-                        const stabWarn = driftCount > 0 || n.jitterMs >= 25;
-                        const stabilityTip =
-                          driftCount > 0
-                            ? `最近 24 小时检测到该节点落地 IP 静默切换 ${driftCount} 次（抖动 ±${n.jitterMs} ms），会话中途变 IP 易触发风控。`
-                            : `多轮实测延迟抖动 ±${n.jitterMs} ms，最近 24 小时落地 IP 稳定（0 次漂移）。`;
-
-                        const isUnusable = n.blocked || n.cfBlocked;
-                        const scoreFail = isUnusable;
-                        const scoreWarn = !scoreFail && (n.score < 75 || n.webCfChallenge || driftCount > 0 || isTypeWarn);
-                        const scoreColor = scoreFail
-                          ? "var(--danger-bright)"
-                          : scoreWarn
-                          ? "var(--warning)"
-                          : "var(--text-1)";
-                        const evalColor = scoreFail
-                          ? "var(--danger-bright)"
-                          : scoreWarn
-                          ? "var(--warning)"
-                          : "var(--text-3)";
-
-                        const subRegion = n.regionLabel ?? `${n.regionCode} · ${n.nodeType}`;
-
-                        return (
-                          <tr key={n.name} style={{ borderBottom: "1px solid var(--border)" }}>
-                            <td style={tdStyle}>
-                              <div
-                                style={{
-                                  fontWeight: n.isCurrent ? 600 : 500,
-                                  color: n.isCurrent ? "var(--success)" : "var(--text-1)",
-                                  whiteSpace: "nowrap",
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                }}
-                                title={n.name}
-                              >
-                                {n.name}
-                              </div>
-                              <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 2 }}>
-                                {subRegion}
-                              </div>
-                            </td>
-                            <td style={tdCompactStyle}>
-                              {isAuditingThis ? (
-                                <span
-                                  className="guard-chip guard-chip-warn"
-                                  style={{ display: "inline-flex", alignItems: "center", gap: 5 }}
-                                >
-                                  <Loader2 size={10} strokeWidth={2.2} className="guard-spin" />
-                                  <span>逐项检测中...</span>
-                                </span>
-                              ) : (
-                                <div className="plat-badges" style={{ flexWrap: "nowrap" }}>
-                                  <span
-                                    className={`guard-chip ${claudeCls}`}
-                                    style={{ cursor: "help" }}
-                                    title={claudeTip}
-                                    onMouseEnter={(e) => showTip(e, claudeTip)}
-                                    onMouseLeave={hideTip}
-                                  >
-                                    {claudeLabel}
-                                  </span>
-                                  <span
-                                    className={`guard-chip ${geminiCls}`}
-                                    style={{ cursor: "help" }}
-                                    title={geminiTip}
-                                    onMouseEnter={(e) => showTip(e, geminiTip)}
-                                    onMouseLeave={hideTip}
-                                  >
-                                    {geminiLabel}
-                                  </span>
-                                </div>
-                              )}
-                            </td>
-                            <td style={tdCompactStyle}>
-                              {isAuditingThis ? (
-                                <div
-                                  style={{
-                                    display: "inline-flex",
-                                    alignItems: "center",
-                                    gap: 5,
-                                    color: "var(--warning)",
-                                    fontSize: 12,
-                                  }}
-                                >
-                                  <Loader2 size={11} strokeWidth={2} className="guard-spin" />
-                                  <span>核验 IP 中...</span>
-                                </div>
-                              ) : (
-                                <div
-                                  style={{ display: "inline-block", cursor: "help" }}
-                                  title={nodeTypeTip}
-                                  onMouseEnter={(e) => showTip(e, nodeTypeTip)}
-                                  onMouseLeave={hideTip}
-                                >
-                                  {isTypeFail ? (
-                                    <span className="guard-chip guard-chip-fail">{asnShort}</span>
-                                  ) : isTypeWarn ? (
-                                    <span className="guard-chip guard-chip-warn">{asnShort}</span>
-                                  ) : (
-                                    <div
-                                      style={{
-                                        fontWeight: 500,
-                                        color: riskLevel === "isp" ? "var(--text-1)" : "var(--text-2)",
-                                      }}
-                                    >
-                                      {asnShort}
-                                    </div>
-                                  )}
-                                  <div
-                                    style={{
-                                      fontSize: 11,
-                                      color: isTypeFail ? "var(--danger-bright)" : "var(--text-3)",
-                                      marginTop: 2,
-                                    }}
-                                  >
-                                    {riskDetail}
-                                  </div>
-                                </div>
-                              )}
-                            </td>
-                            <td className="tabular" style={tdCompactStyle}>
-                              <div style={{ color: "var(--text-1)" }}>
-                                <span>{n.delayMs !== null ? `${n.delayMs} ms` : "超时"}</span>
-                                <span style={{ color: "var(--text-3)", margin: "0 4px" }}>/</span>
-                                <span
-                                  style={{
-                                    color: dropFail
-                                      ? "var(--danger-bright)"
-                                      : dropWarn
-                                      ? "var(--warning)"
-                                      : "var(--text-2)",
-                                    fontWeight: dropFail || dropWarn ? 500 : 400,
-                                  }}
-                                >
-                                  {n.dropRatePct.toFixed(1)}% 断连
-                                </span>
-                              </div>
-                              <div
-                                style={{
-                                  fontSize: 11,
-                                  marginTop: 2,
-                                  color: stabWarn ? "var(--warning)" : "var(--text-3)",
-                                  fontWeight: stabWarn ? 500 : 400,
-                                  cursor: "help",
-                                  display: "inline-block",
-                                }}
-                                title={stabilityTip}
-                                onMouseEnter={(e) => showTip(e, stabilityTip)}
-                                onMouseLeave={hideTip}
-                              >
-                                抖动 ±{n.jitterMs} ms ·{" "}
-                                {driftCount > 0 ? `漂移 ${driftCount}次` : "0 漂移"}
-                              </div>
-                            </td>
-                            <td className="tabular" style={tdCompactStyle}>
-                              <div
-                                style={{
-                                  display: "flex",
-                                  flexDirection: "column",
-                                  alignItems: "flex-start",
-                                  gap: 2,
-                                }}
-                              >
-                                <div
-                                  style={{
-                                    fontSize: 18,
-                                    fontWeight: 700,
-                                    lineHeight: 1.1,
-                                    letterSpacing: "-0.02em",
-                                    color: scoreColor,
-                                  }}
-                                >
-                                  {n.score}
-                                  <span
-                                    style={{
-                                      fontSize: 11,
-                                      fontWeight: 400,
-                                      color: "var(--text-3)",
-                                      marginLeft: 2,
-                                    }}
-                                  >
-                                    分
-                                  </span>
-                                </div>
-                                <div style={{ fontSize: 11, color: evalColor }}>
-                                  {n.recommendation || (n.cfBlocked ? "拉黑不可用" : "可用")}
-                                </div>
-                              </div>
-                            </td>
-                            <td style={{ ...tdStyle, textAlign: "right" }}>
-                              {n.isCurrent ? (
-                                <span
-                                  className="guard-chip guard-chip-ok"
-                                  style={{ padding: "4px 9px", fontSize: 11.5 }}
-                                >
-                                  当前锁定
-                                </span>
-                              ) : (
-                                <button
-                                  type="button"
-                                  disabled={fixing || isUnusable}
-                                  className="guard-btn guard-btn-flat guard-btn-xs"
-                                  onClick={() => requestSwitch(n.name)}
-                                >
-                                  {isSwitchingThis && (
-                                    <Loader2 size={12} strokeWidth={2} className="guard-spin" />
-                                  )}
-                                  <span>
-                                    {isSwitchingThis
-                                      ? "切换中..."
-                                      : isUnusable
-                                      ? "不可用"
-                                      : "切换锁定"}
-                                  </span>
-                                </button>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            </div>
-
-            {unusableNodes.length > 0 && (
-              <div data-testid="nodes-quarantine-section">
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => setShowQuarantine((v) => !v)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      setShowQuarantine((v) => !v);
-                    }
-                  }}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    marginBottom: 8,
-                    cursor: "pointer",
-                    userSelect: "none",
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13.5, fontWeight: 600, color: "var(--danger-bright)" }}>
-                    {showQuarantine ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-                    <ShieldAlert size={14.5} strokeWidth={1.9} />
-                    <span>隔离区：不可用与落地禁区节点（{unusableNodes.length} 个）</span>
-                    <span className="guard-chip guard-chip-fail" style={{ fontWeight: 500 }}>
-                      落地禁区 {landingBlockedNodes.length}
-                      {otherUnusableNodes.length > 0 ? ` · 超时/拉黑 ${otherUnusableNodes.length}` : ""}
-                    </span>
-                  </div>
-                  <span style={{ fontSize: 11.5, color: "var(--text-3)" }}>
-                    已与可用节点隔离，禁止切换锁定 · 点击{showQuarantine ? "收起" : "展开"}
-                  </span>
-                </div>
-
-                {showQuarantine && (
-                  <div
-                    className="guard-card"
-                    style={{
-                      overflowX: "auto",
-                      borderColor: "rgba(239, 68, 68, 0.28)",
-                      background: "var(--bg-subtle)",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 7,
+                      minWidth: 0,
                     }}
                   >
-                    <table
-                      data-testid="nodes-quarantine-table"
-                      style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}
-                    >
-                      <colgroup>
-                        <col style={{ width: "20%" }} />
-                        <col style={{ width: "20%" }} />
-                        <col style={{ width: "14%" }} />
-                        <col style={{ width: "22%" }} />
-                        <col style={{ width: "12%" }} />
-                        <col style={{ width: "12%" }} />
-                      </colgroup>
-                      <thead>
-                        <tr
-                          style={{
-                            borderBottom: "1px solid var(--border)",
-                            color: "var(--text-3)",
-                            fontSize: 11.5,
-                          }}
-                        >
-                          <th style={thStyle}>隔离节点 / 实测落地</th>
-                          <th style={thCompactStyle}>阻断原因</th>
-                          <th style={thCompactStyle}>节点类型</th>
-                          <th style={thCompactStyle}>延迟 / 断连 / 稳定性</th>
-                          <th style={thCompactStyle}>质量评分</th>
-                          <th style={{ ...thStyle, textAlign: "right" }}>状态</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {unusableNodes.map((n: NodeItem) => {
-                          const isAuditingThis =
-                            deepAudit.running && deepAudit.currentNode === n.name;
-                          const claudeStatus = n.claudeStatus ?? (n.cfBlocked ? "cf_403" : "blocked");
-                          const claudeLabel = n.claudeLabel ?? (n.cfBlocked ? "Claude 拉黑" : "落地禁区");
-                          const claudeTip = getClaudeBadgeTip(claudeStatus, claudeLabel, n.claudeProbeDetail);
-                          const geminiStatus = n.geminiStatus ?? "unknown";
-                          const geminiLabel =
-                            n.geminiLabel === "Gemini 送中" ||
-                            n.geminiLabel === "Gemini ✗" ||
-                            n.geminiLabel === "Gemini 限区"
-                              ? "AGY 限区"
-                              : n.geminiLabel === "Gemini ✓"
-                              ? "AGY ✓"
-                              : n.geminiLabel ?? "AGY 待测";
-                          const geminiTip = getGeminiBadgeTip(geminiStatus, geminiLabel);
-                          const geminiCls =
-                            geminiStatus === "cn_redirect" || geminiStatus === "restricted"
-                              ? "guard-chip-warn"
-                              : "guard-chip-neutral";
-                          const riskLevel = n.riskLevel ?? (claudeStatus === "blocked" ? "blocked" : "unknown");
-                          const asnShort = n.asnShort ?? (claudeStatus === "blocked" ? "落地禁区" : "不可用");
-                          const nodeTypeTip = getNodeTypeTip(riskLevel, asnShort);
-                          const subRegion = n.regionLabel ?? `${n.regionCode} · ${n.nodeType}`;
-                          return (
-                            <tr
-                              key={n.name}
-                              style={{ borderBottom: "1px solid var(--border)", opacity: 0.92 }}
-                            >
-                              <td style={tdStyle}>
-                                <div
-                                  style={{
-                                    fontWeight: 500,
-                                    color: "var(--text-2)",
-                                    whiteSpace: "nowrap",
-                                    overflow: "hidden",
-                                    textOverflow: "ellipsis",
-                                  }}
-                                  title={n.name}
-                                >
-                                  {n.name}
-                                </div>
-                                <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 2 }}>
-                                  {subRegion}
-                                </div>
-                              </td>
-                              <td style={tdCompactStyle}>
-                                <div className="plat-badges" style={{ flexWrap: "nowrap" }}>
-                                  <span
-                                    className="guard-chip guard-chip-fail"
-                                    style={{ cursor: "help" }}
-                                    title={claudeTip}
-                                    onMouseEnter={(e) => showTip(e, claudeTip)}
-                                    onMouseLeave={hideTip}
-                                  >
-                                    {claudeLabel}
-                                  </span>
-                                  <span
-                                    className={`guard-chip ${geminiCls}`}
-                                    style={{ cursor: "help" }}
-                                    title={geminiTip}
-                                    onMouseEnter={(e) => showTip(e, geminiTip)}
-                                    onMouseLeave={hideTip}
-                                  >
-                                    {geminiLabel}
-                                  </span>
-                                </div>
-                              </td>
-                              <td style={tdCompactStyle}>
-                                <div
-                                  style={{ display: "inline-block", cursor: "help" }}
-                                  title={nodeTypeTip}
-                                  onMouseEnter={(e) => showTip(e, nodeTypeTip)}
-                                  onMouseLeave={hideTip}
-                                >
-                                  <span className="guard-chip guard-chip-fail">{asnShort}</span>
-                                  <div style={{ fontSize: 11, color: "var(--danger-bright)", marginTop: 2 }}>
-                                    {n.riskDetail ?? "已隔离"}
-                                  </div>
-                                </div>
-                              </td>
-                              <td className="tabular" style={tdCompactStyle}>
-                                <div style={{ color: "var(--text-2)" }}>
-                                  <span>{n.delayMs !== null ? `${n.delayMs} ms` : "超时"}</span>
-                                  <span style={{ color: "var(--text-3)", margin: "0 4px" }}>/</span>
-                                  <span>{n.dropRatePct.toFixed(1)}% 断连</span>
-                                </div>
-                                <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 2 }}>
-                                  抖动 ±{n.jitterMs} ms · {n.driftCount24h ?? 0} 漂移
-                                </div>
-                              </td>
-                              <td className="tabular" style={tdCompactStyle}>
-                                <div style={{ fontSize: 18, fontWeight: 700, color: "var(--danger-bright)", lineHeight: 1.1 }}>
-                                  {n.score}
-                                  <span style={{ fontSize: 11, fontWeight: 400, color: "var(--text-3)", marginLeft: 2 }}>分</span>
-                                </div>
-                                <div style={{ fontSize: 11, color: "var(--danger-bright)", marginTop: 2 }}>
-                                  {n.recommendation || "不可用"}
-                                </div>
-                              </td>
-                              <td style={{ ...tdStyle, textAlign: "right" }}>
-                                <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                                  <button
-                                    type="button"
-                                    data-testid={`btn-reprobe-node-${n.name}`}
-                                    disabled={deepAudit.running || fixing}
-                                    className="guard-btn guard-btn-flat guard-btn-xs"
-                                    title="仅单独重新实测该节点的真实出口与 Claude 可达性（无需全量重测）"
-                                    onClick={() => void startDeepNodeAudit(false, n.name)}
-                                  >
-                                    {isAuditingThis ? (
-                                      <Loader2 size={11} strokeWidth={2} className="guard-spin" />
-                                    ) : (
-                                      <RefreshCw size={11} strokeWidth={1.85} />
-                                    )}
-                                    <span>{isAuditingThis ? "重测中" : "重测"}</span>
-                                  </button>
-                                  <span className="guard-chip guard-chip-fail">已隔离</span>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            )}
-          </>
-        ) : (
-          <>
-            <div
-              className="tabular"
-              style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}
-            >
-              <div className="guard-card" style={statPadStyle}>
-                <div style={statLblStyle}>12h 未确认拦截</div>
-                <div
-                  style={{
-                    ...statNumStyle,
-                    color: activeAnomCount > 0 ? "var(--danger-bright)" : "var(--success)",
-                  }}
-                >
-                  {activeAnomCount}
-                  <span style={statUnitStyle}>条</span>
-                </div>
-              </div>
-              <div className="guard-card" style={statPadStyle}>
-                <div style={statLblStyle}>活跃安全连接</div>
-                <div style={{ ...statNumStyle, color: "var(--success)" }}>
-                  {conns.length - totalAnomCount}
-                  <span style={statUnitStyle}>条</span>
-                </div>
-              </div>
-              <div className="guard-card" style={statPadStyle}>
-                <div style={statLblStyle}>Claude 总连接数</div>
-                <div style={statNumStyle}>
-                  {conns.length}
-                  <span style={statUnitStyle}>条</span>
-                </div>
-              </div>
-              <div className="guard-card" style={statPadStyle}>
-                <div style={statLblStyle}>锁定策略组</div>
-                <div style={{ fontSize: 14.5, fontWeight: 600, marginTop: 6, lineHeight: 1.35 }}>
-                  {nodeReport.groupName}
-                </div>
-              </div>
-            </div>
-
-            <div className="guard-card">
-              <div
-                style={{
-                  padding: "10px 14px",
-                  background: activeAnomCount > 0 ? "var(--danger-soft)" : "var(--bg-subtle)",
-                  color: activeAnomCount > 0 ? "var(--danger-bright)" : "var(--text-1)",
-                  fontSize: 13,
-                  fontWeight: 600,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  borderBottom: "1px solid var(--border)",
-                }}
-              >
-                <span>Claude 实时连接监控（Mihomo /connections · 12h 滚动拦截窗口）</span>
-                <div style={segWrapStyle}>
-                  <button
-                    type="button"
-                    style={segBtnStyle(flowFilter === "anomaly")}
-                    onClick={() => setFlowFilter("anomaly")}
-                  >
-                    仅看异常 ({totalAnomCount})
-                  </button>
-                  <button
-                    type="button"
-                    style={segBtnStyle(flowFilter === "all")}
-                    onClick={() => setFlowFilter("all")}
-                  >
-                    全部实时连接 ({conns.length})
-                  </button>
-                </div>
-              </div>
-
-              {shownConns.length === 0 ? (
-                <div style={{ padding: 18, fontSize: 12.5, color: "var(--text-2)" }}>
-                  {!nodeReport.connected
-                    ? "尚未连接 Clash Verge Mihomo 命名管道，暂无法采集实时连接流量。"
-                    : "近 12 小时无异常拦截流量，全部连接均纯净通过锁定节点。"}
-                </div>
-              ) : (
-                shownConns.map((c) => {
-                  const acked = ackedFlowIds.includes(c.id);
-                  return (
-                    <div
-                      key={c.id}
+                    <span
                       style={{
-                        padding: "12px 14px",
-                        borderBottom: "1px solid var(--border)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        gap: 12,
+                        fontSize: 10,
+                        padding: "1px 5.5px",
+                        borderRadius: 4,
+                        background: nodeReport.connected ? "var(--ok-bg)" : "var(--bg-subtle)",
+                        color: nodeReport.connected ? "var(--ok-fg)" : "var(--text-3)",
+                        border: `1px solid ${
+                          nodeReport.connected ? "var(--ok-border)" : "var(--divider)"
+                        }`,
+                        flexShrink: 0,
                       }}
                     >
-                      <div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span
-                            className={`guard-chip ${
-                              c.anomaly
-                                ? acked
-                                  ? "guard-chip-neutral"
-                                  : "guard-chip-fail"
-                                : "guard-chip-ok"
-                            }`}
-                          >
-                            {c.anomaly ? (acked ? "已确认 · 历史拦截" : "异常风险") : "安全放行"}
-                          </span>
-                          <span className="font-mono-code" style={{ fontSize: 12.5, fontWeight: 500 }}>
-                            {c.process} → {c.host}
-                          </span>
-                        </div>
-                        <div style={{ fontSize: 12, color: "var(--text-2)", marginTop: 3 }}>
-                          规则：{c.rule} · 链路：{c.chain} · {c.action}
-                        </div>
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-                        <div style={{ textAlign: "right" }}>
-                          <div className="tabular" style={{ fontSize: 11, color: "var(--text-3)" }}>
-                            {c.time}
-                          </div>
-                          <div className="tabular" style={{ fontSize: 11, color: "var(--text-2)" }}>
-                            {c.bytesLabel}
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          disabled={closingConnId !== null}
-                          className={`guard-btn ${
-                            c.anomaly ? "guard-btn-danger-soft" : "guard-btn-flat"
-                          } guard-btn-xs`}
-                          onClick={() => void handleCloseConn(c.id)}
-                        >
-                          {closingConnId === c.id ? "掐断中..." : "掐断"}
-                        </button>
-                      </div>
+                      {curRegionCode}
+                    </span>
+                    <span
+                      title={nodeReport.currentNode}
+                      style={{
+                        fontSize: 13.5,
+                        fontWeight: 500,
+                        color: "var(--text-strong)",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {nodeReport.currentNode}
+                    </span>
+                  </div>
+                  <div
+                    title={nodeReport.currentExitSummary ?? undefined}
+                    style={metricSubStyle}
+                  >
+                    {nodeReport.currentExitSummary ||
+                      (curNodeItem
+                        ? `${curNodeItem.asnShort ?? curNodeItem.nodeType} · ${
+                            curNodeItem.delayMs !== null ? `${curNodeItem.delayMs} ms` : "待测"
+                          }`
+                        : "等待探测出口信息")}
+                  </div>
+                </div>
+
+                <div className="metric-cell">
+                  <div style={metricLblStyle}>可用节点</div>
+                  <div style={{ marginTop: 4, display: "flex", alignItems: "baseline", gap: 5 }}>
+                    <span data-testid="nodes-usable-count" style={metricValStyle}>
+                      {usableNodes.length}
+                    </span>
+                    <span style={{ fontSize: 11, color: "var(--text-3)" }}>
+                      / 订阅 {subscriptionTotalNodes}
+                    </span>
+                  </div>
+                  <div data-testid="nodes-usable-breakdown" style={metricSubStyle}>
+                    {nodeReport.nodes.length === 0
+                      ? "暂无评估节点"
+                      : `含 ${sameRegionUsableNodes.length} 个同区热备`}
+                  </div>
+                </div>
+
+                <div className="metric-cell">
+                  <div style={metricLblStyle}>隔离与禁区</div>
+                  <div style={{ marginTop: 4, display: "flex", alignItems: "baseline", gap: 6 }}>
+                    <span
+                      data-testid="nodes-blocked-count"
+                      style={{ ...metricValStyle, color: "var(--text-1)" }}
+                    >
+                      {unusableNodes.length}
+                    </span>
+                    <span style={{ fontSize: 11, color: "var(--text-3)" }}>
+                      · 名称禁区 {nameBlockedCount}
+                    </span>
+                  </div>
+                  <div data-testid="nodes-blocked-breakdown" style={metricSubStyle}>
+                    落地禁区 {landingBlockedNodes.length} · 拉黑/超时 {otherUnusableNodes.length}
+                  </div>
+                </div>
+
+                <div className="metric-cell">
+                  <div style={metricLblStyle}>Mihomo 管道</div>
+                  <div
+                    data-testid="mihomo-conn-status"
+                    style={{
+                      marginTop: 4,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      minWidth: 0,
+                    }}
+                  >
+                    <span
+                      className={`guard-dot ${nodeReport.connected ? "" : "danger"}`}
+                      style={{ width: 5.5, height: 5.5 }}
+                    />
+                    <span
+                      style={{
+                        fontSize: 13.5,
+                        fontWeight: 500,
+                        color: nodeReport.connected ? "var(--ok-fg)" : "var(--bad-fg)",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {nodeReport.connected ? "管道已连接" : "管道未连接"}
+                    </span>
+                  </div>
+                  <div style={metricSubStyle}>
+                    {`${nodeReport.groupName} · ${snapshot.clashVersion} · :${snapshot.clashPort}`}
+                  </div>
+                </div>
+              </div>
+
+              {/* 中段过滤胶囊 + 按类型批量重测 */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  paddingTop: 2,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <button
+                    type="button"
+                    data-testid="tab-nodes-usable"
+                    className={`filter-tab ${nodeFilter === "usable" ? "active" : ""}`}
+                    onClick={() => setNodeFilter("usable")}
+                  >
+                    <span>可用节点</span>
+                    <span className="tabular" style={{ fontSize: 11, color: "var(--text-3)" }}>
+                      {usableNodes.length}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="tab-nodes-same"
+                    className={`filter-tab ${nodeFilter === "same" ? "active" : ""}`}
+                    onClick={() => setNodeFilter("same")}
+                  >
+                    <span>同区热备</span>
+                    <span className="tabular" style={{ fontSize: 11, color: "var(--text-3)" }}>
+                      {sameRegionUsableNodes.length}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="tab-nodes-quarantine"
+                    className={`filter-tab ${nodeFilter === "quarantine" ? "active" : ""}`}
+                    onClick={() => setNodeFilter("quarantine")}
+                  >
+                    <span>隔离区</span>
+                    <span className="tabular" style={{ fontSize: 11, color: "var(--text-3)" }}>
+                      {unusableNodes.length}
+                    </span>
+                  </button>
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 11, color: "var(--text-3)" }}>
+                    悬停标签可看说明 · 核验缓存 24h
+                  </span>
+                  {nodeFilter === "quarantine" && (
+                    <button
+                      type="button"
+                      data-testid="btn-retest-timeout"
+                      disabled={deepAudit.running || fixing || timeoutNodes.length === 0}
+                      className="guard-btn guard-btn-flat guard-btn-xs"
+                      onClick={() =>
+                        void startDeepNodeAudit(
+                          true,
+                          undefined,
+                          timeoutNodes.map((n) => n.name)
+                        )
+                      }
+                    >
+                      <span>重测超时类 ({timeoutNodes.length})</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    data-testid="btn-scope-retest"
+                    disabled={deepAudit.running || fixing || displayedNodes.length === 0}
+                    className="guard-btn guard-btn-flat guard-btn-xs"
+                    onClick={() =>
+                      void startDeepNodeAudit(
+                        true,
+                        undefined,
+                        displayedNodes.map((n) => n.name)
+                      )
+                    }
+                  >
+                    {deepAudit.running ? (
+                      <Loader2 size={11} strokeWidth={1.9} className="guard-spin" />
+                    ) : (
+                      <RefreshCw size={11} strokeWidth={1.5} style={{ color: "var(--text-2)" }} />
+                    )}
+                    <span>{deepAudit.running ? "重测中..." : scopeRetestLabel}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* 6 列实宽紧贴 + space-between 等距列表 */}
+              <div className="guard-card">
+                <div className="table-scroll-x" data-testid="nodes-eval-table">
+                  <div className="node-col-head">
+                    <span>{nodeFilter === "quarantine" ? "隔离节点 / 协议" : "节点 / 出口 IP"}</span>
+                    <span>{nodeFilter === "quarantine" ? "阻断原因" : "平台支持"}</span>
+                    <span>节点类型</span>
+                    <span>延迟 / 断连 / 稳定性</span>
+                    <span>质量评分</span>
+                    <span style={{ textAlign: "right" }}>
+                      {nodeFilter === "quarantine" ? "状态" : "操作"}
+                    </span>
+                  </div>
+
+                  {displayedNodes.length === 0 ? (
+                    <div
+                      style={{
+                        padding: "28px 18px",
+                        textAlign: "center",
+                        fontSize: 12,
+                        color: "var(--text-3)",
+                      }}
+                    >
+                      {!nodeReport.connected
+                        ? "尚未检测到在线的 Clash Verge Mihomo 命名管道，请先启动 Clash Verge Rev。"
+                        : nodeFilter === "quarantine"
+                        ? "当前隔离区为空，所有已评估节点均处于可用状态。"
+                        : nodeFilter === "same"
+                        ? "当前策略组内暂无同区热备节点。"
+                        : nodeReport.nodes.length > 0
+                        ? "当前组内评估节点均已移入隔离区，请切换「隔离区」查看或更换订阅。"
+                        : "当前策略组中暂无非禁区代理节点，请检查 Clash 订阅或完成 Script.js 覆写配置。"}
                     </div>
-                  );
-                })
-              )}
-            </div>
-          </>
-        )}
-      </div>
+                  ) : (
+                    <div>{displayedNodes.map(renderNodeRow)}</div>
+                  )}
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              {/* 实时流量顶部严格 4 等分统计条 */}
+              <div className="guard-card metric-strip-equal tabular">
+                <div className="metric-cell">
+                  <div style={metricLblStyle}>12h 未确认异常</div>
+                  <div style={{ marginTop: 4, display: "flex", alignItems: "baseline", gap: 4 }}>
+                    <span
+                      style={{
+                        ...metricValStyle,
+                        color: activeAnomCount > 0 ? "var(--bad-fg)" : "var(--ok-fg)",
+                      }}
+                    >
+                      {activeAnomCount}
+                    </span>
+                    <span style={{ fontSize: 11, color: "var(--text-3)" }}>条</span>
+                  </div>
+                  <div style={metricSubStyle}>含防回传拦截 {rejectedCount} 条</div>
+                </div>
+
+                <div className="metric-cell">
+                  <div style={metricLblStyle}>活跃安全连接</div>
+                  <div style={{ marginTop: 4, display: "flex", alignItems: "baseline", gap: 4 }}>
+                    <span style={{ ...metricValStyle, color: "var(--ok-fg)" }}>{safeCount}</span>
+                    <span style={{ fontSize: 11, color: "var(--text-3)" }}>条</span>
+                  </div>
+                  <div style={metricSubStyle}>均经锁定出口稳定放行</div>
+                </div>
+
+                <div className="metric-cell">
+                  <div style={metricLblStyle}>Claude 总连接</div>
+                  <div style={{ marginTop: 4, display: "flex", alignItems: "baseline", gap: 4 }}>
+                    <span style={metricValStyle}>{conns.length}</span>
+                    <span style={{ fontSize: 11, color: "var(--text-3)" }}>条</span>
+                  </div>
+                  <div style={metricSubStyle}>桌面端 / CLI / 网页端</div>
+                </div>
+
+                <div className="metric-cell">
+                  <div style={metricLblStyle}>锁定策略组</div>
+                  <div
+                    style={{
+                      marginTop: 4,
+                      fontSize: 13.5,
+                      fontWeight: 500,
+                      color: "var(--text-strong)",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {nodeReport.groupName}
+                  </div>
+                  <div style={metricSubStyle}>常规连接已省略此组名前缀</div>
+                </div>
+              </div>
+
+              {/* 中段过滤胶囊 */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  paddingTop: 2,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <button
+                    type="button"
+                    className={`filter-tab ${flowFilter === "all" ? "active" : ""}`}
+                    onClick={() => setFlowFilter("all")}
+                  >
+                    <span>全部连接</span>
+                    <span className="tabular" style={{ fontSize: 11, color: "var(--text-3)" }}>
+                      {conns.length}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`filter-tab ${flowFilter === "anomaly" ? "active" : ""}`}
+                    onClick={() => setFlowFilter("anomaly")}
+                  >
+                    <span>仅看异常</span>
+                    <span className="tabular" style={{ fontSize: 11, color: "var(--text-3)" }}>
+                      {totalAnomCount}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`filter-tab ${flowFilter === "rejected" ? "active" : ""}`}
+                    onClick={() => setFlowFilter("rejected")}
+                  >
+                    <span>遥测拦截</span>
+                    <span className="tabular" style={{ fontSize: 11, color: "var(--text-3)" }}>
+                      {rejectedCount}
+                    </span>
+                  </button>
+                  {unlistedDomainCount > 0 && (
+                    <button
+                      type="button"
+                      data-testid="btn-filter-unlisted-domains"
+                      className={`filter-tab ${flowFilter === "unlisted" ? "active" : ""}`}
+                      onClick={() => setFlowFilter("unlisted")}
+                    >
+                      <span>未收录新域</span>
+                      <span className="tabular" style={{ fontSize: 11, color: "var(--text-3)" }}>
+                        {unlistedDomainCount}
+                      </span>
+                    </button>
+                  )}
+                </div>
+
+                <span style={{ fontSize: 11, color: "var(--text-3)" }}>
+                  默认省略 :443 与 {nodeReport.groupName} · 悬停查看原始明细
+                </span>
+              </div>
+
+              {/* 7 列实宽紧贴 + space-between 绝对均分实时连接表 */}
+              <div className="guard-card">
+                <div className="table-scroll-x" data-testid="live-conns-table">
+                  <div className="conn-col-head">
+                    <span>目标 / 进程</span>
+                    <span>链路意图</span>
+                    <span>状态</span>
+                    <span>命中规则</span>
+                    <span>出口 / 异常链路</span>
+                    <span>时长 / 流量</span>
+                    <span style={{ textAlign: "right" }}>操作</span>
+                  </div>
+
+                  {shownConns.length === 0 ? (
+                    <div
+                      style={{
+                        padding: "28px 18px",
+                        textAlign: "center",
+                        fontSize: 12,
+                        color: "var(--text-3)",
+                      }}
+                    >
+                      {!nodeReport.connected
+                        ? "尚未连接 Clash Verge Mihomo 命名管道，暂无法采集实时连接流量。"
+                        : flowFilter === "unlisted"
+                        ? "当前连接均已命中已知 Claude 业务或遥测清单，未发现未收录新域名。"
+                        : "当前条件下无实时连接记录。"}
+                    </div>
+                  ) : (
+                    <div>
+                      {shownConns.map((c) => {
+                        const acked = ackedFlowIds.includes(c.id);
+                        const isRejected = isConnRejected(c);
+                        const cleanHost = formatDisplayHost(c.host);
+                        const hostTip = `完整目标：${c.host}\n来源进程：${c.process}`;
+                        const ruleInfo = formatRuleSummary(c.rule, isRejected, c.anomaly);
+                        const chainInfo = formatChainSummary(c, nodeReport.groupName, isRejected);
+                        const durText = formatConnDuration(c, nowMs, isRejected);
+                        const durTip = isRejected
+                          ? `触发时刻：${c.time}\n该连接已被规则即时阻断，未建立实际传输。`
+                          : `建连时刻：${c.time}\n当前持续时长 ${durText}，累计流量 ${c.bytesLabel}。`;
+                        const purposeLabel = c.purposeLabel || "业务连接";
+                        const purposeDetail = c.purposeDetail || c.action;
+                        const purposeTip = `${purposeLabel}\n${purposeDetail}`;
+
+                        const pillCls = c.anomaly
+                          ? acked
+                            ? "guard-chip-neutral"
+                            : "guard-chip-fail"
+                          : isRejected
+                          ? "guard-chip-neutral"
+                          : "guard-chip-ok";
+                        const pillTxt = c.anomaly
+                          ? acked
+                            ? "已确认"
+                            : "脱组风险"
+                          : isRejected
+                          ? "已拦截"
+                          : "安全放行";
+
+                        return (
+                          <div key={c.id} className="conn-row-grid tabular">
+                            {/* 列 1：目标 / 进程 */}
+                            <div style={{ minWidth: 0 }}>
+                              <div
+                                style={{ display: "inline-block", maxWidth: "100%", cursor: "help" }}
+                                onMouseEnter={(e) => showTip(e, hostTip)}
+                                onMouseLeave={hideTip}
+                              >
+                                <div
+                                  className="row-main"
+                                  style={{
+                                    color: "var(--text-strong)",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  {cleanHost}
+                                </div>
+                                <div
+                                  className="row-sub"
+                                  style={{
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  {c.process}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* 列 2：链路意图 */}
+                            <div style={{ minWidth: 0 }}>
+                              <div
+                                data-testid={`conn-purpose-${c.id}`}
+                                style={{ display: "inline-block", maxWidth: "100%", cursor: "help" }}
+                                onMouseEnter={(e) => showTip(e, purposeTip)}
+                                onMouseLeave={hideTip}
+                              >
+                                <div
+                                  className="row-main"
+                                  style={{
+                                    color: c.isUnlistedDomain
+                                      ? "var(--warning-fg)"
+                                      : isRejected
+                                      ? "var(--text-2)"
+                                      : "var(--text-1)",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  {purposeLabel}
+                                </div>
+                                <div
+                                  className="row-sub"
+                                  style={{
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  {purposeDetail}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* 列 3：状态 */}
+                            <div>
+                              <span className={`guard-chip ${pillCls}`}>{pillTxt}</span>
+                            </div>
+
+                            {/* 列 4：命中规则 */}
+                            <div style={{ minWidth: 0 }}>
+                              <div
+                                style={{ display: "inline-block", maxWidth: "100%", cursor: "help" }}
+                                onMouseEnter={(e) => showTip(e, ruleInfo.tip)}
+                                onMouseLeave={hideTip}
+                              >
+                                <div
+                                  className="row-main"
+                                  style={{
+                                    color: c.anomaly ? "var(--bad-fg)" : "var(--text-1)",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  {ruleInfo.label}
+                                </div>
+                                <div
+                                  className="row-sub"
+                                  style={{
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  {ruleInfo.code}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* 列 5：出口 / 异常链路 */}
+                            <div style={{ minWidth: 0 }}>
+                              <div
+                                style={{ display: "inline-block", maxWidth: "100%", cursor: "help" }}
+                                onMouseEnter={(e) => showTip(e, chainInfo.tip)}
+                                onMouseLeave={hideTip}
+                              >
+                                <div
+                                  className="row-main"
+                                  style={{
+                                    color:
+                                      chainInfo.tone === "bad"
+                                        ? "var(--bad-fg)"
+                                        : chainInfo.tone === "muted"
+                                        ? "var(--text-2)"
+                                        : "var(--text-1)",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  {chainInfo.main}
+                                </div>
+                                {chainInfo.sub && (
+                                  <div
+                                    className="row-sub"
+                                    style={{
+                                      color:
+                                        chainInfo.tone === "bad" ? "var(--bad-fg)" : "var(--text-3)",
+                                      opacity: chainInfo.tone === "bad" ? 0.85 : 1,
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    {chainInfo.sub}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* 列 6：时长 / 流量（左对齐与表头齐平） */}
+                            <div style={{ minWidth: 0 }}>
+                              <div
+                                style={{ display: "inline-block", maxWidth: "100%", cursor: "help" }}
+                                onMouseEnter={(e) => showTip(e, durTip)}
+                                onMouseLeave={hideTip}
+                              >
+                                <div
+                                  className="row-main"
+                                  style={{
+                                    color: isRejected ? "var(--text-3)" : "var(--text-1)",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  {durText}
+                                </div>
+                                <div
+                                  className="row-sub"
+                                  style={{
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  {c.bytesLabel}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* 列 7：操作（右对齐贴边） */}
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end" }}>
+                              <button
+                                type="button"
+                                disabled={closingConnId !== null}
+                                className={`guard-btn ${
+                                  c.anomaly && !acked ? "guard-btn-danger-soft" : "guard-btn-flat"
+                                } guard-btn-xs`}
+                                onClick={() => void handleCloseConn(c.id)}
+                              >
+                                {closingConnId === c.id ? "掐断中..." : "掐断"}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </ThinScrollArea>
     </section>
   );
 }
 
-const pageHdStyle: React.CSSProperties = {
-  padding: "16px 22px 14px",
-  borderBottom: "1px solid var(--border)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: 14,
-  flexShrink: 0,
-};
-
-const pageTitleStyle: React.CSSProperties = {
-  fontSize: 20,
-  fontWeight: 600,
-  letterSpacing: "-0.02em",
-  margin: 0,
-};
-
-const pageSubStyle: React.CSSProperties = {
-  fontSize: 12,
-  color: "var(--text-2)",
-  marginTop: 4,
-};
-
-const segWrapStyle: React.CSSProperties = {
-  display: "inline-flex",
-  padding: 2,
-  borderRadius: 8,
-  background: "var(--bg-subtle)",
-  border: "1px solid var(--border)",
-  gap: 2,
-};
-
-function segBtnStyle(active: boolean): React.CSSProperties {
-  return {
-    border: "none",
-    background: active ? "var(--bg-card)" : "transparent",
-    color: active ? "var(--text-1)" : "var(--text-2)",
-    padding: "4px 10px",
-    borderRadius: 6,
-    fontFamily: "var(--font-sans)",
-    fontSize: 12,
-    fontWeight: active ? 600 : 500,
-    cursor: "pointer",
-  };
-}
-
-const statPadStyle: React.CSSProperties = { padding: "12px 15px" };
-const statLblStyle: React.CSSProperties = { fontSize: 12, color: "var(--text-2)" };
-const statNumStyle: React.CSSProperties = {
-  fontSize: 18,
-  fontWeight: 600,
-  letterSpacing: "-0.01em",
-  marginTop: 6,
-  lineHeight: 1.25,
-};
-const statUnitStyle: React.CSSProperties = {
-  fontSize: 12,
-  fontWeight: 500,
+const metricLblStyle: React.CSSProperties = {
+  fontSize: 11,
   color: "var(--text-3)",
-  marginLeft: 3,
 };
-const thStyle: React.CSSProperties = {
-  textAlign: "left",
-  padding: "10px 14px",
+
+const metricValStyle: React.CSSProperties = {
+  fontSize: 15,
   fontWeight: 500,
-  whiteSpace: "nowrap",
+  lineHeight: 1.2,
+  color: "var(--text-strong)",
 };
-const thCompactStyle: React.CSSProperties = {
-  textAlign: "left",
-  padding: "10px 12px",
-  fontWeight: 500,
-  whiteSpace: "nowrap",
-};
-const tdStyle: React.CSSProperties = {
-  padding: "11px 14px",
-  verticalAlign: "middle",
-  whiteSpace: "nowrap",
-};
-const tdCompactStyle: React.CSSProperties = {
-  padding: "11px 12px",
-  verticalAlign: "middle",
+
+const metricSubStyle: React.CSSProperties = {
+  marginTop: 3,
+  fontSize: 10.5,
+  color: "var(--text-3)",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
   whiteSpace: "nowrap",
 };

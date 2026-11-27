@@ -8,6 +8,7 @@ import type {
   AppConfig,
   AppConfigPatch,
   AppUpdateInfo,
+  ArchivedAccountSummary,
   BackupInfo,
   BatchFixResult,
   ClaudeConn,
@@ -57,6 +58,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   antiUploadFlush: true,
   safeExitPrompt: true,
   calm24h: false,
+  lockCfAndStripeToClaude: true,
   hudPinned: true,
   hudFolded: false,
   hudEdgeDocked: false,
@@ -461,6 +463,15 @@ export const ipc = {
     return invoke<AppConfig>("update_config", { patch });
   },
 
+  async syncClashRulePolicy(): Promise<string> {
+    if (!isTauriRuntime()) {
+      return memoryConfig.lockCfAndStripeToClaude !== false
+        ? "已热同步开启 CF 盾与 Stripe 锁定规则。"
+        : "已热同步取消 CF 盾与 Stripe 锁定规则。";
+    }
+    return invoke<string>("sync_clash_rule_policy");
+  },
+
   async setHudPinned(pinned: boolean): Promise<AppConfig> {
     if (!isTauriRuntime()) {
       memoryConfig = { ...memoryConfig, hudPinned: pinned };
@@ -606,6 +617,7 @@ export const ipc = {
           endpoint: "Named Pipe (QA 预览样本)",
           groupName: "Claude-Fixed",
           currentNode: "US-LA-Static-01",
+          currentExitSummary: "104.28.214.18 · ISP · 42 ms",
           totalRawNodes: 6,
           filteredBlockedCount: 2,
           nodes: [
@@ -751,7 +763,92 @@ export const ipc = {
   },
 
   async getLiveConnections(): Promise<ClaudeConn[]> {
-    if (!isTauriRuntime()) return [];
+    if (!isTauriRuntime()) {
+      if (isQaPreviewMode()) {
+        return [
+          {
+            id: "qa-conn-kyc",
+            anomaly: true,
+            process: "chrome.exe",
+            host: "inquiry.withpersona.com:443",
+            rule: "Match",
+            chain: "DIRECT",
+            action: "风险连接（建议立即掐断）",
+            time: "18:35:02",
+            startedAtMs: Date.now() - 96_000,
+            bytesLabel: "4.8 KB",
+            domainCategory: "kyc_verify",
+            purposeLabel: "KYC 身份核验",
+            purposeDetail: "Anthropic 风控复审与 Persona 身份验证接口（需与主站同节点）",
+            isUnlistedDomain: false,
+          },
+          {
+            id: "qa-conn-api",
+            anomaly: false,
+            process: "Claude.exe",
+            host: "api.anthropic.com:443",
+            rule: "DomainSuffix",
+            chain: "Claude-Fixed → 🇺🇸美国1|流媒体AI",
+            action: "正常放行",
+            time: "18:35:05",
+            startedAtMs: Date.now() - 944_000,
+            bytesLabel: "1.42 MB",
+            domainCategory: "core_api",
+            purposeLabel: "核心 API",
+            purposeDetail: "Anthropic 官方模型推理、桌面端与 Claude Code 核心接口",
+            isUnlistedDomain: false,
+          },
+          {
+            id: "qa-conn-flag",
+            anomaly: false,
+            process: "Claude.exe",
+            host: "statsig.anthropic.com:443",
+            rule: "DomainSuffix",
+            chain: "Claude-Fixed → 🇺🇸美国1|流媒体AI",
+            action: "正常放行",
+            time: "18:35:06",
+            startedAtMs: Date.now() - 412_000,
+            bytesLabel: "9.1 KB",
+            domainCategory: "feature_flag",
+            purposeLabel: "功能开关",
+            purposeDetail: "Claude 模型列表、Artifacts 与新特性灰度开关（刻意保留不拦截）",
+            isUnlistedDomain: false,
+          },
+          {
+            id: "qa-conn-tel",
+            anomaly: false,
+            process: "Claude.exe",
+            host: "browser-intake-datadoghq.com:443",
+            rule: "DomainSuffix",
+            chain: "REJECT",
+            action: "已拦截（防回传）",
+            time: "18:35:08",
+            bytesLabel: "0 B",
+            domainCategory: "telemetry",
+            purposeLabel: "遥测 · 行为监控",
+            purposeDetail: "Datadog 客户端/网页指纹与性能事件上报（建议 REJECT 拦截）",
+            isUnlistedDomain: false,
+          },
+          {
+            id: "qa-conn-new",
+            anomaly: false,
+            process: "Claude.exe",
+            host: "cowork-edge.anthropic-labs.dev:443",
+            rule: "Process",
+            chain: "Claude-Fixed → 🇺🇸美国1|流媒体AI",
+            action: "进程兜底放行",
+            time: "18:35:10",
+            startedAtMs: Date.now() - 185_000,
+            bytesLabel: "2.3 KB",
+            domainCategory: "unknown_new",
+            purposeLabel: "未收录新域",
+            purposeDetail: "Claude 进程访问的新外部域名，已由进程规则兜底走 Claude-Fixed",
+            isUnlistedDomain: true,
+          },
+        ];
+      }
+      return [];
+    }
     return invoke<ClaudeConn[]>("get_live_connections");
   },
 
@@ -1358,7 +1455,8 @@ export const ipc = {
 
   async startDeepNodeAudit(
     forceAll = false,
-    targetNode?: string
+    targetNode?: string,
+    targetNodes?: string[]
   ): Promise<DeepAuditProgress> {
     if (!isTauriRuntime()) {
       return {
@@ -1375,6 +1473,7 @@ export const ipc = {
     return invoke<DeepAuditProgress>("start_deep_node_audit", {
       forceAll,
       targetNode: targetNode ?? null,
+      targetNodes: targetNodes && targetNodes.length > 0 ? targetNodes : null,
     });
   },
 
@@ -1525,6 +1624,27 @@ export const ipc = {
     });
   },
 
+  async getAccountAuditHistoryReport(orgPrefix8: string): Promise<AccountAuditReport | null> {
+    if (!isTauriRuntime()) {
+      const key = orgPrefix8.trim().toLowerCase();
+      return buildMockHistoryReportByOrg(key);
+    }
+    return invoke<AccountAuditReport | null>("get_account_audit_history_report", {
+      orgPrefix8,
+    });
+  },
+
+  async deleteAccountAuditHistory(orgPrefix8: string): Promise<ArchivedAccountSummary[]> {
+    if (!isTauriRuntime()) {
+      const key = orgPrefix8.trim().toLowerCase();
+      mockDeletedHistoryOrgs.add(key);
+      return buildMockArchivedSummaries();
+    }
+    return invoke<ArchivedAccountSummary[]>("delete_account_audit_history", {
+      orgPrefix8,
+    });
+  },
+
   async verifyAccountCloudWithSk(
     rawInput: string,
     profileId?: string,
@@ -1641,6 +1761,202 @@ export const ipc = {
 let mockAccountCloudVerifiedCount = 0;
 let mockTelemetryEnvFixed = false;
 let mockTelemetryDirBytes = 0;
+const mockDeletedHistoryOrgs = new Set<string>();
+
+function buildMockArchivedSummaries(): ArchivedAccountSummary[] {
+  const all: ArchivedAccountSummary[] = [
+    {
+      orgPrefix8: "a4722ea6",
+      emailMasked: "jaso***11@gmail.com",
+      plan: "Free",
+      workspaceGeo: "US",
+      exitCountry: "US",
+      score: 96,
+      scoreLevel: "safe",
+      scoreLevelLabel: "低危稳健",
+      scoreColorToken: "green",
+      cloudVerified: true,
+      verifyCount: 2,
+      hasDangerIssue: false,
+      pendingIssueCount: 0,
+      personaKycStatus: "verified",
+      hasMonitoringNotice: false,
+      isBanned: false,
+      portalHold: false,
+      fiveHourPct: 12,
+      sevenDayPct: 28,
+      auditedAtMs: Date.now() - 3 * 3600_000,
+      hasFullReport: true,
+    },
+    {
+      orgPrefix8: "0ffb0302",
+      emailMasked: "star***at@outlook.com",
+      plan: "Free",
+      workspaceGeo: "US",
+      exitCountry: "US",
+      score: 88,
+      scoreLevel: "safe",
+      scoreLevelLabel: "低危稳健",
+      scoreColorToken: "green",
+      cloudVerified: true,
+      verifyCount: 1,
+      hasDangerIssue: false,
+      pendingIssueCount: 1,
+      personaKycStatus: "expired",
+      hasMonitoringNotice: true,
+      isBanned: false,
+      portalHold: false,
+      fiveHourPct: null,
+      sevenDayPct: null,
+      auditedAtMs: Date.now() - 45 * 60_000,
+      hasFullReport: true,
+    },
+  ];
+  return all.filter((x) => !mockDeletedHistoryOrgs.has(x.orgPrefix8.toLowerCase()));
+}
+
+function buildMockHistoryReportByOrg(orgKey: string): AccountAuditReport | null {
+  if (mockDeletedHistoryOrgs.has(orgKey)) return null;
+  const base = buildMockAccountAuditReport("default");
+  if (orgKey === "a4722ea6") {
+    return {
+      ...base,
+      profileId: "history:a4722ea6",
+      auditedAtMs: Date.now() - 3 * 3600_000,
+      emailMasked: "jaso***11@gmail.com",
+      orgIdPrefix8: "a4722ea6",
+      plan: "Free",
+      merchantChannel: "Free 无订阅",
+      accountAgeDays: 85,
+      subscriptionAgeDays: null,
+      subscriptionRenewLabel: "Free 无订阅",
+      workspaceGeo: "US",
+      exitCountry: "US",
+      exitColo: "SJC",
+      geoConsistency: "match",
+      cloudVerified: true,
+      cloudStale: false,
+      cloudAgeDays: 0,
+      verifyCount: 2,
+      cloudSnapshot: {
+        verifiedAtMs: Date.now() - 3 * 3600_000,
+        checkedAtIso: new Date(Date.now() - 3 * 3600_000).toISOString(),
+        emailMasked: "jaso***11@gmail.com",
+        orgIdPrefix8: "a4722ea6",
+        plan: "Free",
+        merchantChannel: "Free 无订阅",
+        workspaceGeo: "US",
+        edgeCountry: "US",
+        edgeColo: "SJC",
+        accountAgeDays: 85,
+        subscriptionAgeDays: null,
+        subscriptionEndsAt: null,
+        chatAvailable: true,
+        isBanned: false,
+        appealsRedirectEnabled: false,
+        hasMonitoringNotice: false,
+        activeFlagTypes: [],
+        warningSummaryZh: null,
+        personaKycStatus: "verified",
+        personaKycCompletedAt: "2026-11-20T06:02:33Z",
+        personaKycAgeHours: 140,
+        portalHold: false,
+        portalState: "clear",
+        fiveHourPct: 12,
+        fiveHourResetsAt: null,
+        sevenDayPct: 28,
+        sevenDayResetsAt: null,
+        warnings: [],
+      },
+      quota: {
+        ...base.quota,
+        fiveHourPct: 12,
+        sevenDayPct: 28,
+        stampShort: "3小时前",
+      },
+      scoreResult: {
+        ...base.scoreResult,
+        score: 96,
+        level: "safe",
+        levelLabel: "低危稳健",
+        colorToken: "green",
+        confidence: "full_combined",
+        confidenceLabel: "本地+云端综合",
+        blindSpotNote: null,
+        deductions: [],
+      },
+      pendingIssueCount: 0,
+      hasDangerIssue: false,
+      archivedAccounts: [],
+    };
+  }
+  if (orgKey === "0ffb0302") {
+    return {
+      ...base,
+      profileId: "history:0ffb0302",
+      auditedAtMs: Date.now() - 45 * 60_000,
+      emailMasked: "star***at@outlook.com",
+      orgIdPrefix8: "0ffb0302",
+      plan: "Free",
+      merchantChannel: "Free 无订阅",
+      accountAgeDays: 86,
+      subscriptionAgeDays: null,
+      subscriptionRenewLabel: "Free 无订阅",
+      workspaceGeo: "US",
+      exitCountry: "US",
+      exitColo: "SJC",
+      geoConsistency: "match",
+      cloudVerified: true,
+      cloudStale: false,
+      cloudAgeDays: 0,
+      verifyCount: 1,
+      cloudSnapshot: {
+        verifiedAtMs: Date.now() - 45 * 60_000,
+        checkedAtIso: new Date(Date.now() - 45 * 60_000).toISOString(),
+        emailMasked: "star***at@outlook.com",
+        orgIdPrefix8: "0ffb0302",
+        plan: "Free",
+        merchantChannel: "Free 无订阅",
+        workspaceGeo: "US",
+        edgeCountry: "US",
+        edgeColo: "SJC",
+        accountAgeDays: 86,
+        subscriptionAgeDays: null,
+        subscriptionEndsAt: null,
+        chatAvailable: true,
+        isBanned: false,
+        appealsRedirectEnabled: false,
+        hasMonitoringNotice: true,
+        activeFlagTypes: ["access_block", "api_disabled:kyc_pending"],
+        warningSummaryZh: "访问封锁 · API 受限(kyc_pending)",
+        personaKycStatus: "expired",
+        personaKycCompletedAt: null,
+        personaKycAgeHours: null,
+        portalHold: false,
+        portalState: "unknown",
+        fiveHourPct: null,
+        fiveHourResetsAt: null,
+        sevenDayPct: null,
+        sevenDayResetsAt: null,
+        warnings: [],
+      },
+      scoreResult: {
+        ...base.scoreResult,
+        score: 88,
+        level: "safe",
+        levelLabel: "低危稳健",
+        colorToken: "green",
+        confidence: "full_combined",
+        confidenceLabel: "本地+云端综合",
+        blindSpotNote: null,
+      },
+      pendingIssueCount: 1,
+      hasDangerIssue: false,
+      archivedAccounts: [],
+    };
+  }
+  return null;
+}
 
 export function buildMockAccountAuditReport(profileId = "default"): AccountAuditReport {
   const verified = mockAccountCloudVerifiedCount > 0;
@@ -1993,6 +2309,7 @@ export function buildMockAccountAuditReport(profileId = "default"): AccountAudit
           sessionDirOrphans: [],
           hasCliCleanupTarget: true,
         },
+    archivedAccounts: buildMockArchivedSummaries(),
   };
 }
 

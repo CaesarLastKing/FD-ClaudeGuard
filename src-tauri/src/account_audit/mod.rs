@@ -141,6 +141,45 @@ pub struct ProfileCloudCache {
     pub last_snapshot: Option<CloudProbeSnapshot>,
 }
 
+/// 单条历史已审计账号的持久化快照（严禁存明文 sk / Cookie / 完整邮箱）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountHistoryRecord {
+    pub org_prefix8: String,
+    pub updated_at_ms: i64,
+    pub report: AccountAuditReport,
+}
+
+/// 左栏「历史归档」展示用精简摘要卡片 DTO
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchivedAccountSummary {
+    pub org_prefix8: String,
+    pub email_masked: String,
+    pub plan: String,
+    pub workspace_geo: Option<String>,
+    pub exit_country: Option<String>,
+    pub score: i32,
+    pub score_level: String,
+    pub score_level_label: String,
+    pub score_color_token: String,
+    pub cloud_verified: bool,
+    pub verify_count: u32,
+    pub has_danger_issue: bool,
+    pub pending_issue_count: usize,
+    pub persona_kyc_status: Option<String>,
+    pub has_monitoring_notice: bool,
+    pub is_banned: bool,
+    pub portal_hold: bool,
+    pub five_hour_pct: Option<u32>,
+    pub seven_day_pct: Option<u32>,
+    pub audited_at_ms: i64,
+    pub has_full_report: bool,
+}
+
+/// 历史档案最多保留条数（超出后淘汰最久未更新的记录，控制缓存体积）
+const MAX_ACCOUNT_HISTORY_ENTRIES: usize = 30;
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AuditCacheStore {
@@ -152,6 +191,9 @@ struct AuditCacheStore {
     /// org_prefix8 (小写) -> 脱敏账号元数据（云端核验自动登记，供桌面端/控制台单号锁/清理弹窗反查显示）
     #[serde(default)]
     known_accounts: HashMap<String, KnownAccountMeta>,
+    /// org_prefix8 (小写) -> 历史完整脱敏审计快照（清理登录态与切换新号时永久保留，仅用户手动删除时移除）
+    #[serde(default)]
+    account_history: HashMap<String, AccountHistoryRecord>,
 }
 
 /// 缓存文件路径：`%LOCALAPPDATA%\FDClaudeGuard\account-audit-cache.json`
@@ -272,12 +314,13 @@ pub fn record_known_account_meta(path: &Path, meta: KnownAccountMeta) {
         .ok()
         .and_then(|raw| serde_json::from_str(raw.trim_start_matches('\u{feff}')).ok())
         .unwrap_or_else(|| AuditCacheStore {
-            version: 1,
+            version: 2,
             profiles: HashMap::new(),
             org_snapshots: HashMap::new(),
             known_accounts: HashMap::new(),
+            account_history: HashMap::new(),
         });
-    store.version = 1;
+    store.version = 2;
     store.known_accounts.insert(key, meta);
     if let Ok(body) = serde_json::to_string_pretty(&store) {
         let tmp = path.with_extension("json.tmp");
@@ -288,23 +331,88 @@ pub fn record_known_account_meta(path: &Path, meta: KnownAccountMeta) {
     }
 }
 
+fn write_audit_cache_store_atomic(path: &Path, store: &AuditCacheStore) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("创建账户审计缓存目录失败: {e}"))?;
+    }
+    let body = serde_json::to_string_pretty(store)
+        .map_err(|e| format!("序列化账户审计缓存失败: {e}"))?;
+    let tmp = path.with_extension("json.tmp");
+    fs::write(&tmp, &body).map_err(|e| format!("写入临时缓存文件失败: {e}"))?;
+    if fs::rename(&tmp, path).is_err() {
+        fs::write(path, &body).map_err(|e| format!("保存账户审计缓存失败: {e}"))?;
+        let _ = fs::remove_file(&tmp);
+    }
+    Ok(())
+}
+
+fn load_audit_cache_store(path: &Path) -> AuditCacheStore {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| serde_json::from_str(raw.trim_start_matches('\u{feff}')).ok())
+        .unwrap_or_else(|| AuditCacheStore {
+            version: 2,
+            profiles: HashMap::new(),
+            org_snapshots: HashMap::new(),
+            known_accounts: HashMap::new(),
+            account_history: HashMap::new(),
+        })
+}
+
+/// 按 org_prefix8 读取该账号专属云端核验缓存（用于避免跨号串累加 verifyCount）
+pub fn load_org_cloud_cache(path: &Path, org_prefix8: &str) -> Option<ProfileCloudCache> {
+    let key = org_prefix8.trim().to_ascii_lowercase();
+    if key.is_empty() {
+        return None;
+    }
+    let store = load_audit_cache_store(path);
+    if let Some(bucket) = store.org_snapshots.get(&key) {
+        return Some(bucket.clone());
+    }
+    for prof in store.profiles.values() {
+        let cached_org = prof
+            .last_snapshot
+            .as_ref()
+            .and_then(|s| s.org_id_prefix8.as_deref())
+            .or(prof.bound_org_prefix8.as_deref())
+            .map(|s| s.trim().to_ascii_lowercase());
+        if cached_org.as_deref() == Some(key.as_str()) {
+            return Some(prof.clone());
+        }
+    }
+    None
+}
+
 pub fn save_profile_cloud_cache(
     path: &Path,
     cache: &ProfileCloudCache,
 ) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("创建账户审计缓存目录失败: {e}"))?;
+    let mut store = load_audit_cache_store(path);
+    store.version = 2;
+
+    // 覆盖 profiles[profile_id] 之前，先抢救原有旧号快照至 org_snapshots 与 known_accounts，绝不丢历史！
+    if let Some(prev_prof) = store.profiles.get(&cache.profile_id).cloned() {
+        let prev_org = prev_prof
+            .last_snapshot
+            .as_ref()
+            .and_then(|s| s.org_id_prefix8.as_deref())
+            .or(prev_prof.bound_org_prefix8.as_deref())
+            .map(|s| s.trim().to_ascii_lowercase())
+            .filter(|s| !s.is_empty());
+        if let Some(old_key) = prev_org {
+            store.org_snapshots.entry(old_key.clone()).or_insert_with(|| prev_prof.clone());
+            if let Some(ref snap) = prev_prof.last_snapshot {
+                store.known_accounts.entry(old_key.clone()).or_insert(KnownAccountMeta {
+                    org_prefix8: old_key,
+                    email_masked: snap.email_masked.clone(),
+                    plan: Some(snap.plan.clone()).filter(|p| !p.is_empty() && p != "未知"),
+                    source: "云端已识".into(),
+                    updated_at_ms: snap.verified_at_ms,
+                });
+            }
+        }
     }
-    let mut store: AuditCacheStore = fs::read_to_string(path)
-        .ok()
-        .and_then(|raw| serde_json::from_str(raw.trim_start_matches('\u{feff}')).ok())
-        .unwrap_or_else(|| AuditCacheStore {
-            version: 1,
-            profiles: HashMap::new(),
-            org_snapshots: HashMap::new(),
-            known_accounts: HashMap::new(),
-        });
-    store.version = 1;
+
     if let Some(ref snap) = cache.last_snapshot {
         if let Some(ref org) = snap.org_id_prefix8 {
             let key = org.to_ascii_lowercase();
@@ -323,15 +431,323 @@ pub fn save_profile_cloud_cache(
     }
     store.profiles.insert(cache.profile_id.clone(), cache.clone());
 
-    let body = serde_json::to_string_pretty(&store)
-        .map_err(|e| format!("序列化账户审计缓存失败: {e}"))?;
-    let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, &body).map_err(|e| format!("写入临时缓存文件失败: {e}"))?;
-    if fs::rename(&tmp, path).is_err() {
-        fs::write(path, &body).map_err(|e| format!("保存账户审计缓存失败: {e}"))?;
-        let _ = fs::remove_file(&tmp);
+    write_audit_cache_store_atomic(path, &store)
+}
+
+/// 将完整脱敏审计报告按 `org_id_prefix8` 持久化到历史档案库（严禁存任何明文 sk/Cookie；清空登录态时保留）
+pub fn upsert_account_history_from_report(
+    path: &Path,
+    report: &AccountAuditReport,
+) -> Result<(), String> {
+    let Some(org_key) = report
+        .org_id_prefix8
+        .as_deref()
+        .map(|s| s.trim().to_ascii_lowercase())
+        .filter(|s| !s.is_empty())
+    else {
+        return Ok(());
+    };
+
+    let mut store = load_audit_cache_store(path);
+    store.version = 2;
+
+    // 确保存入历史快照的报告本身不嵌套 archived_accounts，防止 JSON 膨胀
+    let mut snap_report = report.clone();
+    snap_report.archived_accounts.clear();
+
+    // 若该 org 此前已有云端核验过的历史记录，而当前仅是未核验本地扫描且没有更新的云端快照，
+    // 仅在当前也是云端已核验、或原历史未核验时覆盖，避免离线回扫抹掉旧云端快照详情
+    let preserve_prev_cloud = store
+        .account_history
+        .get(&org_key)
+        .map(|prev| prev.report.cloud_verified && !snap_report.cloud_verified)
+        .unwrap_or(false);
+    if !preserve_prev_cloud {
+        store.account_history.insert(
+            org_key.clone(),
+            AccountHistoryRecord {
+                org_prefix8: org_key.clone(),
+                updated_at_ms: snap_report.audited_at_ms,
+                report: snap_report.clone(),
+            },
+        );
     }
-    Ok(())
+
+    // 同步维护脱敏元数据索引（已有更完整脱敏邮箱时不降级覆盖）
+    let entry_email = if !snap_report.email_masked.starts_with("桌面端账号")
+        && !snap_report.email_masked.starts_with("CLI 账号")
+        && snap_report.email_masked != "未检测到本机账号"
+    {
+        Some(snap_report.email_masked.clone())
+    } else {
+        None
+    };
+    let entry_plan = Some(snap_report.plan.clone()).filter(|p| !p.is_empty() && p != "未知");
+    store
+        .known_accounts
+        .entry(org_key.clone())
+        .and_modify(|existing| {
+            if entry_email.is_some() {
+                existing.email_masked = entry_email.clone();
+            }
+            if entry_plan.is_some() {
+                existing.plan = entry_plan.clone();
+            }
+            existing.updated_at_ms = existing.updated_at_ms.max(snap_report.audited_at_ms);
+        })
+        .or_insert(KnownAccountMeta {
+            org_prefix8: org_key,
+            email_masked: entry_email,
+            plan: entry_plan,
+            source: if snap_report.cloud_verified {
+                "云端已识".into()
+            } else {
+                "本地已识".into()
+            },
+            updated_at_ms: snap_report.audited_at_ms,
+        });
+
+    // 控制历史档案最大数量，超过上限按最久未更新淘汰
+    if store.account_history.len() > MAX_ACCOUNT_HISTORY_ENTRIES {
+        let mut keys_by_age: Vec<(String, i64)> = store
+            .account_history
+            .iter()
+            .map(|(k, v)| (k.clone(), v.updated_at_ms))
+            .collect();
+        keys_by_age.sort_by_key(|(_, ts)| *ts);
+        let remove_cnt = store.account_history.len() - MAX_ACCOUNT_HISTORY_ENTRIES;
+        for (old_k, _) in keys_by_age.into_iter().take(remove_cnt) {
+            store.account_history.remove(&old_k);
+        }
+    }
+
+    write_audit_cache_store_atomic(path, &store)
+}
+
+fn summary_from_history_report(org_key: &str, r: &AccountAuditReport, has_full: bool) -> ArchivedAccountSummary {
+    ArchivedAccountSummary {
+        org_prefix8: org_key.to_string(),
+        email_masked: r.email_masked.clone(),
+        plan: r.plan.clone(),
+        workspace_geo: r.workspace_geo.clone(),
+        exit_country: r.exit_country.clone(),
+        score: r.score_result.score,
+        score_level: r.score_result.level.clone(),
+        score_level_label: r.score_result.level_label.clone(),
+        score_color_token: r.score_result.color_token.clone(),
+        cloud_verified: r.cloud_verified,
+        verify_count: r.verify_count,
+        has_danger_issue: r.has_danger_issue,
+        pending_issue_count: r.pending_issue_count,
+        persona_kyc_status: r
+            .cloud_snapshot
+            .as_ref()
+            .and_then(|s| s.persona_kyc_status.clone()),
+        has_monitoring_notice: r
+            .cloud_snapshot
+            .as_ref()
+            .map(|s| s.has_monitoring_notice)
+            .unwrap_or(false),
+        is_banned: r
+            .cloud_snapshot
+            .as_ref()
+            .map(|s| s.is_banned)
+            .unwrap_or(false),
+        portal_hold: r
+            .cloud_snapshot
+            .as_ref()
+            .map(|s| s.portal_hold)
+            .unwrap_or(false),
+        five_hour_pct: r.quota.five_hour_pct,
+        seven_day_pct: r.quota.seven_day_pct,
+        audited_at_ms: r.audited_at_ms,
+        has_full_report: has_full,
+    }
+}
+
+/// 合成一份仅基于历史云端快照/脱敏元数据的只读历史报告（向下兼容 v1 升级前的老号记录）
+fn synthesize_legacy_history_report(
+    org_key: &str,
+    cloud_cache: Option<&ProfileCloudCache>,
+    known: Option<&KnownAccountMeta>,
+) -> AccountAuditReport {
+    let mut local = LocalAccountAudit::default();
+    local.profile_id = format!("history:{org_key}");
+    let now_ms = cloud_cache
+        .and_then(|c| c.last_verified_at_ms)
+        .or_else(|| known.map(|k| k.updated_at_ms))
+        .unwrap_or_else(|| Utc::now().timestamp_millis());
+    local.scanned_at_ms = now_ms;
+    local.desktop.latest_active_org_prefix = Some(org_key.to_string());
+    local.desktop.org_id_prefixes = vec![org_key.to_string()];
+
+    let mut known_map = HashMap::new();
+    if let Some(k) = known {
+        known_map.insert(org_key.to_string(), k.clone());
+    }
+    let runtime = RuntimeGuardContext {
+        clash_port: 7890,
+        clash_online: true,
+        tun_online: true,
+        group_rules_ok: true,
+        fake_ip_dns_ok: true,
+        auto_kill_switch_enabled: true,
+        exit_country: cloud_cache
+            .and_then(|c| c.last_snapshot.as_ref())
+            .and_then(|s| s.edge_country.clone()),
+        exit_colo: cloud_cache
+            .and_then(|c| c.last_snapshot.as_ref())
+            .and_then(|s| s.edge_colo.clone()),
+        ..Default::default()
+    };
+    let mut report = build_account_audit_report_with_known(local, cloud_cache, &runtime, &known_map);
+    if report.email_masked.starts_with("桌面端账号") {
+        if let Some(em) = known.and_then(|k| k.email_masked.clone()) {
+            report.email_masked = em;
+        }
+    }
+    if report.plan == "未知" {
+        if let Some(pl) = known.and_then(|k| k.plan.clone()) {
+            report.plan = pl;
+        }
+    }
+    report.audited_at_ms = now_ms;
+    report.archived_accounts.clear();
+    report
+}
+
+/// 汇总所有历史已审计账号摘要（排除当前主号，按最后审计时间倒序；自动兼容 v1 老号记录）
+pub fn load_archived_account_summaries(
+    path: &Path,
+    exclude_org: Option<&str>,
+) -> Vec<ArchivedAccountSummary> {
+    let store = load_audit_cache_store(path);
+    let exclude_lower = exclude_org
+        .map(|s| s.trim().to_ascii_lowercase())
+        .filter(|s| !s.is_empty());
+
+    let mut map: HashMap<String, ArchivedAccountSummary> = HashMap::new();
+
+    for (org_key, rec) in &store.account_history {
+        let lower = org_key.trim().to_ascii_lowercase();
+        if lower.is_empty() || exclude_lower.as_deref() == Some(lower.as_str()) {
+            continue;
+        }
+        map.insert(
+            lower.clone(),
+            summary_from_history_report(&lower, &rec.report, true),
+        );
+    }
+
+    for (org_key, cache) in &store.org_snapshots {
+        let lower = org_key.trim().to_ascii_lowercase();
+        if lower.is_empty()
+            || exclude_lower.as_deref() == Some(lower.as_str())
+            || map.contains_key(&lower)
+        {
+            continue;
+        }
+        let synth = synthesize_legacy_history_report(
+            &lower,
+            Some(cache),
+            store.known_accounts.get(&lower),
+        );
+        map.insert(
+            lower.clone(),
+            summary_from_history_report(&lower, &synth, true),
+        );
+    }
+
+    for (org_key, meta) in &store.known_accounts {
+        let lower = org_key.trim().to_ascii_lowercase();
+        if lower.is_empty()
+            || exclude_lower.as_deref() == Some(lower.as_str())
+            || map.contains_key(&lower)
+        {
+            continue;
+        }
+        let synth = synthesize_legacy_history_report(&lower, None, Some(meta));
+        map.insert(
+            lower.clone(),
+            summary_from_history_report(&lower, &synth, false),
+        );
+    }
+
+    let mut list: Vec<ArchivedAccountSummary> = map.into_values().collect();
+    list.sort_by(|a, b| {
+        b.audited_at_ms
+            .cmp(&a.audited_at_ms)
+            .then_with(|| a.org_prefix8.cmp(&b.org_prefix8))
+    });
+    list
+}
+
+/// 读取指定历史账号的完整脱敏只读报告快照（供用户点击切换查看历史评分与账户状态）
+pub fn load_account_history_report(path: &Path, org_prefix8: &str) -> Option<AccountAuditReport> {
+    let key = org_prefix8.trim().to_ascii_lowercase();
+    if key.is_empty() {
+        return None;
+    }
+    let store = load_audit_cache_store(path);
+    if let Some(rec) = store.account_history.get(&key) {
+        return Some(rec.report.clone());
+    }
+    if let Some(cache) = store.org_snapshots.get(&key) {
+        return Some(synthesize_legacy_history_report(
+            &key,
+            Some(cache),
+            store.known_accounts.get(&key),
+        ));
+    }
+    if let Some(meta) = store.known_accounts.get(&key) {
+        return Some(synthesize_legacy_history_report(&key, None, Some(meta)));
+    }
+    None
+}
+
+/// 删除单条历史账号归档记录（同步移除 history / org_snapshots / known_accounts 中该组织条目，并保留其余账号完好）
+pub fn delete_account_history_entry(path: &Path, org_prefix8: &str) -> Result<bool, String> {
+    let key = org_prefix8.trim().to_ascii_lowercase();
+    if key.is_empty() {
+        return Ok(false);
+    }
+    let mut store = load_audit_cache_store(path);
+    let mut removed = false;
+    if store.account_history.remove(&key).is_some() {
+        removed = true;
+    }
+    if store.org_snapshots.remove(&key).is_some() {
+        removed = true;
+    }
+    if store.known_accounts.remove(&key).is_some() {
+        removed = true;
+    }
+    let matching_profiles: Vec<String> = store
+        .profiles
+        .iter()
+        .filter_map(|(pid, prof)| {
+            let p_org = prof
+                .last_snapshot
+                .as_ref()
+                .and_then(|s| s.org_id_prefix8.as_deref())
+                .or(prof.bound_org_prefix8.as_deref())
+                .map(|s| s.trim().to_ascii_lowercase());
+            if p_org.as_deref() == Some(key.as_str()) {
+                Some(pid.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
+    for pid in matching_profiles {
+        store.profiles.remove(&pid);
+        removed = true;
+    }
+    if removed {
+        store.version = 2;
+        write_audit_cache_store_atomic(path, &store)?;
+    }
+    Ok(removed)
 }
 
 /// 统一格式化任意 `org_prefix8` 的脱敏可读账号标签（绝不再只显示孤立的 8 位组织号）
@@ -744,12 +1160,17 @@ pub struct RuntimeGuardContext {
     pub bg_claude_procs: u32,
     pub kill_hold_active: bool,
     pub kill_hold_remaining_secs: u32,
+    /// 运行态分流规则深度审计发现的必选缺口（遥测逃逸、关联域/KYC 缺失、跨组双 IP 串线、进程规则失效等）
+    pub rule_audit_gaps: Vec<String>,
+    /// 当用户关闭 CF/Stripe 同步锁但存在跨节点双 IP 时的非阻断提醒
+    pub advisory_cross_group_conflicts: Vec<String>,
 }
 
 /// 纯函数：严格 5 重条件评估「Clash 断连回传 Cookie 403 防护」是否存在真实漏链缺口
 ///
 /// 判定准则：
 /// - 基础硬防线：Clash 在线 + TUN 在线（任一离线必判漏链）；
+/// - 规则深度审计：若存在遥测逃逸、关联/KYC 域缺口或必选跨组双 IP 串线，直接纳入缺口提示；
 /// - 当 Claude 正在运行（`bg_claude_procs > 0 && !kill_hold_active`）时，绝不因「进程存活」本身误判漏链，
 ///   而是严格核验 5 重运行护航条件：① Clash 在线、② TUN 在线、③ 策略组与全家桶规则锁死、
 ///   ④ Fake-IP DNS 防泄漏通过且 0 条实时异常连接、⑤ 已开启运行中自动 4 层热熔断兜底；
@@ -762,8 +1183,18 @@ pub fn evaluate_disconnect_guard_strict(runtime: &RuntimeGuardContext) -> Vec<St
     if !runtime.tun_online {
         gaps.push("Clash TUN 虚拟网卡未接管".into());
     }
+    for gap in &runtime.rule_audit_gaps {
+        if !gap.trim().is_empty() && !gaps.contains(gap) {
+            gaps.push(gap.clone());
+        }
+    }
+    for adv in &runtime.advisory_cross_group_conflicts {
+        if !adv.trim().is_empty() && !gaps.contains(adv) {
+            gaps.push(adv.clone());
+        }
+    }
     if runtime.bg_claude_procs > 0 && !runtime.kill_hold_active {
-        if !runtime.group_rules_ok {
+        if !runtime.group_rules_ok && runtime.rule_audit_gaps.is_empty() {
             gaps.push("策略组与全家桶规则未锁死".into());
         }
         if !runtime.fake_ip_dns_ok {
@@ -839,6 +1270,9 @@ pub struct AccountAuditReport {
     /// 单一真源：本机多端账号拓扑与 6 态卫生结论
     #[serde(default)]
     pub topology: LocalAccountTopology,
+    /// 持久化的其他历史已审计账号摘要清单（用于左栏多历史账号点击切换与删除）
+    #[serde(default)]
+    pub archived_accounts: Vec<ArchivedAccountSummary>,
 }
 
 /// 修复操作返回 DTO
@@ -1663,6 +2097,7 @@ pub fn build_account_audit_report_with_known(
         primary_source,
         detected_accounts,
         topology,
+        archived_accounts: Vec::new(),
     }
 }
 
@@ -2187,40 +2622,40 @@ pub async fn run_desktop_cloud_verify(
         }
     }
 
-    let prev = load_profile_cloud_cache(cache_path, &ctx.profile_id);
-    let org_changed = match (
-        prev.as_ref().and_then(|p| p.bound_org_prefix8.as_deref()),
-        snap.org_id_prefix8.as_deref(),
-    ) {
-        (Some(old), Some(new_org)) => !old.eq_ignore_ascii_case(new_org),
-        _ => false,
-    };
+    // 严格按当前 org_id_prefix8 查找该账号自己的历史核验缓存，避免把老号 verifyCount 串累加到新号上
+    let prev_for_org = snap
+        .org_id_prefix8
+        .as_deref()
+        .and_then(|o| load_org_cloud_cache(cache_path, o));
     let next_cache = ProfileCloudCache {
         profile_id: ctx.profile_id.clone(),
-        bound_workspace_geo: if org_changed {
-            snap.workspace_geo.clone()
-        } else {
-            snap.workspace_geo
-                .clone()
-                .or_else(|| prev.as_ref().and_then(|p| p.bound_workspace_geo.clone()))
-        },
-        bound_org_prefix8: snap
-            .org_id_prefix8
-            .clone()
-            .or_else(|| prev.as_ref().and_then(|p| p.bound_org_prefix8.clone())),
-        verify_count: prev.as_ref().map(|p| p.verify_count + 1).unwrap_or(1),
+        bound_workspace_geo: snap.workspace_geo.clone().or_else(|| {
+            prev_for_org
+                .as_ref()
+                .and_then(|p| p.bound_workspace_geo.clone())
+        }),
+        bound_org_prefix8: snap.org_id_prefix8.clone().or_else(|| {
+            prev_for_org
+                .as_ref()
+                .and_then(|p| p.bound_org_prefix8.clone())
+        }),
+        verify_count: prev_for_org.as_ref().map(|p| p.verify_count + 1).unwrap_or(1),
         last_verified_at_ms: Some(snap.verified_at_ms),
         last_snapshot: Some(snap),
     };
     let _ = save_profile_cloud_cache(cache_path, &next_cache);
 
     let known = load_known_accounts_map(cache_path);
-    Ok(build_account_audit_report_with_known(
+    let mut report = build_account_audit_report_with_known(
         local,
         Some(&next_cache),
         runtime,
         &known,
-    ))
+    );
+    let _ = upsert_account_history_from_report(cache_path, &report);
+    report.archived_accounts =
+        load_archived_account_summaries(cache_path, report.org_id_prefix8.as_deref());
+    Ok(report)
 }
 
 // ==================== 外部查分 API 预留契约：POST /v1/audit/check-sk ====================
@@ -3371,5 +3806,324 @@ mod tests {
             AccountHygieneState::HighRiskBanContamination,
             "账户审计传入 portal_org_prefixes 后必须与控制台 100% 同源识别为高危连坐"
         );
+    }
+
+    #[test]
+    fn v035_disconnect_guard_surfaces_rule_audit_and_cross_group_gaps() {
+        let rt = RuntimeGuardContext {
+            clash_online: true,
+            tun_online: true,
+            group_rules_ok: false,
+            fake_ip_dns_ok: true,
+            auto_kill_switch_enabled: true,
+            rule_audit_gaps: vec![
+                "第三方遥测逃逸（browser-intake-datadoghq.com → 天悦云）".into(),
+            ],
+            advisory_cross_group_conflicts: vec![
+                "challenges.cloudflare.com 走「天悦云 → 美国2」与 Claude-Fixed「美国1」跨节点双 IP".into(),
+            ],
+            ..Default::default()
+        };
+        let gaps = evaluate_disconnect_guard_strict(&rt);
+        assert!(gaps.iter().any(|g| g.contains("browser-intake-datadoghq.com")));
+        assert!(gaps.iter().any(|g| g.contains("challenges.cloudflare.com")));
+    }
+
+    #[test]
+    fn v036_multi_account_history_persists_across_switch_clean_and_supports_delete() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cache_path = dir.path().join("account-audit-cache.json");
+
+        // 1. 先保存老号 a4722ea6（模拟旧版 v1 只写进 profiles.default、未写 orgSnapshots 的现场）
+        let old_snap = CloudProbeSnapshot {
+            verified_at_ms: 1_795_720_097_668,
+            checked_at_iso: "2026-11-26T19:08:17Z".into(),
+            email_masked: Some("jaso***11@gmail.com".into()),
+            org_id_prefix8: Some("a4722ea6".into()),
+            plan: "Free".into(),
+            merchant_channel: Some("Free 无订阅".into()),
+            workspace_geo: Some("US".into()),
+            edge_country: Some("US".into()),
+            edge_colo: Some("SJC".into()),
+            account_age_days: Some(85),
+            account_created_at: None,
+            subscription_age_days: None,
+            subscription_created_at: None,
+            subscription_ends_at: None,
+            chat_available: true,
+            is_banned: false,
+            appeals_redirect_enabled: false,
+            has_monitoring_notice: false,
+            active_flag_types: vec![],
+            warning_summary_zh: None,
+            persona_kyc_status: Some("verified".into()),
+            persona_kyc_completed_at: Some("2026-11-24T06:02:33Z".into()),
+            persona_kyc_age_hours: Some(61),
+            portal_hold: false,
+            portal_state: "clear".into(),
+            five_hour_pct: Some(12.0),
+            five_hour_resets_at: None,
+            seven_day_pct: Some(34.0),
+            seven_day_resets_at: None,
+            warnings: vec![],
+        };
+        let old_cache = ProfileCloudCache {
+            profile_id: "default".into(),
+            bound_workspace_geo: Some("US".into()),
+            bound_org_prefix8: Some("a4722ea6".into()),
+            verify_count: 2,
+            last_verified_at_ms: Some(old_snap.verified_at_ms),
+            last_snapshot: Some(old_snap.clone()),
+        };
+        save_profile_cloud_cache(&cache_path, &old_cache).expect("save old");
+
+        let mut old_local = LocalAccountAudit::default();
+        old_local.scanned_at_ms = 1_795_720_097_668;
+        old_local.desktop.latest_active_org_prefix = Some("a4722ea6".into());
+        old_local.desktop.org_id_prefixes = vec!["a4722ea6".into()];
+        let rt = RuntimeGuardContext {
+            clash_online: true,
+            tun_online: true,
+            group_rules_ok: true,
+            fake_ip_dns_ok: true,
+            auto_kill_switch_enabled: true,
+            exit_country: Some("US".into()),
+            ..Default::default()
+        };
+        let old_report = build_account_audit_report_with_known(
+            old_local,
+            Some(&old_cache),
+            &rt,
+            &HashMap::new(),
+        );
+        upsert_account_history_from_report(&cache_path, &old_report).expect("upsert old history");
+
+        // 2. 模拟用户清理登录态（清内存与默认槽位），验证历史记录 100% 完好留存
+        invalidate_profile_cloud_cache(&cache_path, "default");
+        let after_clean = load_archived_account_summaries(&cache_path, None);
+        assert_eq!(after_clean.len(), 1);
+        assert_eq!(after_clean[0].org_prefix8, "a4722ea6");
+        assert_eq!(after_clean[0].email_masked, "jaso***11@gmail.com");
+
+        // 3. 登录并核验新号 0ffb0302：验证 verifyCount 不继承老号的 2，且老号仍在历史档案列表中
+        let new_prev = load_org_cloud_cache(&cache_path, "0ffb0302");
+        assert!(new_prev.is_none(), "新号不应继承老号的 verifyCount");
+        let new_snap = CloudProbeSnapshot {
+            verified_at_ms: 1_795_750_050_163,
+            checked_at_iso: "2026-11-27T03:27:30Z".into(),
+            email_masked: Some("star***at@outlook.com".into()),
+            org_id_prefix8: Some("0ffb0302".into()),
+            plan: "Free".into(),
+            merchant_channel: Some("Free 无订阅".into()),
+            workspace_geo: Some("US".into()),
+            edge_country: Some("US".into()),
+            edge_colo: Some("SJC".into()),
+            account_age_days: Some(86),
+            account_created_at: None,
+            subscription_age_days: None,
+            subscription_created_at: None,
+            subscription_ends_at: None,
+            chat_available: true,
+            is_banned: false,
+            appeals_redirect_enabled: false,
+            has_monitoring_notice: true,
+            active_flag_types: vec!["access_block".into(), "api_disabled:kyc_pending".into()],
+            warning_summary_zh: Some("访问封锁 · API 受限(kyc_pending)".into()),
+            persona_kyc_status: Some("expired".into()),
+            persona_kyc_completed_at: None,
+            persona_kyc_age_hours: None,
+            portal_hold: false,
+            portal_state: "unknown".into(),
+            five_hour_pct: None,
+            five_hour_resets_at: None,
+            seven_day_pct: None,
+            seven_day_resets_at: None,
+            warnings: vec![],
+        };
+        let new_cache = ProfileCloudCache {
+            profile_id: "default".into(),
+            bound_workspace_geo: Some("US".into()),
+            bound_org_prefix8: Some("0ffb0302".into()),
+            verify_count: 1,
+            last_verified_at_ms: Some(new_snap.verified_at_ms),
+            last_snapshot: Some(new_snap),
+        };
+        save_profile_cloud_cache(&cache_path, &new_cache).expect("save new");
+        let mut new_local = LocalAccountAudit::default();
+        new_local.scanned_at_ms = 1_795_750_050_163;
+        new_local.desktop.latest_active_org_prefix = Some("0ffb0302".into());
+        new_local.desktop.org_id_prefixes = vec!["0ffb0302".into()];
+        let new_report = build_account_audit_report_with_known(
+            new_local,
+            Some(&new_cache),
+            &rt,
+            &HashMap::new(),
+        );
+        upsert_account_history_from_report(&cache_path, &new_report).expect("upsert new history");
+
+        // 排除当前新号后，历史归档列表必须稳定保留老号 a4722ea6，且可完整读出当时评分与云端快照
+        let archived = load_archived_account_summaries(&cache_path, Some("0ffb0302"));
+        assert_eq!(archived.len(), 1);
+        assert_eq!(archived[0].org_prefix8, "a4722ea6");
+        assert_eq!(archived[0].verify_count, 2);
+        let hist_rep = load_account_history_report(&cache_path, "a4722ea6").expect("load old report");
+        assert_eq!(hist_rep.email_masked, "jaso***11@gmail.com");
+        assert_eq!(
+            hist_rep
+                .cloud_snapshot
+                .as_ref()
+                .and_then(|s| s.persona_kyc_status.as_deref()),
+            Some("verified")
+        );
+
+        // 4. 用户手动删除老号记录，仅删老号、不影响新号
+        let removed = delete_account_history_entry(&cache_path, "a4722ea6").expect("delete old");
+        assert!(removed);
+        assert!(load_account_history_report(&cache_path, "a4722ea6").is_none());
+        assert!(load_account_history_report(&cache_path, "0ffb0302").is_some());
+    }
+
+    #[test]
+    #[ignore = "Gate 2 真机双向闭环实测：基于本机真实 account-audit-cache.json 副本验证老号 a4722ea6 无损找回、切号保留、读取历史与删除闭环（绝不篡改原文件）"]
+    fn live_v036_real_cache_multi_account_history_bidirectional() {
+        let real_path = default_audit_cache_path();
+        assert!(real_path.exists(), "本机应存在真实 account-audit-cache.json");
+        let orig_bytes = fs::read(&real_path).expect("read real cache");
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let work_cache = dir.path().join("account-audit-cache.json");
+        fs::write(&work_cache, &orig_bytes).expect("copy real cache");
+
+        // 1. 直接基于本机真实缓存（当前主号 0ffb0302），验证旧号 a4722ea6 (jaso***11@gmail.com) 自动回到历史归档列表
+        let archived = load_archived_account_summaries(&work_cache, Some("0ffb0302"));
+        assert!(
+            archived.iter().any(|a| a.org_prefix8 == "a4722ea6" && a.email_masked.contains("jaso***11")),
+            "本机真实缓存中的老号 a4722ea6 必须自动恢复到历史归档列表，实际={archived:?}"
+        );
+
+        // 2. 点击加载老号 a4722ea6 的历史只读报告
+        let old_rep = load_account_history_report(&work_cache, "a4722ea6")
+            .expect("应可加载老号 a4722ea6 历史报告");
+        assert_eq!(old_rep.email_masked, "jaso***11@gmail.com");
+
+        // 3. 模拟本机重新审计当前新号 0ffb0302 并落盘 history，验证老号仍不被顶掉
+        let ctx = ProfileContext::default_local(None, None, None);
+        let local = scan_local_profile(&ctx);
+        let cloud = load_profile_cloud_cache_for_local(&work_cache, &ctx.profile_id, &local);
+        let rt = RuntimeGuardContext {
+            clash_online: true,
+            tun_online: true,
+            group_rules_ok: true,
+            fake_ip_dns_ok: true,
+            auto_kill_switch_enabled: true,
+            exit_country: Some("US".into()),
+            ..Default::default()
+        };
+        let cur_rep = build_account_audit_report(local, cloud.as_ref(), &rt);
+        upsert_account_history_from_report(&work_cache, &cur_rep).expect("upsert cur");
+        let archived_after =
+            load_archived_account_summaries(&work_cache, cur_rep.org_id_prefix8.as_deref());
+        assert!(
+            archived_after.iter().any(|a| a.org_prefix8 == "a4722ea6"),
+            "重新审计新号后老号 a4722ea6 仍须保留在历史归档"
+        );
+
+        // 4. 模拟用户删除老号 a4722ea6，验证删除彻底且新号 0ffb0302 完好
+        assert!(delete_account_history_entry(&work_cache, "a4722ea6").expect("delete"));
+        assert!(load_account_history_report(&work_cache, "a4722ea6").is_none());
+        assert!(load_account_history_report(&work_cache, "0ffb0302").is_some());
+
+        // 5. 反向校验宿主机原文件 100% 字节一致
+        let after_bytes = fs::read(&real_path).expect("re-read real cache");
+        assert_eq!(orig_bytes, after_bytes, "真实缓存文件必须零篡改");
+        println!(
+            "LIVE_V036_OK cur_org={:?} recovered_old_archived={} remaining_cur_ok=true",
+            cur_rep.org_id_prefix8,
+            archived.len()
+        );
+    }
+
+    #[test]
+    fn v037_gate3_corrupted_json_graceful_recovery() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cache_path = dir.path().join("account-audit-cache.json");
+        // 故障注入：截断损坏 JSON
+        fs::write(&cache_path, "{ \"version\": 2, \"accountHistory\": { \"bad\": ").expect("write bad json");
+
+        assert!(load_archived_account_summaries(&cache_path, None).is_empty());
+        assert!(load_account_history_report(&cache_path, "bad").is_none());
+        assert_eq!(delete_account_history_entry(&cache_path, "bad").expect("delete on corrupt"), false);
+
+        // 写入有效新报告后应自动覆盖恢复合法 JSON
+        let mut local = LocalAccountAudit::default();
+        local.scanned_at_ms = 1_795_800_000_000;
+        local.desktop.latest_active_org_prefix = Some("cafe1234".into());
+        local.desktop.org_id_prefixes = vec!["cafe1234".into()];
+        let rep = build_account_audit_report_with_known(
+            local,
+            None,
+            &RuntimeGuardContext::default(),
+            &HashMap::new(),
+        );
+        upsert_account_history_from_report(&cache_path, &rep).expect("recover write");
+        let summaries = load_archived_account_summaries(&cache_path, None);
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].org_prefix8, "cafe1234");
+    }
+
+    #[test]
+    fn v037_gate3_history_evicts_oldest_beyond_max_30() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cache_path = dir.path().join("account-audit-cache.json");
+
+        for i in 0..35u32 {
+            let org = format!("org{:05}", i);
+            let mut local = LocalAccountAudit::default();
+            local.scanned_at_ms = 1_795_800_000_000 + (i as i64) * 1000;
+            local.desktop.latest_active_org_prefix = Some(org.clone());
+            local.desktop.org_id_prefixes = vec![org];
+            let rep = build_account_audit_report_with_known(
+                local,
+                None,
+                &RuntimeGuardContext::default(),
+                &HashMap::new(),
+            );
+            upsert_account_history_from_report(&cache_path, &rep).expect("upsert");
+        }
+
+        let summaries = load_archived_account_summaries(&cache_path, None);
+        let history_count = summaries.iter().filter(|s| s.has_full_report).count();
+        assert_eq!(history_count, MAX_ACCOUNT_HISTORY_ENTRIES, "完整历史快照必须严格上限 30 条");
+        // 最早 5 条 (org00000..org00004) 应已被淘汰出完整历史，最新一条 org00034 排在最前
+        assert_eq!(summaries[0].org_prefix8, "org00034");
+        let oldest_full_exists = summaries
+            .iter()
+            .any(|s| s.org_prefix8 == "org00000" && s.has_full_report);
+        assert!(!oldest_full_exists, "最久未更新的 org00000 应被淘汰出完整历史");
+    }
+
+    #[test]
+    fn v037_gate3_empty_and_missing_org_queries_and_deletes_are_safe() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cache_path = dir.path().join("account-audit-cache.json");
+
+        let mut local = LocalAccountAudit::default();
+        local.scanned_at_ms = 1_795_800_000_000;
+        local.desktop.latest_active_org_prefix = Some("keep9999".into());
+        local.desktop.org_id_prefixes = vec!["keep9999".into()];
+        let rep = build_account_audit_report_with_known(
+            local,
+            None,
+            &RuntimeGuardContext::default(),
+            &HashMap::new(),
+        );
+        upsert_account_history_from_report(&cache_path, &rep).expect("upsert keep");
+
+        assert!(load_account_history_report(&cache_path, "").is_none());
+        assert!(load_account_history_report(&cache_path, "   ").is_none());
+        assert!(load_account_history_report(&cache_path, "missing0").is_none());
+        assert_eq!(delete_account_history_entry(&cache_path, "").expect("del empty"), false);
+        assert_eq!(delete_account_history_entry(&cache_path, "missing0").expect("del missing"), false);
+        assert!(load_account_history_report(&cache_path, "keep9999").is_some(), "既有档案不得受损");
     }
 }

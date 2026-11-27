@@ -81,7 +81,7 @@ describe("v0.2.9 真机回归：熔断与盯防联动、无锁文案清理与出
     render(<Sidebar />);
     expect(screen.getByTestId("sidebar-proc-status")).toHaveTextContent("熔断联动锁定");
     const btn = screen.getByTestId("btn-release-kill-hold");
-    expect(btn).toHaveTextContent("解除熔断并解锁");
+    expect(btn).toHaveTextContent("解除熔断");
 
     fireEvent.click(btn);
     expect(releaseHoldSpy).not.toHaveBeenCalled();
@@ -225,13 +225,16 @@ describe("v0.2.9 真机回归：熔断与盯防联动、无锁文案清理与出
     });
 
     render(<NodesTrafficPage />);
-    expect(screen.getByTestId("nodes-usable-count")).toHaveTextContent("1个");
-    expect(screen.getByTestId("nodes-blocked-count")).toHaveTextContent("4个");
-    expect(screen.getByTestId("nodes-usable-breakdown")).toHaveTextContent("订阅共 5 · 评估 2（1 个不可用）");
-    expect(screen.getByTestId("nodes-blocked-breakdown")).toHaveTextContent("名称禁区 3 · 落地禁区 1");
-    expect(screen.getByTestId("nodes-quarantine-section")).toBeInTheDocument();
-    expect(screen.getByTestId("nodes-quarantine-table")).toHaveTextContent("禁区不可用");
+    expect(screen.getByTestId("nodes-usable-count")).toHaveTextContent("1");
+    expect(screen.getByTestId("nodes-blocked-count")).toHaveTextContent("1");
+    expect(screen.getByTestId("nodes-blocked-breakdown")).toHaveTextContent("落地禁区 1 · 拉黑/超时 0");
+    // 可用节点列表中不包含落地禁区节点
     expect(screen.getByTestId("nodes-eval-table")).not.toHaveTextContent("🇨🇳台湾1|流媒体AI");
+
+    // 切换到「隔离区」分类胶囊后展示落地禁区节点与「禁区不可用」副文案，不误写「拉黑不可用」
+    fireEvent.click(screen.getByTestId("tab-nodes-quarantine"));
+    expect(screen.getByTestId("nodes-eval-table")).toHaveTextContent("🇨🇳台湾1|流媒体AI");
+    expect(screen.getByTestId("nodes-eval-table")).toHaveTextContent("禁区不可用");
     expect(screen.queryByText("拉黑不可用")).not.toBeInTheDocument();
   });
 

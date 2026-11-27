@@ -11,8 +11,14 @@ use tauri_plugin_updater::UpdaterExt;
 
 use crate::logger;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
 static UPDATE_INSTALL_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+/// 启动期主窗与悬浮窗可能几乎同时触发自动检查更新，采用 25s 单飞缓存去重避免双打 GitHub Releases 与重复日志
+const UPDATE_CHECK_CACHE_TTL_SECS: u64 = 25;
+static UPDATE_CHECK_SINGLEFLIGHT: OnceLock<tokio::sync::Mutex<Option<(Instant, AppUpdateInfo)>>> =
+    OnceLock::new();
 
 struct UpdateInstallGuard;
 impl Drop for UpdateInstallGuard {
@@ -66,11 +72,25 @@ pub fn build_local_proxy_url(clash_port: Option<u16>) -> Option<tauri::Url> {
     tauri::Url::parse(&format!("http://127.0.0.1:{port}")).ok()
 }
 
-/// 检查 GitHub Releases 最新版本（优先代理、失败回退直连）
+/// 纯函数：判断缓存的自动更新检查结果是否仍在单飞去重 TTL 窗口内
+pub fn should_reuse_cached_update(checked_at: Instant, now: Instant) -> bool {
+    now.saturating_duration_since(checked_at) < Duration::from_secs(UPDATE_CHECK_CACHE_TTL_SECS)
+}
+
+/// 检查 GitHub Releases 最新版本（优先代理、失败回退直连；25s 进程级单飞去重防双窗口重复打请求）
 pub async fn check_for_app_update(
     app: &AppHandle,
     clash_port: Option<u16>,
 ) -> Result<AppUpdateInfo, String> {
+    let lock = UPDATE_CHECK_SINGLEFLIGHT.get_or_init(|| tokio::sync::Mutex::new(None));
+    let mut cache_guard = lock.lock().await;
+    let now = Instant::now();
+    if let Some((checked_at, cached)) = cache_guard.as_ref() {
+        if should_reuse_cached_update(*checked_at, now) {
+            return Ok(cached.clone());
+        }
+    }
+
     let current_version = env!("CARGO_PKG_VERSION").to_string();
     let proxy_url = build_local_proxy_url(clash_port);
 
@@ -116,7 +136,7 @@ pub async fn check_for_app_update(
     };
 
     let update_opt = check_res.map_err(|e| format!("检查 GitHub Releases 更新失败：{e}"))?;
-    match update_opt {
+    let info = match update_opt {
         Some(update) => {
             let latest = update.version.clone();
             let published_at = update.date.map(|d| d.to_string());
@@ -127,7 +147,7 @@ pub async fn check_for_app_update(
                     "检测到新版本 v{latest}（当前 v{current_version}，via_proxy={used_proxy}）"
                 ),
             );
-            Ok(AppUpdateInfo {
+            AppUpdateInfo {
                 current_version,
                 available: true,
                 latest_version: Some(latest.clone()),
@@ -135,14 +155,14 @@ pub async fn check_for_app_update(
                 notes,
                 via_proxy: used_proxy,
                 message: format!("发现新版本 v{latest}（已启用 Ed25519 签名校验）。"),
-            })
+            }
         }
         None => {
             logger::log_info(
                 "updater",
                 format!("当前已是最新版本 v{current_version}（via_proxy={used_proxy}）"),
             );
-            Ok(AppUpdateInfo {
+            AppUpdateInfo {
                 current_version: current_version.clone(),
                 available: false,
                 latest_version: Some(current_version.clone()),
@@ -150,9 +170,11 @@ pub async fn check_for_app_update(
                 notes: None,
                 via_proxy: used_proxy,
                 message: format!("当前已是最新版本 v{current_version}。"),
-            })
+            }
         }
-    }
+    };
+    *cache_guard = Some((Instant::now(), info.clone()));
+    Ok(info)
 }
 
 /// 下载校验签名并安装更新（优先本机 Clash 代理，拉取或下载失败自动回退直连；含并发重入保护与 300s 下载超时）
@@ -396,5 +418,16 @@ mod tests {
             }),
             "updater endpoint 必须指向官方 GitHub Releases latest.json"
         );
+    }
+
+    #[test]
+    fn v037_b3_update_check_cache_ttl_dedup() {
+        let t0 = Instant::now();
+        // 1.5s 内双窗并发重复检查必须命中缓存去重
+        assert!(should_reuse_cached_update(t0, t0 + Duration::from_millis(1500)));
+        assert!(should_reuse_cached_update(t0, t0 + Duration::from_secs(24)));
+        // 超过 25s TTL 后必须重新发起真实检查
+        assert!(!should_reuse_cached_update(t0, t0 + Duration::from_secs(25)));
+        assert!(!should_reuse_cached_update(t0, t0 + Duration::from_secs(60)));
     }
 }

@@ -75,6 +75,9 @@ pub struct AppConfig {
     /// T-302：上报 Claude 报错类型与 72h 封号前置归因摘要开关（零隐私脱敏，可随时关闭）
     #[serde(default = "default_true")]
     pub telemetry_claude_summary_enabled: bool,
+    /// 将 Cloudflare 人机盾 (challenges.cloudflare.com) 与 Stripe 支付 (stripe.com / stripe.network) 同步锁至 Claude-Fixed（默认开启，可按需关闭）
+    #[serde(default = "default_true")]
+    pub lock_cf_and_stripe_to_claude: bool,
 }
 
 fn default_true() -> bool {
@@ -107,6 +110,7 @@ impl Default for AppConfig {
             acked_log_ids: Vec::new(),
             telemetry_tool_diag_enabled: true,
             telemetry_claude_summary_enabled: true,
+            lock_cf_and_stripe_to_claude: true,
         }
     }
 }
@@ -134,6 +138,7 @@ pub struct AppConfigPatch {
     pub kill_hold_seconds: Option<u32>,
     pub telemetry_tool_diag_enabled: Option<bool>,
     pub telemetry_claude_summary_enabled: Option<bool>,
+    pub lock_cf_and_stripe_to_claude: Option<bool>,
 }
 
 impl AppConfig {
@@ -201,6 +206,9 @@ impl AppConfig {
         }
         if let Some(v) = patch.telemetry_claude_summary_enabled {
             self.telemetry_claude_summary_enabled = v;
+        }
+        if let Some(v) = patch.lock_cf_and_stripe_to_claude {
+            self.lock_cf_and_stripe_to_claude = v;
         }
     }
 }

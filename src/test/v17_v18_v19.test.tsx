@@ -200,36 +200,40 @@ describe("免费开源无锁门禁与核心交互回归（T-057 + 增量 17/18/1
     render(<NodesTrafficPage />);
 
     const connStatus = screen.getByTestId("mihomo-conn-status");
-    expect(connStatus.textContent).toContain("管道已连接 (Claude-Fixed)");
+    expect(connStatus.textContent).toContain("管道已连接");
     expect(connStatus.textContent).not.toContain("已直连");
+    expect(connStatus.parentElement?.textContent).toContain("Claude-Fixed");
 
     const table = screen.getByTestId("nodes-eval-table");
-    const headers = Array.from(table.querySelectorAll("thead th")).map((th) => th.textContent);
+    const headers = Array.from(table.querySelectorAll(".node-col-head > span")).map(
+      (el) => el.textContent
+    );
     expect(headers).toEqual([
-      "节点 / 地区",
+      "节点 / 出口 IP",
       "平台支持",
       "节点类型",
       "延迟 / 断连 / 稳定性",
       "质量评分",
       "操作",
     ]);
-    expect(table.textContent).toContain("Claude ✓");
-    expect(table.textContent).toContain("AGY ✓");
+    expect(table.textContent).toContain("Claude");
+    expect(table.textContent).toContain("AGY");
     expect(table.textContent).toContain("AGY 限区");
     expect(table.textContent).toContain("当前锁定");
 
-    // 不可用/拉黑节点已独立展示在隔离区表格，与可用区视觉隔离
-    const quarantineTable = screen.getByTestId("nodes-quarantine-table");
-    expect(quarantineTable.textContent).toContain("Claude 拉黑");
+    // 切至隔离区胶囊查看不可用/拉黑节点与 0ms 悬停解释
+    const limitChips = screen.getAllByText("AGY 限区");
+    fireEvent.mouseEnter(limitChips[0]);
+    expect(screen.getByTestId("node-hover-tooltip")).toHaveTextContent("Antigravity");
+    fireEvent.mouseLeave(limitChips[0]);
+
+    fireEvent.click(screen.getByTestId("tab-nodes-quarantine"));
+    expect(table.textContent).toContain("Claude 拉黑");
 
     fireEvent.mouseEnter(screen.getByText("Claude 拉黑"));
     expect(screen.getByTestId("node-hover-tooltip")).toHaveTextContent("Cloudflare 403");
     fireEvent.mouseLeave(screen.getByText("Claude 拉黑"));
     expect(screen.queryByTestId("node-hover-tooltip")).not.toBeInTheDocument();
-
-    const limitChips = screen.getAllByText("AGY 限区");
-    fireEvent.mouseEnter(limitChips[0]);
-    expect(screen.getByTestId("node-hover-tooltip")).toHaveTextContent("Antigravity");
   });
 
   it("盯防卡片默认及解除盯防后不残留白边，且节点不可用/漂移风险时侧边栏角标三方联动", () => {
@@ -260,7 +264,7 @@ describe("免费开源无锁门禁与核心交互回归（T-057 + 增量 17/18/1
       });
     });
     rerender(<Sidebar />);
-    expect(procCard.style.border).toContain("rgba(0, 111, 238, 0.45)");
+    expect(procCard.style.border).toContain("var(--primary-border)");
 
     act(() => {
       useGuardStore.setState({

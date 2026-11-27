@@ -1,0 +1,1414 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FD Claude 安全启动器 · 工具设置交互预览（UI v3.0 · 4 项扁平重组版）</title>
+  <style>
+    @font-face {
+      font-family: "FD-Fine";
+      src:
+        local("SF Pro Text Light"),
+        local("Segoe UI Variable Text Semilight"),
+        local("Noto Sans SC DemiLight"),
+        local("HarmonyOS Sans SC Light"),
+        local("HarmonyOS Sans SC");
+      font-weight: 400;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: "FD-Fine";
+      src:
+        local("SF Pro Text"),
+        local("Segoe UI Variable Text"),
+        local("Noto Sans SC"),
+        local("HarmonyOS Sans SC");
+      font-weight: 500;
+      font-style: normal;
+    }
+
+    :root {
+      --font-sans: "FD-Fine", "SF Pro Text", "Segoe UI Variable Text", "Noto Sans SC", "HarmonyOS Sans SC", "Microsoft YaHei UI", -apple-system, sans-serif;
+      --font-mono: "Cascadia Code", "SF Mono", "JetBrains Mono", "Consolas", ui-monospace, monospace;
+      --r-win: 11px;
+      --r-hud: 14px;
+      --r-card: 10px;
+      --r-btn: 7px;
+      --r-icon: 7px;
+      --r-chip: 5px;
+      --ease: cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    /* 全站定稿浅色：莫兰迪苔绿 / 柔丹红 */
+    [data-theme="light"] {
+      --page-backdrop: #EAECEF;
+      --seg-track: rgba(15, 23, 42, 0.065);
+      --seg-thumb: #FFFFFF;
+      --seg-thumb-shadow: 0 1px 2px rgba(15, 23, 42, 0.08), 0 0 0 0.5px rgba(15, 23, 42, 0.04);
+
+      --bg-chrome: #FBFBFD;
+      --bg-sidebar: #FBFBFD;
+      --bg-header: #F8F9FB;
+      --bg-canvas: #F5F6F8;
+
+      --bg-card: #FFFFFF;
+      --bg-card-band: #FAFBFD;
+      --bg-subtle: #F2F4F7;
+      --bg-nav-active: #EEF0F4;
+      --bg-row-hover: rgba(15, 23, 42, 0.015);
+      --sel-bar-bg: rgba(15, 23, 42, 0.015);
+      --sel-bar-color: #9AA3B2;
+
+      --border-card: rgba(15, 23, 42, 0.072);
+      --border-card-hover: rgba(15, 23, 42, 0.12);
+      --divider: rgba(15, 23, 42, 0.056);
+      --divider-strong: rgba(15, 23, 42, 0.10);
+      --icon-border: rgba(15, 23, 42, 0.052);
+
+      --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.022), 0 4px 10px -2px rgba(15, 23, 42, 0.026);
+      --shadow-btn: 0 1px 1.5px rgba(15, 23, 42, 0.032);
+      --shadow-window: 0 0 0 1px rgba(15, 23, 42, 0.08), 0 24px 60px -14px rgba(15, 23, 42, 0.14);
+      --shadow-modal: 0 0 0 1px rgba(15, 23, 42, 0.09), 0 24px 64px -12px rgba(15, 23, 42, 0.22);
+      --backdrop-scrim: rgba(15, 23, 42, 0.20);
+
+      --text-strong: #2B303B;
+      --text-1: #3D4350;
+      --text-2: #727A8A;
+      --text-3: #8991A2;
+      --text-4: #B4BCC9;
+
+      --primary: #006CE0;
+      --primary-hi: #1A84F5;
+      --primary-soft: rgba(0, 108, 224, 0.068);
+      --primary-border: rgba(0, 108, 224, 0.18);
+
+      --ok-dot: #4C9E6E;
+      --ok-fg: #3E8C60;
+      --ok-bg: rgba(76, 158, 110, 0.065);
+      --ok-border: rgba(76, 158, 110, 0.18);
+      --pass-fg: #4F946C;
+      --pass-bg: rgba(76, 158, 110, 0.052);
+      --pass-border: rgba(76, 158, 110, 0.155);
+
+      --bad-dot: #CE5A5A;
+      --bad-fg: #C04D4D;
+      --bad-bg: rgba(206, 90, 90, 0.062);
+      --bad-border: rgba(206, 90, 90, 0.185);
+
+      --warning-dot: #DF952E;
+      --warning-fg: #B87419;
+      --warning-soft: rgba(223, 149, 46, 0.075);
+      --warning-border: rgba(223, 149, 46, 0.20);
+
+      --thumb-idle: rgba(15, 23, 42, 0.072);
+      --thumb-active: rgba(15, 23, 42, 0.16);
+      --switch-off: rgba(15, 23, 42, 0.14);
+      --switch-knob: #FFFFFF;
+
+      --promo-bg: linear-gradient(135deg, rgba(0, 108, 224, 0.042) 0%, #FFFFFF 70%);
+      --promo-border: rgba(0, 108, 224, 0.15);
+      --code-bg: #F3F5F8;
+      --toast-bg: #262B35;
+      --toast-fg: #F5F7FA;
+    }
+
+    /* 全站定稿暗色：v5.7 压暗柔化版 */
+    [data-theme="dark"] {
+      --page-backdrop: #070709;
+      --seg-track: rgba(255, 255, 255, 0.065);
+      --seg-thumb: #22222A;
+      --seg-thumb-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+
+      --bg-chrome: #111115;
+      --bg-sidebar: #111115;
+      --bg-header: #0F0F13;
+      --bg-canvas: #0C0C0F;
+
+      --bg-card: #15151A;
+      --bg-card-band: #121217;
+      --bg-subtle: #1D1D24;
+      --bg-nav-active: #1B1B22;
+      --bg-row-hover: rgba(255, 255, 255, 0.02);
+      --sel-bar-bg: rgba(255, 255, 255, 0.024);
+      --sel-bar-color: #6B7384;
+
+      --border-card: rgba(255, 255, 255, 0.082);
+      --border-card-hover: rgba(255, 255, 255, 0.13);
+      --divider: rgba(255, 255, 255, 0.056);
+      --divider-strong: rgba(255, 255, 255, 0.105);
+      --icon-border: rgba(255, 255, 255, 0.065);
+
+      --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.24);
+      --shadow-btn: 0 1px 2px rgba(0, 0, 0, 0.22);
+      --shadow-window: 0 0 0 1px rgba(255, 255, 255, 0.09), 0 28px 72px -12px rgba(0, 0, 0, 0.85);
+      --shadow-modal: 0 0 0 1px rgba(255, 255, 255, 0.11), 0 32px 84px -10px rgba(0, 0, 0, 0.78);
+      --backdrop-scrim: rgba(4, 4, 7, 0.46);
+
+      --text-strong: #C9CED8;
+      --text-1: #B4BAC6;
+      --text-2: #7D8494;
+      --text-3: #646C7C;
+      --text-4: #4A5160;
+
+      --primary: #3B93FA;
+      --primary-hi: #55A3FF;
+      --primary-soft: rgba(59, 147, 250, 0.105);
+      --primary-border: rgba(59, 147, 250, 0.23);
+
+      --ok-dot: #449C69;
+      --ok-fg: #4F9B70;
+      --ok-bg: rgba(74, 158, 108, 0.062);
+      --ok-border: rgba(74, 158, 108, 0.145);
+      --pass-fg: #4B9169;
+      --pass-bg: rgba(74, 158, 108, 0.052);
+      --pass-border: rgba(74, 158, 108, 0.135);
+
+      --bad-dot: #BD5F5A;
+      --bad-fg: #C56B66;
+      --bad-bg: rgba(196, 102, 97, 0.075);
+      --bad-border: rgba(196, 102, 97, 0.175);
+
+      --warning-dot: #C28F3E;
+      --warning-fg: #BF9148;
+      --warning-soft: rgba(194, 143, 62, 0.075);
+      --warning-border: rgba(194, 143, 62, 0.175);
+
+      --thumb-idle: rgba(255, 255, 255, 0.072);
+      --thumb-active: rgba(255, 255, 255, 0.17);
+      --switch-off: rgba(255, 255, 255, 0.14);
+      --switch-knob: #E5E8EF;
+
+      --promo-bg: linear-gradient(135deg, rgba(74, 158, 255, 0.07) 0%, rgba(21, 21, 26, 0.96) 65%);
+      --promo-border: rgba(74, 158, 255, 0.19);
+      --code-bg: #101015;
+      --toast-bg: #22222A;
+      --toast-fg: #D5D9E2;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; }
+
+    body {
+      padding: 12px 16px 16px;
+      background: var(--page-backdrop);
+      color: var(--text-1);
+      font-family: var(--font-sans);
+      font-weight: 400;
+      font-synthesis: none;
+      -webkit-font-smoothing: antialiased;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      transition: background-color 180ms var(--ease), color 180ms var(--ease);
+    }
+
+    body.screenshot-mode { padding: 0; overflow: hidden; background: var(--bg-canvas); }
+    body.screenshot-mode .preview-toolbar { display: none !important; }
+    body.screenshot-mode .fd-window { max-width: none; width: 100vw; height: 100vh; border-radius: 0; box-shadow: none; }
+
+    .tabular { font-variant-numeric: tabular-nums; }
+    .font-mono-code { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+    .preview-toolbar {
+      width: 100%; max-width: 1260px; margin-bottom: 10px; flex-shrink: 0;
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px;
+    }
+    .toolbar-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .toolbar-tip { font-size: 11.5px; color: var(--text-3); }
+
+    .seg-bar { display: inline-flex; align-items: center; gap: 2px; padding: 2.5px; border-radius: 9px; background: var(--seg-track); }
+    .seg-item {
+      padding: 4px 10px; border: none; border-radius: 7px; background: transparent;
+      color: var(--text-3); font-family: var(--font-sans); font-size: 11.5px; cursor: pointer; white-space: nowrap;
+      display: inline-flex; align-items: center; gap: 5px; transition: all 140ms var(--ease);
+    }
+    .seg-item:hover:not(.active) { color: var(--text-1); }
+    .seg-item.active { background: var(--seg-thumb); color: var(--text-strong); font-weight: 500; box-shadow: var(--seg-thumb-shadow); }
+
+    .fd-window {
+      width: 100%; max-width: 1260px; flex: 1; min-height: 620px; max-height: 780px;
+      border-radius: var(--r-win);
+      background: var(--bg-canvas); box-shadow: var(--shadow-window); overflow: hidden;
+      display: flex; flex-direction: column; user-select: none; position: relative;
+      transition: background-color 180ms var(--ease), box-shadow 180ms var(--ease);
+    }
+
+    /* 38px 顶栏 */
+    .chrome {
+      height: 38px; flex-shrink: 0; padding-left: 16px;
+      background: var(--bg-chrome); border-bottom: 1px solid var(--divider);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .chrome-brand { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .chrome-brand img { width: 17px; height: 17px; border-radius: 4px; flex-shrink: 0; display: block; }
+    .chrome-title { font-size: 12.5px; color: var(--text-1); letter-spacing: -0.005em; }
+    .chrome-sub { font-size: 11px; color: var(--text-3); padding: 0 2px; }
+    .chrome-right { display: flex; align-items: center; height: 100%; }
+    .chrome-ico-group { display: flex; align-items: center; gap: 2px; padding-right: 8px; }
+    .chrome-btn {
+      width: 28px; height: 25px; border: none; border-radius: 6px; background: transparent;
+      color: var(--text-2); display: inline-flex; align-items: center; justify-content: center;
+      cursor: pointer; transition: background-color 120ms, color 120ms;
+    }
+    .chrome-btn:hover { background: var(--bg-subtle); color: var(--text-strong); }
+    .chrome-sep { width: 1px; height: 13px; margin-right: 4px; background: var(--divider-strong); }
+    .chrome-win-btn {
+      width: 38px; height: 100%; border: none; background: transparent;
+      color: var(--text-2); display: inline-flex; align-items: center; justify-content: center;
+      cursor: pointer; transition: background-color 120ms, color 120ms;
+    }
+    .chrome-win-btn:hover { background: var(--bg-subtle); color: var(--text-strong); }
+    .chrome-win-btn.close:hover { background: #DC2626; color: #FFFFFF; }
+
+    .shell-body { flex: 1; min-height: 0; display: flex; position: relative; }
+
+    /* 212px 左侧栏 */
+    .sidebar {
+      width: 212px; flex-shrink: 0; padding: 12px;
+      background: var(--bg-sidebar); border-right: 1px solid var(--divider);
+      display: flex; flex-direction: column; justify-content: space-between;
+    }
+    .nav-list { display: flex; flex-direction: column; gap: 3px; }
+
+    .c-nav-item {
+      height: 33px; padding: 0 10px; border: none; border-radius: var(--r-btn);
+      background: transparent; color: var(--text-2); font-family: var(--font-sans); font-size: 12.5px;
+      display: flex; align-items: center; justify-content: space-between; width: 100%; cursor: pointer;
+      transition: background-color 130ms var(--ease), color 130ms var(--ease);
+    }
+    .c-nav-item:hover { background: var(--bg-nav-active); color: var(--text-1); }
+    .c-nav-item.active,
+    .c-nav-item.is-settings-open { background: var(--bg-nav-active); color: var(--text-strong); font-weight: 500; }
+    .nav-item-left { display: flex; align-items: center; gap: 9px; }
+    .nav-badge {
+      font-size: 10px; min-width: 18px; height: 17px; padding: 0 5px; border-radius: 4.5px;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+
+    .side-bottom { display: flex; flex-direction: column; gap: 8px; }
+    .c-card {
+      background: var(--bg-card); border: 1px solid var(--border-card); border-radius: var(--r-card);
+      box-shadow: var(--shadow-card); overflow: hidden;
+    }
+    .c-promo-slot {
+      background: var(--promo-bg); border: 1px solid var(--promo-border); border-radius: var(--r-card);
+      padding: 10px 12px;
+    }
+    .c-status-card { padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+    .c-status-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 19px; }
+    .dot { width: 5.5px; height: 5.5px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
+    .c-hold-chip {
+      height: 20px; padding: 0 7px; border-radius: 5px;
+      background: var(--primary-soft); color: var(--primary); border: 1px solid var(--primary-border);
+      font-size: 10.5px; display: inline-flex; align-items: center; gap: 3.5px; white-space: nowrap;
+    }
+
+    /* 背景控制台页 */
+    .main-bg { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg-canvas); }
+    .page-hd {
+      height: 58px; padding: 0 24px; flex-shrink: 0;
+      background: var(--bg-header); border-bottom: 1px solid var(--divider);
+      display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    }
+    .page-hd-left { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+    .page-title { margin: 0; font-size: 16.5px; font-weight: 500; color: var(--text-strong); letter-spacing: -0.015em; }
+    .page-sub { font-size: 11.5px; color: var(--text-3); }
+    .page-hd-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+    .status-chip-bar {
+      height: 31px; padding: 0 10px; border-radius: var(--r-btn);
+      background: var(--bg-card); border: 1px solid var(--divider-strong);
+      font-size: 12px; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+    }
+    .bg-console-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 300px; }
+    .bg-console-left { padding: 16px 24px; border-right: 1px solid var(--divider); overflow: hidden; }
+    .bg-console-right { padding: 16px 14px; overflow: hidden; }
+    .bg-check-row {
+      padding: 10px 15px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      border-bottom: 1px solid var(--divider);
+    }
+    .bg-check-row:last-child { border-bottom: none; }
+
+    /* 通用按钮与胶囊 */
+    .c-btn {
+      height: 31px; padding: 0 11px; border: 1px solid var(--divider-strong); border-radius: var(--r-btn);
+      background: var(--bg-card); color: var(--text-1); box-shadow: var(--shadow-btn);
+      font-family: var(--font-sans); font-size: 12px; font-weight: 400;
+      display: inline-flex; align-items: center; justify-content: center; gap: 5.5px; cursor: pointer;
+      white-space: nowrap; flex-shrink: 0;
+      transition: background-color 140ms var(--ease), border-color 140ms var(--ease), color 140ms var(--ease);
+    }
+    .c-btn:hover:not(:disabled) { background: var(--bg-row-hover); color: var(--text-strong); border-color: var(--border-card-hover); }
+    .c-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    .c-btn-xs {
+      height: 25px; padding: 0 9px; border: 1px solid var(--divider-strong); border-radius: 6px;
+      background: var(--bg-card); color: var(--text-1); box-shadow: var(--shadow-btn);
+      font-family: var(--font-sans); font-size: 11px; font-weight: 400;
+      display: inline-flex; align-items: center; justify-content: center; gap: 4.5px; cursor: pointer;
+      white-space: nowrap; flex-shrink: 0;
+    }
+    .c-btn-xs:hover:not(:disabled) { background: var(--bg-row-hover); color: var(--text-strong); border-color: var(--border-card-hover); }
+    .c-btn-xs:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    .c-btn-primary {
+      height: 31px; padding: 0 13px; border: none; border-radius: var(--r-btn);
+      background: linear-gradient(180deg, var(--primary-hi) 0%, var(--primary) 100%);
+      color: #FFFFFF; font-family: var(--font-sans); font-size: 12px; font-weight: 500;
+      display: inline-flex; align-items: center; justify-content: center; gap: 5.5px; cursor: pointer;
+      white-space: nowrap; flex-shrink: 0;
+      box-shadow: 0 1px 2px rgba(0, 108, 224, 0.25), 0 4px 10px -3px rgba(0, 108, 224, 0.22);
+    }
+    .c-btn-primary:hover:not(:disabled) { filter: brightness(1.06); }
+
+    .c-btn-danger {
+      height: 31px; padding: 0 11px; border-radius: var(--r-btn);
+      background: var(--bad-bg); color: var(--bad-fg); border: 1px solid var(--bad-border);
+      font-family: var(--font-sans); font-size: 12px; font-weight: 400;
+      display: inline-flex; align-items: center; justify-content: center; gap: 5.5px; cursor: pointer;
+      white-space: nowrap; flex-shrink: 0;
+    }
+    .c-btn-danger-xs {
+      height: 25px; padding: 0 9px; border-radius: 6px;
+      background: var(--bad-bg); color: var(--bad-fg); border: 1px solid var(--bad-border);
+      font-family: var(--font-sans); font-size: 11px; font-weight: 400;
+      display: inline-flex; align-items: center; justify-content: center; gap: 4px; cursor: pointer;
+      white-space: nowrap; flex-shrink: 0;
+    }
+
+    .c-pill {
+      height: 21px; padding: 0 7.5px; border-radius: var(--r-chip);
+      font-size: 11px; font-weight: 400;
+      display: inline-flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap; flex-shrink: 0;
+    }
+    .c-pill-ok { color: var(--pass-fg); background: var(--pass-bg); border: 1px solid var(--pass-border); }
+    .c-pill-warn { color: var(--warning-fg); background: var(--warning-soft); border: 1px solid var(--warning-border); }
+    .c-pill-fail { color: var(--bad-fg); background: var(--bad-bg); border: 1px solid var(--bad-border); }
+    .c-pill-neutral { color: var(--text-2); background: var(--bg-subtle); border: 1px solid var(--divider); }
+
+    .c-icon-box {
+      width: 28px; height: 28px; border-radius: var(--r-icon);
+      background: var(--bg-subtle); color: var(--text-2); border: 1px solid var(--icon-border);
+      display: grid; place-items: center; flex-shrink: 0;
+    }
+    .c-icon-box svg { width: 14px; height: 14px; }
+    .c-icon-box.is-primary { background: var(--primary-soft); color: var(--primary); border-color: var(--primary-border); }
+    .c-icon-box.is-bad { background: var(--bad-bg); color: var(--bad-fg); border-color: var(--bad-border); }
+
+    /* ==============================================================
+       居中双栏「工具设置」模态弹窗（点弹窗外任意处关闭）
+    ============================================================== */
+    .modal-scrim {
+      position: absolute; inset: 0; z-index: 60;
+      background: var(--backdrop-scrim);
+      backdrop-filter: blur(2.5px);
+      display: flex; align-items: center; justify-content: center;
+      padding: 28px 24px;
+      cursor: pointer;
+      transition: opacity 160ms var(--ease);
+    }
+    .modal-scrim.is-hidden { opacity: 0; pointer-events: none; }
+
+    .settings-modal {
+      width: 900px; max-width: 100%; height: min(614px, 100%);
+      border-radius: var(--r-hud);
+      background: var(--bg-canvas);
+      border: 1px solid var(--divider-strong);
+      box-shadow: var(--shadow-modal);
+      overflow: hidden;
+      display: flex;
+      cursor: default;
+      transition: transform 180ms var(--ease), opacity 160ms var(--ease);
+    }
+    .modal-scrim.is-hidden .settings-modal { transform: translateY(6px) scale(0.988); opacity: 0; }
+
+    /* 弹窗左栏：扁平 4 项，去掉大分组标题；主标题 16px > 右侧子页标题 13.5px */
+    .modal-aside {
+      width: 196px; flex-shrink: 0; padding: 14px 10px 12px;
+      background: var(--bg-sidebar); border-right: 1px solid var(--divider);
+      display: flex; flex-direction: column; justify-content: space-between;
+    }
+    .modal-brand-row {
+      padding: 1px 10px 14px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .modal-brand-title { font-size: 16px; font-weight: 500; color: var(--text-strong); letter-spacing: -0.015em; }
+    .modal-ver-tag {
+      font-size: 10.5px; padding: 1.5px 6px; border-radius: 4.5px;
+      background: var(--bg-subtle); color: var(--text-3); border: 1px solid var(--divider);
+    }
+    .modal-nav-list { display: flex; flex-direction: column; gap: 3px; }
+    .modal-nav-sep { height: 1px; background: var(--divider); margin: 8px 8px; }
+
+    .s-nav-item {
+      height: 33px; padding: 0 10px 0 13px; border: none; border-radius: var(--r-btn);
+      background: transparent; color: var(--text-2); font-family: var(--font-sans); font-size: 12.5px;
+      display: flex; align-items: center; justify-content: space-between; width: 100%; cursor: pointer;
+      transition: background-color 130ms var(--ease), color 130ms var(--ease);
+      position: relative;
+    }
+    .s-nav-item:hover:not(.active) { background: var(--bg-row-hover); color: var(--text-1); }
+    .s-nav-item.active { background: var(--bg-nav-active); color: var(--text-strong); font-weight: 500; }
+    .s-nav-item.active::before {
+      content: ""; position: absolute; left: 3.5px; top: 50%; transform: translateY(-50%);
+      width: 2.5px; height: 16px; border-radius: 99px; background: var(--sel-bar-color);
+    }
+    .s-nav-left { display: flex; align-items: center; gap: 8px; }
+    .s-nav-badge {
+      font-size: 10px; padding: 0 5.5px; height: 16px; border-radius: 4px;
+      display: inline-flex; align-items: center; justify-content: center;
+      background: var(--bg-subtle); color: var(--text-3);
+    }
+
+    .modal-aside-foot {
+      padding: 10px 10px 2px; border-top: 1px solid var(--divider);
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 10.5px; color: var(--text-3);
+    }
+    .kbd-chip {
+      padding: 1px 5px; border-radius: 4px;
+      background: var(--bg-subtle); border: 1px solid var(--divider); color: var(--text-3);
+    }
+
+    /* 弹窗右栏 */
+    .modal-main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg-canvas); }
+    .modal-hd {
+      height: 50px; padding: 0 20px; flex-shrink: 0;
+      background: var(--bg-header); border-bottom: 1px solid var(--divider);
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    }
+    .modal-hd-left { display: flex; align-items: baseline; gap: 9px; min-width: 0; }
+    .modal-hd-title { margin: 0; font-size: 13.5px; font-weight: 500; color: var(--text-strong); letter-spacing: -0.005em; flex-shrink: 0; }
+    .modal-hd-sub { font-size: 11px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .modal-hd-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+    .modal-close-btn {
+      width: 28px; height: 28px; border: none; border-radius: 7px; background: transparent;
+      color: var(--text-2); display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+    }
+    .modal-close-btn:hover { background: var(--bg-subtle); color: var(--text-strong); }
+
+    /* 自定义 3×46px 细滑块滚动区 */
+    .thin-scroll-host { position: relative; min-height: 0; flex: 1; display: flex; flex-direction: column; }
+    .thin-scroll-body {
+      flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none;
+      padding: 15px 20px 20px; display: flex; flex-direction: column; gap: 15px;
+    }
+    .thin-scroll-body::-webkit-scrollbar { display: none; }
+    .thin-scroll-track { position: absolute; top: 10px; bottom: 10px; right: 4px; width: 6px; pointer-events: none; z-index: 20; }
+    .thin-scroll-thumb {
+      position: absolute; right: 1px; top: 0; width: 3px; height: 46px; border-radius: 99px;
+      background: var(--thumb-idle); pointer-events: auto; cursor: grab;
+      transition: background-color 160ms var(--ease), opacity 180ms var(--ease);
+    }
+    .thin-scroll-host:hover .thin-scroll-thumb,
+    .thin-scroll-host.is-scrolling .thin-scroll-thumb { background: var(--thumb-active); }
+
+    /* 内容区块与列表行 */
+    .sec-hd {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      margin-bottom: 7px; padding: 0 2px;
+    }
+    .sec-hd-left { display: flex; align-items: center; gap: 7px; }
+    .layer-tag {
+      font-size: 10px; font-weight: 500; padding: 1px 5.5px; border-radius: 4px;
+      background: var(--bg-subtle); color: var(--text-2); border: 1px solid var(--divider-strong);
+      letter-spacing: 0.02em; flex-shrink: 0;
+    }
+    .sec-title { font-size: 12px; font-weight: 500; color: var(--text-strong); }
+    .sec-note { font-size: 11px; color: var(--text-3); }
+
+    .s-row {
+      padding: 10.5px 14px;
+      display: flex; align-items: center; justify-content: space-between; gap: 14px;
+      border-bottom: 1px solid var(--divider);
+      transition: background-color 120ms var(--ease);
+    }
+    .s-row:last-child { border-bottom: none; }
+    .s-row.is-clickable { cursor: pointer; }
+    .s-row.is-clickable:hover { background: var(--bg-row-hover); }
+    .s-row.is-sub { padding-left: 32px; background: var(--bg-card-band); }
+    .s-row.is-disabled { opacity: 0.5; cursor: not-allowed; }
+    .s-row-info { min-width: 0; flex: 1; }
+    .s-row-top { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+    .s-row-title { font-size: 12.5px; color: var(--text-1); line-height: 1.38; }
+
+    /* 单行精简说明 + 超长折叠展开 */
+    .desc-line {
+      margin-top: 2.5px;
+      display: flex; align-items: baseline; gap: 6px; min-width: 0;
+    }
+    .desc-text {
+      font-size: 11px; color: var(--text-2); line-height: 1.48;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      min-width: 0; flex: 0 1 auto;
+    }
+    .desc-line.is-expanded { display: block; }
+    .desc-line.is-expanded .desc-text { white-space: normal; overflow: visible; text-overflow: clip; }
+    .desc-more-btn {
+      border: none; background: transparent; padding: 0 2px;
+      font-family: var(--font-sans); font-size: 10.5px; color: var(--text-3);
+      display: inline-flex; align-items: center; gap: 2px; cursor: pointer;
+      white-space: nowrap; flex-shrink: 0;
+      transition: color 120ms var(--ease);
+    }
+    .desc-more-btn:hover { color: var(--primary); }
+    .desc-extra {
+      margin-top: 5px; padding: 7px 10px; border-radius: 7px;
+      background: var(--bg-card-band); border: 1px solid var(--divider);
+      font-size: 11px; color: var(--text-2); line-height: 1.55;
+      white-space: normal;
+    }
+
+    /* 右侧操作组：推荐标签紧贴开关左侧 */
+    .s-row-ctrl { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+    .s-switch {
+      width: 32px; height: 18px; border-radius: 999px; border: none; padding: 2px;
+      background: var(--switch-off); cursor: pointer; flex-shrink: 0;
+      display: inline-flex; align-items: center;
+      transition: background-color 150ms var(--ease);
+    }
+    .s-switch::after {
+      content: ""; width: 14px; height: 14px; border-radius: 50%;
+      background: var(--switch-knob);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.24);
+      transform: translateX(0);
+      transition: transform 150ms var(--ease);
+    }
+    .s-switch.on { background: var(--primary); }
+    .s-switch.on::after { transform: translateX(14px); background: #FFFFFF; }
+
+    .hero-card { padding: 13px 15px; display: flex; flex-direction: column; gap: 10px; }
+    .hero-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+    .hero-left { display: flex; align-items: center; gap: 11px; min-width: 0; flex: 1; }
+    .hero-title { font-size: 13px; font-weight: 500; color: var(--text-strong); }
+    .hero-actions { display: flex; align-items: center; gap: 7px; flex-shrink: 0; }
+    .sub-box {
+      padding: 9px 12px; border-radius: 8px;
+      background: var(--bg-card-band); border: 1px solid var(--divider);
+      font-size: 11px; color: var(--text-2); line-height: 1.55;
+    }
+
+    /* 备份表：实宽紧贴 + space-between 等距均分 */
+    .bak-head, .bak-row {
+      padding: 9px 14px;
+      display: grid;
+      grid-template-columns: minmax(150px, 196px) 84px 128px 56px 118px;
+      justify-content: space-between;
+      column-gap: 8px;
+      align-items: center;
+    }
+    .bak-head {
+      background: var(--bg-card-band); border-bottom: 1px solid var(--divider);
+      font-size: 11px; color: var(--text-3);
+    }
+    .bak-row { border-bottom: 1px solid var(--divider); font-size: 11.5px; }
+    .bak-row:last-child { border-bottom: none; }
+    .bak-file {
+      font-family: var(--font-mono); font-size: 11px; color: var(--text-1);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .bak-ops { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+
+    .toast-anchor { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 80; pointer-events: none; }
+    .fd-toast {
+      padding: 7px 14px; border-radius: 8px; font-size: 12px;
+      background: var(--toast-bg); color: var(--toast-fg);
+      border: 1px solid var(--divider-strong);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+  <!-- 顶部体验控制条 -->
+  <div class="preview-toolbar">
+    <div class="toolbar-group">
+      <div class="seg-bar">
+        <button type="button" id="btn-toggle-modal" class="seg-item active">工具设置：已打开</button>
+        <button type="button" id="btn-sim-alert" class="seg-item">模拟死 DNS 告警</button>
+      </div>
+      <span class="toolbar-tip">点弹窗外任意区域可关闭，点左下角「工具设置」可重新弹出</span>
+    </div>
+
+    <div class="toolbar-group">
+      <div class="seg-bar">
+        <button type="button" data-theme-opt="light" class="seg-item">浅色（莫兰迪）</button>
+        <button type="button" data-theme-opt="dark" class="seg-item active">暗色（v5.7）</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 主应用窗口（UI v3.0 壳层） -->
+  <div class="fd-window">
+    <header class="chrome">
+      <div class="chrome-brand">
+        <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAYAAABXAvmHAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAA3zSURBVGhD5ZlZcFPnFcfp9CXtS9760s70ITNtH5qk0yTtTNs0TVoKGIPZjIMx2Ox4A29YZjE2mC2lkFJIgKQNSZNmIaElCw1NQpJCQthsrH3fvEi2LFm2ZcubpNP/+e69kixfGcj0rWfmP/fqSli///ed73znE7P+L6L3SMXDPQc3F7r3rqv17F2rcampOSWHqkqSsu0o0jgOV2sm+jo1sbBfEwt1S1fWgL8hFgnUxKKh5YnE2A9lhHsP95mm+/yHNm/pblnb3tFcTKEDayl8YB2F96+j/v1r76x9itZQKEOB3YUUOlZDlIgQ0SgUla9j0Dg0Ie4Tw6HJ+NjglVh0YKWMdXfhaSn9hW/fWt3QofXUs7eY3I0rybkL2rmSHDsLZ9aOqbLvWDFN1rqlZD9QSrGAhxKhLooHOykeYuG+v5viYR8lBvxEkT7ZWJziY0OXRnu9D8iI2cN7cFNeT8uasb6WEgn6bsFZdwHPstbCwH424IYBgAc7ZBMwMMVEj2RksFeYSIxHfBTu/YmMOj06D5T93NdSMuHbs5oc9wJ/l+D27ZKSBnpdlGD4Pm+aCclIgqGj/eLKJhLhHpgYp/jogC8RDH5XRk5Fx5Hqb3maiy19+0oA9b8fdQWeZREGNtNkr1OCRyqlm6CRfuq98CrZn92GDAqLVEqEFROYi6G+92XsVHTsW1fBOc/gXwdeFZqVBp5uwMYGetiAR6SSYoKGkfcAHrHcpNayHMnE2IBkgtNpKCBmYjLS91sZfdYsOpv/TWfjKiMvWFXQTKWB3ys8y1K7RJqBHgfA3SKVeEEzXPjqv4QhTh/bkVq6kvsDcj63i+KcSnI6EU3ideCcjD9rVs/BDQ92NK0mF3JeFThddwPOUgG3bX9ayFK3hGwtG2nSZ5MNODHyAer94BUA/4hsR+soor1MzpNNYia+WPRj8p//CwZ+SKQSjfZTfKA32N/ff78w4Nm7piiI+qwKrCgNfEZ4FXCWAs+ybltG5p1FNO7WIm1Qifq7aPDWx9RWkUvh6//GdQGZscgpFiXXqWbcl2G94HOoSlydRFXiBT7S96gw4G4uruXNRxWclQXc1rAccAUzwqeDCzWwCsiwNY+GAE39WLQYfc+LLWTau1Es0gmfndqrl5C5ZRMFPnwNM4SUQnopJVbMQixCk4O+ecKArXFVQ1YDavB4btu2FKW2iGya5WSrX4bneD8D3lK9UMjGZpPwkgzlOdT1+rMAA0y4m4KXztJXK36GNXCBYiilPOqGxhJpM0PeiwqllFieBWHAnysMAETTvz8jhdLAp8BDVuRw5/ONNBHsoVGvjVwHNpONd9c0eP6M79Uj1H3mkLhPh2dZ6paRsWEFjbnasRd4kUadYhauPv0o3VjzhFjAnFoJ3tRQqdI3O35Gk0NsYL66gSzgkpDDtYso6jCI6eYIX/mALJUoeQDnkbbULibP0VrpzUScnFiw3D4kDWgKxMzpMQvuU7vxB5AaXHlgYujWJzRw7SJGGeCA5gqVuU+wMZoYpMlQpoE0cHV4SZatC2jwxiUJEBEbGSJn8xqxONmAect86j3/V/FefHQEBjZIBsTMLE3eczXSls2jzr8fkdZCqEO0FgRArkySuMSm9gk2IT4zMQADnYqBFRruGmcEB5gdoydGGXXcc7iKEhPcPUoReP9lMlfOkwxgNoIfvy2ej3W7yVqfL0bdUr2I7I2radhym8YD3WKWzFV5pC2dS87jDRQ1f4V8R3oMoA8CpEgt2ZQYdcwKiSqEdZMYQQoFphvIBm8FNOe5tTpPmOCUCX70loDkmAj6kR4FApZnIHz1ong+pL1KZswY/3srTETdZvGcY+D6JTJV5IjnnE76miXkPt0kFnREd5mitlsUtbfKaqNRx20add7GutGirDpo2KGTDKBKaLhPzwZvA1T/5+/SqMdCvteOkgWAVuQ5vz8RkvoTjp63T4rR5xSL6DCaiL4P3yBT+RyMfh5FDDfEMyX8b50gE/8tGGCZ0WKwEZ4RHcqsvnYZ6evyoWWkw70kfAZyIhvwOt1AiQo80qV+OTkw7YnYpPy1SNVP/ykqi3HzUzCEUigHVyWRKlULKeoyiWddLx0kw7rHxb9Jj4j+OplrFokZs+I7LOnahlkEtAmzZqpZLGSsVrSITJAHpdtUtXAGA4BXZMUfCMk5rcSItZ0ce9aSceOTSViOnndOiVlQZoZzvuvMM+JeifE+H/aGQrEmpoFPEXZsNiK0FIZS8mIDNdUuVjGQBp4U1+2qBeT722GKDQ/KGCjFg/3kPb6DXM9UUCIWE88m+vyi6sTHojTm95L78FZUIj4ySpGYnBCL11Q5nyw8W6rwErgavJFnBfKiC5huQA0eErsoHJu35JBr3yaKGG/JOFJwBRps/Y/8Cnl/8XWU1giNdjpptMMuP5Wi59xpMpb+XgYHLIMh5UyoRgI+C7gCb8RCN0HTDeAImR1eEaoP8pZznBcsQyrBs6HEZDhI8XE+y06NwdtfkGHjU2QsnwfNxQLOFbPgOFRBdmx2nOvZRp3BU8JGeScDCrQFu66lJk/srmITwiiJbhIATjEbN2W8mSMWGSTngTJy4N90v3qUgljUEXNrqoolEuQ4WE6GLQuS4NPhF5NBXtAeTT6qUBYDAh41Hc+p48ROIfcfq8iJQ4hjd4lYgFw5zBUYyU2/o+5XDk8pp2rBszXe0yG/mhqTQwM02H6VLNsLpSqjgGfCA5yVNFCVZiAIA6lUkXp2B9qDxHhqt+XgxcowE/0BsUi5GoU+O0/D5jb5EzNHLDpMI04DhT5/j3xv/JlcOLyY0dQZMBgmgGUbdQXeAIMsN8pohoHilAG56eKU6TzVJBYlQw5c+4iG2r8QaTNi11HUYxWtwmiXU5TGmSKKxdzz7hly/6mebE1ryFxfQEYsXAPWgQEVSV82V33UM+D1VTAAZTcgwwshnbhWm/EFSWHnNG/NRQ+DyoFRM2x4khx714uNKVtw6RwPoL+Z4F/dpEjEY0idsOiJomjJu14/Rnr8fQVebdQZXjKQBwNLMwzgQD8FXkVW7nUgC9LLhEVs37Wagp+8I2A4eDaU+/Tgpk8Z/eClf9AINj7uUjPD9ew2tBJzZ4BHeyHLhQOVLn0nvpMBAc/9Cpc+GOB6PjkYEl8cHxsl/9nnRePGMY7NTC06X/4D3S56DKexeWSBec9zu6j3wms0hNnjq0nzNOm3LlQBT8GLHgmfyTBQkNWAMupcPnnUvahIvEEpwevBumMl9b7/ingd/vIiDbZdFvuCYiQWGaBx9EkcDKpD5dKj3eC8F/dlc0i7eTbAsCYU+Axwfo/hdYBnA070YreTBjQFmj4VA8qoKw1X8KOzAoIjNjyEbvI50q39NXWc3iue8UI243N85arkPdUsnosZOvdCcs8IfvYu6UvniJov8l2Mdipl1EadwYW2wADkqFuc3UBy1Bme0wYL1nt8u/hyjsG2K2Tfsx7wj5Njf6noe3gjch2pEe0AXoh00uL9iElqOyZCvWTZWUTh65+I1+Ebn5IOqaSvmA9oxcSd4XUwzRIGKmQD2M6TBtLBkwKUbdcq8qFSdGBUuXcx4iDCvcyYzyOAerFItSW/JA+aO47QlQvCAP+AxTPAMYB+qb3kV9SLMwLHEGbEiLqvx/khBT89ZdLhtYoBdAYZBlarwyuCCYYW/Qv2ByNK6EDrZQkEi5AXph757D/3onjGua5HXmvR+3D6KNGJXbt15WPkOb1H9EtdOE+0b8Q6yDbqEEMnVQkDlblkR4szxUBgDwyogUPJllcIRlCve86/JIBGUTotqB5GjCIvxjCOiRzdb54gHQyIxQhzEZyDObj2c7VpX/8bMqMSmbavRE7j32YZ9Ux4LeBZbOBW+TzpdyEAVGczMAUes2BGjbYilzm4nbA2FqMNwMzwDgoI3pU5vC/uIx0WKi9SNmDB57iN4LChqdPimQ75r8OMpuBToz4FXgZvl8X3NhxRkUqzhQF7Q2G+v2lVdnCMevLAwf06rlzT+T8pBDyeGfFFtpZNolficB3TiDIpNiWY0OHecbgKxvaTHtWGS+G9jLoC386mcWVpy/MeFAZsOwsewAKOObiJUxv1pFInJc55ThvRu2MhGnBvwfExLv/UYkWVkiqMXB5hRAsT7Vz3UQTudtST8BUSPIurYltZTqe76Yn7hAEOS33BVd/uoruCz3bg0OOLXMcayHOySeR1clPKLI8qoz5TyijgrLby+eTdtgjXnBdkdCmQJssDzatk+HRwKCt4RuuLe04VLW9SWTalrzvqt1nlOUgdNHxYN62lCx6S0ZPxDXN9/ueBpiJAKvB3HvWU5FTJNurQvY36dHhWV/0SwOeckJmnBqC+72wo8PsaCwWwGvh0eABnhU8f9anwSXBV+HTwFLwXu297ec6N9zbmfltGnh6oEA+7GpZ3BHg9cNucFVyGv5dRz4SfIdfTR53TpnMbKlfF/Gtfbp79HRk1e1yrnPs9uyb/XMeOAvLvKiQHzp9mMQvSTxoshhcCPJ9jFQO8cfGBg8UjL0nqIKW0kVoBIUArOa9FymjTDPA9/6bqrcPfq5wf15bnHH8v95HsI68WpprFs211y9601C7x2zAb/FMGy92QT26YkrSMXDjeSVoqCb26U2iJaHtZ3HwJoYdxYBe110DKtSaP7NiYeHOyVS8kaxVmBgbQcrv0FTknb26Y81MZ6evFrY3595trFz3SXrlgLvcfmboprjlJ3UxXaabmZNW1DdK1rXze7NbSuQ99VpxW51Vj1qz/Ai3AvvLuLNSgAAAAAElFTkSuQmCC"
+          alt="FD Claude Guard" />
+        <span class="chrome-title">FD Claude 安全启动器</span>
+        <span class="chrome-sub">Fuck Dario！！！</span>
+      </div>
+      <div class="chrome-right">
+        <div class="chrome-ico-group">
+          <button type="button" title="开源交流与技术支持" class="chrome-btn" onclick="showToast('点击打开「开源交流与技术支持」弹窗')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/></svg></button>
+          <button type="button" title="桌面悬浮窗" class="chrome-btn" onclick="showToast('切换桌面悬浮窗显隐')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="15" rx="2.8"/><rect x="12" y="8" width="6" height="4.5" rx="1" fill="currentColor" stroke="none"/></svg></button>
+          <button type="button" title="桌面预警消息提醒" class="chrome-btn" onclick="showToast('切换普通预警静音状态')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg></button>
+          <button id="chrome-theme-btn" type="button" title="切换深浅主题" class="chrome-btn"><svg width="13.5" height="13.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg></button>
+        </div>
+        <span class="chrome-sep"></span>
+        <button type="button" class="chrome-win-btn"><svg width="12.5" height="12.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45"><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+        <button type="button" class="chrome-win-btn"><svg width="10.5" height="10.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55"><rect x="4" y="4" width="16" height="16" rx="2"/></svg></button>
+        <button type="button" class="chrome-win-btn close"><svg width="12.5" height="12.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg></button>
+      </div>
+    </header>
+
+    <div class="shell-body">
+      <!-- 212px 左侧导航栏：4 主页面（含 AI 工具箱） + 底部状态卡 + 最左下角「工具设置」 -->
+      <aside class="sidebar">
+        <div>
+          <nav class="nav-list">
+            <button type="button" class="c-nav-item active" data-main-nav="console">
+              <span class="nav-item-left">
+                <svg width="15" height="15" style="color: var(--text-strong);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 10.5 12 3.8l8.5 6.7V19a1.8 1.8 0 0 1-1.8 1.8h-4.5v-5.2a1.2 1.2 0 0 0-1.2-1.2h-2a1.2 1.2 0 0 0-1.2 1.2v5.2H5.3A1.8 1.8 0 0 1 3.5 19v-8.5Z" fill="currentColor" fill-opacity="0.06"/></svg>
+                <span>控制台</span>
+              </span>
+              <span class="nav-badge tabular" style="background: var(--pass-bg); color: var(--pass-fg); border: 1px solid var(--pass-border);">OK</span>
+            </button>
+            <button type="button" class="c-nav-item" data-main-nav="audit">
+              <span class="nav-item-left">
+                <svg width="15" height="15" style="color: var(--text-3);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7.5 3v5.4c0 4.8-3.2 8.5-7.5 10-4.3-1.5-7.5-5.2-7.5-10V6L12 3Z"/><path d="m9.2 12.2 2 2 3.8-4"/></svg>
+                <span>账户审计</span>
+              </span>
+              <span class="nav-badge tabular" style="background: var(--warning-soft); color: var(--warning-fg);">1</span>
+            </button>
+            <button type="button" class="c-nav-item" data-main-nav="nodes">
+              <span class="nav-item-left">
+                <svg width="15" height="15" style="color: var(--text-3);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a13.5 13.5 0 0 0 0 18 13.5 13.5 0 0 0 0-18"/><path d="M3.2 12h17.6"/></svg>
+                <span>节点流量</span>
+              </span>
+            </button>
+            <button type="button" class="c-nav-item" data-main-nav="aitools">
+              <span class="nav-item-left">
+                <svg width="15" height="15" style="color: var(--text-3);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9L12 3Z"/><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9L19 15Z"/></svg>
+                <span>AI 工具箱</span>
+              </span>
+            </button>
+          </nav>
+        </div>
+
+        <div class="side-bottom">
+          <div class="c-promo-slot">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+              <span style="font-size: 11.5px; font-weight: 500; color: var(--text-strong);">住宅静态节点精选</span>
+              <span style="font-size: 9.5px; padding: 1px 5px; border-radius: 4px; background: var(--primary-soft); color: var(--primary); border: 1px solid var(--primary-border);">推荐</span>
+            </div>
+            <div style="margin-top: 4px; font-size: 11px; color: var(--text-2); line-height: 1.45;">美国原生静态 ISP · 低风控专线 →</div>
+          </div>
+
+          <div class="c-card c-status-card">
+            <div class="c-status-row">
+              <span style="display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-1);"><span class="dot" style="background: var(--ok-dot);"></span><span>Claude 进程</span></span>
+              <span class="tabular" style="font-size: 11px; color: var(--text-3);">0 进程</span>
+            </div>
+            <div class="c-status-row">
+              <span style="font-size: 11px; color: var(--text-3);">已退出</span>
+              <span class="c-hold-chip tabular">盯防 45s</span>
+            </div>
+          </div>
+
+          <div class="c-card c-status-card">
+            <div class="c-status-row">
+              <span style="display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-1);"><span class="dot" style="background: var(--ok-dot);"></span><span>Clash Verge</span></span>
+              <span class="tabular" style="font-size: 11px; color: var(--text-3);">:7890</span>
+            </div>
+            <div class="c-status-row">
+              <span class="tabular" style="font-size: 11px; color: var(--text-3);">Mihomo v1.19.33</span>
+              <span style="font-size: 11px; color: var(--ok-fg);">在线</span>
+            </div>
+          </div>
+
+          <!-- 最左下角「工具设置」弹窗入口 -->
+          <div style="padding-top: 6px; border-top: 1px solid var(--divider);">
+            <button id="sidebar-settings-trigger" type="button" class="c-nav-item is-settings-open">
+              <span class="nav-item-left">
+                <svg width="15" height="15" style="color: var(--text-strong);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>
+                <span>工具设置</span>
+              </span>
+              <span id="sidebar-settings-meta" class="tabular" style="font-size: 10.5px; color: var(--text-3); display: inline-flex; align-items: center; gap: 5px;">v0.3.5</span>
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <!-- 背景控制台主工作区 -->
+      <main class="main-bg">
+        <div class="page-hd">
+          <div class="page-hd-left">
+            <h1 class="page-title">控制台</h1>
+            <span class="page-sub tabular">启动前体检 · 实时监听 · 巡检 02:28</span>
+          </div>
+          <div class="page-hd-right">
+            <span class="status-chip-bar"><span class="dot" style="background: var(--ok-dot);"></span><span style="color: var(--ok-fg);">守护正常</span></span>
+            <button type="button" class="c-btn" onclick="showToast('正在重新实测全部启动前体检项...')">重新实测</button>
+            <button type="button" class="c-btn-primary" onclick="showToast('环境全绿，正在安全启动 Claude...')">安全启动 Claude</button>
+          </div>
+        </div>
+        <div class="bg-console-grid">
+          <div class="bg-console-left">
+            <div class="sec-hd">
+              <span style="font-size: 12.5px; font-weight: 500; color: var(--text-strong);">一、必须通过</span>
+              <span class="tabular" style="font-size: 11.5px; color: var(--text-3);">通过 12/12 后安全启动</span>
+            </div>
+            <div class="c-card">
+              <div class="bg-check-row">
+                <div><div style="font-size: 12.5px; color: var(--text-1);">Clash Verge 代理与 TUN 模式</div><div style="font-size: 11px; color: var(--text-2); margin-top: 2px;">Mihomo 命名管道已连接 · TUN 接管生效</div></div>
+                <span class="c-pill c-pill-ok">已通过</span>
+              </div>
+              <div class="bg-check-row">
+                <div><div style="font-size: 12.5px; color: var(--text-1);">Claude-Fixed 策略组锁定</div><div style="font-size: 11px; color: var(--text-2); margin-top: 2px;">已锁定至 us美国1|流媒体AI · 无回退策略</div></div>
+                <span class="c-pill c-pill-ok">已通过</span>
+              </div>
+              <div class="bg-check-row">
+                <div><div style="font-size: 12.5px; color: var(--text-1);">出口地区与节点实测可达性</div><div style="font-size: 11px; color: var(--text-2); margin-top: 2px;">US 美国原生静态 · Claude API 200 OK</div></div>
+                <span class="c-pill c-pill-ok">已通过</span>
+              </div>
+              <div class="bg-check-row">
+                <div><div style="font-size: 12.5px; color: var(--text-1);">防 DNS 泄漏与 Fake-IP 校验</div><div style="font-size: 11px; color: var(--text-2); margin-top: 2px;">未发现国内 DNS 抢答或本地分流绕过</div></div>
+                <span class="c-pill c-pill-ok">已通过</span>
+              </div>
+              <div class="bg-check-row">
+                <div><div style="font-size: 12.5px; color: var(--text-1);">IPv6 静默泄漏防护</div><div style="font-size: 11px; color: var(--text-2); margin-top: 2px;">物理网卡 IPv6 已按基线安全禁用</div></div>
+                <span class="c-pill c-pill-ok">已通过</span>
+              </div>
+            </div>
+          </div>
+          <div class="bg-console-right">
+            <div class="c-card" style="padding: 16px;">
+              <div style="font-size: 14px; font-weight: 500; color: var(--text-strong);">Clash Verge 代理与 TUN 模式</div>
+              <div style="font-size: 11.5px; color: var(--text-2); margin-top: 6px; line-height: 1.55;">所有必须项已全部通过，点击左下角「工具设置」可随时打开急救恢复与安全策略弹窗。</div>
+              <div class="sub-box" style="margin-top: 12px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 5px;"><span style="color: var(--text-3);">内核管道</span><span style="color: var(--text-1);">管道已连接</span></div>
+                <div style="display: flex; justify-content: space-between;"><span style="color: var(--text-3);">锁定策略组</span><span style="color: var(--text-1);">Claude-Fixed</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- ==============================================================
+         居中双栏「工具设置」模态弹窗（去掉两大分组标题，扁平 4 项！）
+         顺序：1. 急救与恢复（急救/撤回/清理/快照/诊断）
+              2. 常规与自启（悬浮窗/通知/开机自启）
+              3. 安全策略（所有自动触发防护 + 手动紧急熔断）
+              4. 版本与更新
+    ============================================================== -->
+    <div id="settings-scrim" class="modal-scrim">
+      <div class="settings-modal" role="dialog" aria-modal="true" aria-label="工具设置">
+        <aside class="modal-aside">
+          <div>
+            <div class="modal-brand-row">
+              <span class="modal-brand-title">工具设置</span>
+              <span class="modal-ver-tag tabular">v0.3.5</span>
+            </div>
+
+            <div class="modal-nav-list">
+              <button type="button" class="s-nav-item" data-stab="general">
+                <span class="s-nav-left">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round"><path d="M4 6.5h16M4 12h16M4 17.5h16"/><circle cx="9" cy="6.5" r="2" fill="var(--bg-sidebar)"/><circle cx="15" cy="12" r="2" fill="var(--bg-sidebar)"/><circle cx="10.5" cy="17.5" r="2" fill="var(--bg-sidebar)"/></svg>
+                  <span>常规开关</span>
+                </span>
+              </button>
+
+              <button type="button" class="s-nav-item active" data-stab="policy">
+                <span class="s-nav-left">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7.5 3v5.4c0 4.8-3.2 8.5-7.5 10-4.3-1.5-7.5-5.2-7.5-10V6L12 3Z"/><path d="m9.2 12.2 2 2 3.8-4"/></svg>
+                  <span>安全策略</span>
+                </span>
+              </button>
+
+              <button type="button" class="s-nav-item" data-stab="recovery">
+                <span class="s-nav-left">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5"/><line x1="5.6" y1="5.6" x2="9.5" y2="9.5"/><line x1="18.4" y1="5.6" x2="14.5" y2="9.5"/><line x1="18.4" y1="18.4" x2="14.5" y2="14.5"/><line x1="5.6" y1="18.4" x2="9.5" y2="14.5"/></svg>
+                  <span>急救撤回</span>
+                </span>
+                <span id="nav-rescue-badge" class="s-nav-badge tabular">3</span>
+              </button>
+
+              <button type="button" class="s-nav-item" data-stab="update">
+                <span class="s-nav-left">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  <span>版本更新</span>
+                </span>
+              </button>
+            </div>
+          </div>
+
+          <div class="modal-aside-foot">
+            <span>修改即时生效</span>
+            <span class="kbd-chip">Esc</span>
+          </div>
+        </aside>
+
+        <section class="modal-main">
+          <div class="modal-hd">
+            <div class="modal-hd-left">
+              <h2 id="modal-panel-title" class="modal-hd-title">急救与恢复</h2>
+              <span id="modal-panel-sub" class="modal-hd-sub">网络急救、系统改动撤回、本地清理与历史快照</span>
+            </div>
+            <div class="modal-hd-right">
+              <div id="modal-panel-actions" style="display: flex; align-items: center; gap: 6px;"></div>
+              <button id="modal-close-btn" type="button" aria-label="关闭工具设置" class="modal-close-btn">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div id="modal-scroll-host" class="thin-scroll-host">
+            <div id="modal-scroll-body" class="thin-scroll-body"></div>
+            <div class="thin-scroll-track"><div id="modal-scroll-thumb" class="thin-scroll-thumb"></div></div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <div id="toast-anchor" class="toast-anchor"></div>
+  </div>
+
+  <script>
+    const state = {
+      modalOpen: true,
+      tab: 'policy',
+      theme: 'dark',
+      simulateAlert: false,
+      killSwitchActive: false,
+      rescueRan: false,
+      expanded: {},
+      config: {
+        showHud: true,
+        notifyEnabled: true,
+        bootStart: true,
+        bootHudOnly: true,
+        wakePreblockGuard: true,
+        antiNakedGuard: true,
+        autoKillSwitch: true,
+        antiUploadFlush: true,
+        safeExitPrompt: true,
+        calm24h: false,
+        lockCfAndStripeToClaude: true,
+        killHoldSeconds: 45,
+      },
+      rollbackItems: [
+        { id: 'clash_rules', cat: 'Clash 规则', title: 'Claude-Fixed 策略组与分流规则', touched: true, cur: '已锁定 us美国1|流媒体AI', orig: '原始订阅默认分流', detail: '撤回时只移除本工具注入的分流段，100% 保留你后续新导入的机场订阅。' },
+        { id: 'ipv6_nic', cat: '系统网卡', title: '物理网卡 IPv6 防泄漏', touched: true, cur: '已关闭 IPv6（Ethernet）', orig: '系统默认开启', detail: '按首次修改前记录的网卡原始快照精准还原，不影响其他网络设置。' },
+        { id: 'browser_quic', cat: '浏览器', title: '禁用浏览器 QUIC 旁路', touched: true, cur: '已关闭 QUIC 协议', orig: '未写入该策略', detail: '仅删除本工具写入的注册表项，不触碰浏览器其他企业策略或书签数据。' },
+        { id: 'dns_doh', cat: '系统 DNS', title: '物理网卡 DNS 基线', touched: false, cur: '自动获取（DHCP）', orig: '自动获取（DHCP）', detail: '当前状态与原始基线一致，无需撤回。' },
+      ],
+      backups: [
+        { file: 'claude-clean-20261126-194218.zip', kind: '清理前备份', time: '2026-11-26 19:42:18', size: '18.4 MB' },
+        { file: 'claude-manual-20261125-221504.zip', kind: '手动快照', time: '2026-11-25 22:15:04', size: '17.9 MB' },
+        { file: 'claude-prerestore-20261124-110832.zip', kind: '还原前安全点', time: '2026-11-24 11:08:32', size: '16.2 MB' },
+      ],
+    };
+
+    const PANEL_META = {
+      general: { title: '常规开关', sub: '悬浮窗、系统通知与开机自启检查' },
+      policy: { title: '安全策略', sub: '按 4 层纵深防护排列：入口拦截 → 出口锁定 → 异常熔断 → 防回传防复活' },
+      recovery: { title: '急救撤回', sub: '网络急救、系统改动撤回、本地清理与历史快照' },
+      update: { title: '版本更新', sub: '官方签名更新通道，优先走本机代理' },
+    };
+
+    function showToast(msg) {
+      const anchor = document.getElementById('toast-anchor');
+      anchor.innerHTML = `<div class="fd-toast">${msg}</div>`;
+      clearTimeout(window.__toastT);
+      window.__toastT = setTimeout(() => { anchor.innerHTML = ''; }, 2400);
+    }
+
+    function descBlockHtml(id, shortText, extraText) {
+      const isOpen = !!state.expanded[id];
+      const hasExtra = !!extraText;
+      return `
+        <div class="desc-line ${isOpen ? 'is-expanded' : ''}" data-desc-wrap="${id}">
+          <span class="desc-text" data-desc-text="${id}">${shortText}</span>
+          ${hasExtra ? `
+            <button type="button" class="desc-more-btn" data-expand-id="${id}">
+              <span>${isOpen ? '收起' : '详情'}</span>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="transform: rotate(${isOpen ? 180 : 0}deg); transition: transform 140ms;"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+          ` : `<button type="button" class="desc-more-btn" data-expand-id="${id}" data-auto-overflow="true" style="display:none;"><span>${isOpen ? '收起' : '展开'}</span></button>`}
+        </div>
+        ${hasExtra && isOpen ? `<div class="desc-extra">${extraText}</div>` : ''}
+      `;
+    }
+
+    function switchHtml(key, title, shortDesc, badge, opts = {}) {
+      const checked = !!state.config[key];
+      const disabled = !!opts.disabled;
+      const badgeEl = badge
+        ? `<span class="c-pill ${badge.tone === 'ok' ? 'c-pill-ok' : badge.tone === 'warn' ? 'c-pill-warn' : 'c-pill-neutral'}">${badge.text}</span>`
+        : '';
+      return `
+        <div class="s-row ${disabled ? 'is-disabled' : 'is-clickable'} ${opts.sub ? 'is-sub' : ''}" data-toggle-key="${key}" data-toggle-label="${title}" data-disabled="${disabled}">
+          <div class="s-row-info">
+            <div class="s-row-title">${title}</div>
+            ${descBlockHtml('sw_' + key, shortDesc, opts.extra)}
+          </div>
+          <div class="s-row-ctrl">
+            ${badgeEl}
+            <button type="button" role="switch" aria-checked="${checked}" ${disabled ? 'disabled' : ''} class="s-switch ${checked ? 'on' : ''}"></button>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderPanel() {
+      const meta = PANEL_META[state.tab];
+      document.getElementById('modal-panel-title').textContent = meta.title;
+      document.getElementById('modal-panel-sub').textContent = meta.sub;
+
+      const actionsEl = document.getElementById('modal-panel-actions');
+      const bodyEl = document.getElementById('modal-scroll-body');
+      actionsEl.innerHTML = '';
+
+      if (state.tab === 'recovery') {
+        const touchedCount = state.rollbackItems.filter(x => x.touched).length;
+        actionsEl.innerHTML = `
+          <button type="button" class="c-btn-xs" onclick="showToast('已打开本地运行日志目录')">日志目录</button>
+          <button type="button" class="c-btn-xs" onclick="showToast('已导出脱敏 AI 诊断包并复制排障提示词')">导出 AI 诊断包</button>
+        `;
+        bodyEl.innerHTML = `
+          <!-- 区块 1：网络急救（已融合原防自锁救援） -->
+          <div>
+            <div class="sec-hd">
+              <div class="sec-hd-left">
+                <span class="sec-title">网络急救</span>
+                ${state.simulateAlert ? '<span class="c-pill c-pill-fail">检测到死 DNS：WLAN</span>' : '<span class="c-pill c-pill-ok">网络正常</span>'}
+              </div>
+              <span class="sec-note">含防火墙防自锁清理，无异常项自动跳过</span>
+            </div>
+            <div class="c-card hero-card" style="${state.simulateAlert ? 'border-color: var(--bad-border);' : ''}">
+              <div class="hero-row">
+                <div class="hero-left">
+                  <div class="c-icon-box ${state.simulateAlert ? 'is-bad' : 'is-primary'}">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5"/><line x1="5.6" y1="5.6" x2="9.5" y2="9.5"/><line x1="18.4" y1="5.6" x2="14.5" y2="9.5"/><line x1="18.4" y1="18.4" x2="14.5" y2="14.5"/><line x1="5.6" y1="18.4" x2="9.5" y2="14.5"/></svg>
+                  </div>
+                  <div class="s-row-info">
+                    <div class="hero-title">一键恢复上网与防自锁救援</div>
+                    ${descBlockHtml('rescue_desc', '关代理/关 TUN 断网、导不了订阅或防火墙残留锁死时一键修复', '依次执行 4 步：① 重置残留 127.0.0.1 死 DNS 为 DHCP；② 关闭失效本地代理；③ 清空本工具写入的全部防火墙阻断规则；④ 刷新 DNS 并实测国内直连。正常项自动跳过零副作用。')}
+                  </div>
+                </div>
+                <div class="hero-actions">
+                  <button type="button" class="c-btn" onclick="showToast('已仅清空本工具写入的全部防火墙阻断规则')">仅清防火墙</button>
+                  <button type="button" class="${state.simulateAlert ? 'c-btn-danger' : 'c-btn-primary'}" onclick="state.rescueRan=true; state.simulateAlert=false; syncAlertUI(); renderPanel(); showToast('网络急救完成：DNS、代理与防火墙已恢复，国内直连正常');">
+                    一键网络急救
+                  </button>
+                </div>
+              </div>
+              ${state.rescueRan ? `
+                <div class="sub-box">
+                  <div style="color: var(--ok-fg); font-weight: 500; margin-bottom: 2px;">✓ 急救完成：物理网卡已恢复自动 DNS，国内直连 28ms 正常</div>
+                  <div>网卡 DNS：已恢复 DHCP · 系统代理：已清除 · 防火墙残留：0 条</div>
+                </div>
+              ` : ''}
+            </div>
+          </div>
+
+          <!-- 区块 2：系统改动撤回 -->
+          <div>
+            <div class="sec-hd">
+              <div class="sec-hd-left">
+                <span class="sec-title">系统改动撤回</span>
+                <span class="c-pill c-pill-neutral tabular">已改动 ${touchedCount} 项</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <button type="button" class="c-btn-xs" onclick="showToast('已刷新系统与 Clash 原始基线状态')">刷新</button>
+                <button type="button" class="c-btn-xs" ${touchedCount === 0 ? 'disabled' : ''} onclick="showToast('将打开确认窗，按安全顺序撤回全部 ${touchedCount} 项改动')">
+                  撤回全部 (${touchedCount})
+                </button>
+              </div>
+            </div>
+            <div class="c-card">
+              ${state.rollbackItems.map(item => `
+                <div class="s-row">
+                  <div class="s-row-info">
+                    <div class="s-row-top">
+                      <span class="c-pill c-pill-neutral">${item.cat}</span>
+                      <span class="s-row-title">${item.title}</span>
+                    </div>
+                    ${descBlockHtml('rb_' + item.id, `当前：${item.cur}  |  原态：${item.orig}`, item.detail)}
+                  </div>
+                  <div class="s-row-ctrl">
+                    ${item.touched ? '<span class="c-pill c-pill-warn">可撤回</span>' : '<span class="c-pill c-pill-ok">未改动</span>'}
+                    <button type="button" class="c-btn-xs" ${item.touched ? '' : 'disabled'} onclick="showToast('已打开「${item.title}」撤回确认窗')">
+                      ${item.touched ? '撤回' : '无需撤回'}
+                    </button>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+
+          <!-- 区块 3：本地清理 -->
+          <div>
+            <div class="sec-hd">
+              <span class="sec-title">本地清理</span>
+              <span class="sec-note">均不触碰项目代码与云端对话记录</span>
+            </div>
+            <div class="c-card">
+              <div class="s-row">
+                <div class="s-row-info">
+                  <div class="s-row-title">强杀并清待上传遥测缓存</div>
+                  ${descBlockHtml('cl_tel', '仅终止进程并清本机待上传遥测，保留登录态', '仅在代理突然断线或节点漂移等紧急时刻使用；会中断正在生成的对话。清理路径：~/.claude/telemetry/')}
+                </div>
+                <div class="s-row-ctrl">
+                  <span class="c-pill c-pill-warn">仅应急</span>
+                  <button type="button" class="c-btn-xs" onclick="showToast('已强杀 Claude 进程并清空待上传遥测缓存')">应急清理</button>
+                </div>
+              </div>
+              <div class="s-row">
+                <div class="s-row-info">
+                  <div class="s-row-title">退出登录并清理本地污染目录</div>
+                  ${descBlockHtml('cl_full', '先自动打包备份，再清空本机登录态与污染目录', '自动覆盖经典安装目录（已识别）、微软商店 MSIX（未安装，后续自动纳入）与 ~/.claude/telemetry/；备份保存在 ~/FDtools-Backups/。')}
+                </div>
+                <div class="s-row-ctrl">
+                  <button type="button" class="c-btn-xs" onclick="showToast('已创建手动 ZIP 快照')">仅备份快照</button>
+                  <button type="button" class="c-btn-xs" style="color: var(--primary); border-color: var(--primary-border); background: var(--primary-soft);" onclick="showToast('已打开备份与清理选项确认窗')">退出并清理</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 区块 4：历史备份快照 -->
+          <div>
+            <div class="sec-hd">
+              <div class="sec-hd-left">
+                <span class="sec-title">历史备份快照</span>
+                <span class="sec-note">按时间倒序 · 自动保留最近 10 份</span>
+              </div>
+              <button type="button" class="c-btn-danger-xs" onclick="showToast('已打开清空全部历史备份确认窗')">清空全部 (${state.backups.length})</button>
+            </div>
+            <div class="c-card">
+              <div class="bak-head">
+                <span>备份文件</span><span>类型</span><span>创建时间</span><span>体积</span><span style="text-align: right;">操作</span>
+              </div>
+              ${state.backups.map(b => `
+                <div class="bak-row">
+                  <span class="bak-file" title="${b.file}">${b.file}</span>
+                  <span><span class="c-pill c-pill-neutral">${b.kind}</span></span>
+                  <span class="tabular" style="font-size: 11px; color: var(--text-2);">${b.time}</span>
+                  <span class="tabular" style="font-size: 11px; color: var(--text-2);">${b.size}</span>
+                  <div class="bak-ops">
+                    <button type="button" class="c-btn-xs" onclick="showToast('正在从 ${b.file} 一键还原快照...')">一键还原</button>
+                    <button type="button" class="c-btn-danger-xs" onclick="showToast('已删除备份 ${b.file}')">删除</button>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `;
+      } else if (state.tab === 'general') {
+        bodyEl.innerHTML = `
+          <div>
+            <div class="sec-hd">
+              <span class="sec-title">悬浮窗、通知与开机自启</span>
+              <span class="sec-note">苔绿标建议保持开启</span>
+            </div>
+            <div class="c-card">
+              ${switchHtml('showHud', '显示桌面悬浮状态窗', '桌面常驻小卡片看节点与流量，支持拖拽和靠右贴边', { text: '推荐开启', tone: 'ok' }, { extra: '与主窗口右上角悬浮窗开关、系统托盘菜单实时同步，双击悬浮窗顶栏可折叠。' })}
+              ${switchHtml('notifyEnabled', '桌面预警消息提醒', '悬浮窗隐藏时通过系统通知提醒，危急熔断不受静音影响', { text: '推荐开启', tone: 'ok' }, { extra: '关闭后仅静音普通提醒；触发熔断或防裸奔拦截时仍会强制弹出警告。' })}
+              ${switchHtml('bootStart', '开机自动启动 FD Claude 安全启动器', '随系统开机在后台静默启动，先于 Claude 建立代理保护', { text: '推荐开启', tone: 'ok' })}
+              ${switchHtml('bootHudOnly', '开机时仅显示桌面悬浮窗', '开机不弹出大窗口，只在桌面安静显示悬浮状态卡', { text: '推荐开启', tone: 'ok' }, { sub: true, disabled: !state.config.bootStart })}
+            </div>
+          </div>
+
+          <div>
+            <div class="sec-hd">
+              <span class="sec-title">开机启动项检查</span>
+              <span class="sec-note">仅只读检测，绝不擅自删除你的启动项</span>
+            </div>
+            <div class="c-card">
+              <div class="s-row">
+                <div class="s-row-info">
+                  <div class="s-row-title">Clash Verge</div>
+                  ${descBlockHtml('st_clash', '已开启自启，保证代理先于 Claude 就绪')}
+                </div>
+                <span class="c-pill c-pill-ok">已开启自启</span>
+              </div>
+              <div class="s-row">
+                <div class="s-row-info">
+                  <div class="s-row-title">Claude Desktop</div>
+                  ${descBlockHtml('st_claude', '未开启自启，避免开机瞬间绕过代理直连')}
+                </div>
+                <span class="c-pill c-pill-ok">未开启</span>
+              </div>
+              <div class="s-row">
+                <div class="s-row-info">
+                  <div class="s-row-title">FD Claude 安全启动器</div>
+                  ${descBlockHtml('st_fd', '已加入开机后台守护计划任务')}
+                </div>
+                <span class="c-pill c-pill-ok">已开启自启</span>
+              </div>
+            </div>
+          </div>
+        `;
+      } else if (state.tab === 'policy') {
+        bodyEl.innerHTML = `
+          <!-- L1：启动前与切网入口防线 -->
+          <div>
+            <div class="sec-hd">
+              <div class="sec-hd-left">
+                <span class="layer-tag tabular">L1</span>
+                <span class="sec-title">入口防线 · 启动前与切网拦截</span>
+              </div>
+              <span class="sec-note">阻止未就绪裸连与唤醒瞬时直连</span>
+            </div>
+            <div class="c-card">
+              ${switchHtml('antiNakedGuard', '防裸奔自动接管', '环境没全绿直接双击 Claude 时自动拦下并切回控制台', { text: '推荐开启', tone: 'ok' }, { extra: '500ms 内写入防火墙出站拦截并唤起控制台提示修复，避免误点桌面原生图标导致真实 IP 暴露。' })}
+              ${switchHtml('wakePreblockGuard', '休眠唤醒 / 切网 15 秒预阻断', '电脑醒来或切换网络时先暂停联网，等代理稳了自动放行', { text: '推荐开启', tone: 'ok' }, { extra: '最多临时拦截 15 秒；待 Clash 管道、TUN 与白名单节点复测通过后毫秒级放行，超时未恢复自动转入熔断保护。' })}
+            </div>
+          </div>
+
+          <!-- L2：运行中链路锁定与行为降噪 -->
+          <div>
+            <div class="sec-hd">
+              <div class="sec-hd-left">
+                <span class="layer-tag tabular">L2</span>
+                <span class="sec-title">链路防线 · 出口锁定与冷静期</span>
+              </div>
+              <span class="sec-note">防止跨节点双 IP 串线与高频切区</span>
+            </div>
+            <div class="c-card">
+              ${switchHtml('lockCfAndStripeToClaude', '锁定人机盾与 Stripe 支付节点', '网页弹盾或升级付费时与 Claude 保持同一出口节点', { text: '推荐开启', tone: 'ok' }, { extra: '同步锁定 Cloudflare 与 Stripe 至 Claude-Fixed；若你同时在浏览器用 ChatGPT 等其他 CF 站点，建议将主代理组与 Claude-Fixed 选同一节点，或按需关闭此项。' })}
+              ${switchHtml('calm24h', '新号 / 刚付费 24h 冷静保护', '新号或刚付费前 24 小时禁切节点、加强 401/403 监控', { text: '按需开启', tone: 'neutral' }, { extra: '用于平稳度过支付反欺诈异步审核期：开启后切节点会触发高危拦截确认。' })}
+            </div>
+          </div>
+
+          <!-- L3：异常瞬间热熔断 -->
+          <div>
+            <div class="sec-hd">
+              <div class="sec-hd-left">
+                <span class="layer-tag tabular">L3</span>
+                <span class="sec-title">断流防线 · 异常热熔断</span>
+              </div>
+              <span class="sec-note">代理断线、脱组或禁区漂移时毫秒级止损</span>
+            </div>
+            <div class="c-card">
+              ${switchHtml('autoKillSwitch', '异常自动紧急断流', '代理断开、关 TUN 或切禁区时，2 秒内切断全部 Claude 出站', { text: '推荐开启', tone: 'ok' }, { extra: '自动联动 Clash 掐断现有连接 + Windows 防火墙封锁出站，100% 阻止异常流量继续发出。' })}
+              <div class="s-row">
+                <div class="s-row-info">
+                  <div class="s-row-title">手动紧急熔断开关（4 层熔断）</div>
+                  ${descBlockHtml('manual_ks', '平时自动触发，极端异常时可手动一键封锁全部 Claude 出站', '立即掐断所有 Claude 连接、写入 Defender 规则 FDClaudeGuard_KillSwitch_* 并启动防复活盯防锁。')}
+                </div>
+                <div class="s-row-ctrl">
+                  <span class="c-pill ${state.killSwitchActive ? 'c-pill-fail' : 'c-pill-neutral'}">${state.killSwitchActive ? '封锁中' : '待命'}</span>
+                  <button type="button" class="${state.killSwitchActive ? 'c-btn-xs' : 'c-btn-danger-xs'}" onclick="state.killSwitchActive=!state.killSwitchActive; renderPanel(); showToast(state.killSwitchActive ? '已手动激活 4 层紧急熔断' : '已解除防火墙熔断并恢复通信');">
+                    ${state.killSwitchActive ? '解除熔断...' : '立即熔断'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- L4：事后防回传与防复活收口 -->
+          <div>
+            <div class="sec-hd">
+              <div class="sec-hd-left">
+                <span class="layer-tag tabular">L4</span>
+                <span class="sec-title">收口防线 · 防遥测回传与进程防复活</span>
+              </div>
+              <span class="sec-note">断流后清空待发队列，盯防进程静默自启</span>
+            </div>
+            <div class="c-card">
+              ${switchHtml('antiUploadFlush', '熔断恢复前强杀并清遥测缓存', '恢复联网前先杀进程清空待发缓存，防止风险记录补发', { text: '仅熔断生效', tone: 'neutral' }, { extra: '强杀跳过客户端正常退出钩子，并清空 ~/.claude/telemetry/ 离线待上报队列。' })}
+              ${switchHtml('safeExitPrompt', '安全退出防呆提醒', '关闭工具或代理前，如果 Claude 仍在后台会弹窗提醒', { text: '推荐开启', tone: 'ok' })}
+              <div class="s-row">
+                <div class="s-row-info">
+                  <div class="s-row-title">强杀防复活盯防时长（Kill-Hold）</div>
+                  ${descBlockHtml('kill_hold', '强杀 Claude 后持续盯防，防止后台悄悄自启复活', '每 250ms 监测一次进程树，冒头即强杀并自动顺延 +15s；点击「安全启动 Claude」前会自动释放。')}
+                </div>
+                <div class="seg-bar" style="flex-shrink: 0;">
+                  ${[30, 45, 60].map(s => `<button type="button" data-hold-secs="${s}" class="seg-item tabular ${state.config.killHoldSeconds === s ? 'active' : ''}">${s}s</button>`).join('')}
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+      } else if (state.tab === 'update') {
+        bodyEl.innerHTML = `
+          <div class="c-card hero-card">
+            <div class="hero-row">
+              <div class="hero-left">
+                <div class="c-icon-box is-primary">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                </div>
+                <div class="s-row-info">
+                  <div class="s-row-top">
+                    <span class="hero-title">FD Claude 安全启动器</span>
+                    <span class="c-pill c-pill-neutral tabular">v0.3.5</span>
+                    <span class="c-pill c-pill-ok">已是最新</span>
+                  </div>
+                  ${descBlockHtml('upd_desc', '走 GitHub 官方签名通道下载，优先复用本机代理', '所有更新包均经过 Ed25519 公钥签名校验，确保安装包未被篡改。')}
+                </div>
+              </div>
+              <div class="hero-actions">
+                <button type="button" class="c-btn" onclick="showToast('已连接 GitHub Releases，当前 v0.3.5 已是最新版本')">检查更新</button>
+                <button type="button" class="c-btn" onclick="showToast('正在打开 GitHub 官方仓库')">GitHub 官网</button>
+              </div>
+            </div>
+
+            <div class="sub-box" style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+              <span>纯本地运行，零云端回传；导出排障包前会自动隐藏账号与密钥。</span>
+              <span class="c-pill c-pill-neutral">MIT 开源</span>
+            </div>
+          </div>
+        `;
+      }
+
+      bodyEl.querySelectorAll('[data-toggle-key]').forEach(row => {
+        row.addEventListener('click', (e) => {
+          if (e.target.closest('[data-expand-id]') || e.target.closest('.desc-extra')) return;
+          if (row.dataset.disabled === 'true') return;
+          const k = row.dataset.toggleKey;
+          state.config[k] = !state.config[k];
+          showToast(`${row.dataset.toggleLabel}：${state.config[k] ? '已开启' : '已关闭'}`);
+          renderPanel();
+        });
+      });
+
+      bodyEl.querySelectorAll('[data-expand-id]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const id = btn.dataset.expandId;
+          state.expanded[id] = !state.expanded[id];
+          renderPanel();
+        });
+      });
+
+      bodyEl.querySelectorAll('[data-hold-secs]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          state.config.killHoldSeconds = Number(btn.dataset.holdSecs);
+          showToast(`强杀防复活盯防时长已切换为 ${state.config.killHoldSeconds}s`);
+          renderPanel();
+        });
+      });
+
+      requestAnimationFrame(() => {
+        bodyEl.querySelectorAll('[data-auto-overflow="true"]').forEach(btn => {
+          const id = btn.dataset.expandId;
+          const textEl = bodyEl.querySelector(`[data-desc-text="${id}"]`);
+          if (!textEl) return;
+          if (state.expanded[id] || textEl.scrollWidth > textEl.clientWidth + 1) {
+            btn.style.display = 'inline-flex';
+          }
+        });
+        syncScrollThumb();
+      });
+    }
+
+    function syncAlertUI() {
+      const badge = document.getElementById('nav-rescue-badge');
+      const sideMeta = document.getElementById('sidebar-settings-meta');
+      const simBtn = document.getElementById('btn-sim-alert');
+      if (state.simulateAlert) {
+        badge.style.background = 'var(--bad-bg)';
+        badge.style.color = 'var(--bad-fg)';
+        badge.textContent = '!';
+        sideMeta.innerHTML = `<span class="dot" style="background: var(--bad-dot);"></span><span style="color: var(--bad-fg);">需急救</span>`;
+        simBtn.classList.add('active');
+      } else {
+        badge.style.background = 'var(--bg-subtle)';
+        badge.style.color = 'var(--text-3)';
+        badge.textContent = '3';
+        sideMeta.innerHTML = `v0.3.5`;
+        simBtn.classList.remove('active');
+      }
+    }
+
+    function setModalOpen(open) {
+      state.modalOpen = open;
+      document.getElementById('settings-scrim').classList.toggle('is-hidden', !open);
+      document.getElementById('sidebar-settings-trigger').classList.toggle('is-settings-open', open);
+      const toggleBtn = document.getElementById('btn-toggle-modal');
+      toggleBtn.textContent = open ? '工具设置：已打开' : '工具设置：已关闭';
+      toggleBtn.classList.toggle('active', open);
+    }
+
+    function setTab(tab) {
+      state.tab = tab;
+      document.querySelectorAll('[data-stab]').forEach(el => el.classList.toggle('active', el.dataset.stab === tab));
+      document.getElementById('modal-scroll-body').scrollTop = 0;
+      renderPanel();
+    }
+
+    function setTheme(theme) {
+      state.theme = theme;
+      document.documentElement.setAttribute('data-theme', theme);
+      document.querySelectorAll('[data-theme-opt]').forEach(el => el.classList.toggle('active', el.dataset.themeOpt === theme));
+    }
+
+    const scrollHost = document.getElementById('modal-scroll-host');
+    const scrollBody = document.getElementById('modal-scroll-body');
+    const scrollThumb = document.getElementById('modal-scroll-thumb');
+    function syncScrollThumb() {
+      const maxScroll = scrollBody.scrollHeight - scrollBody.clientHeight;
+      if (maxScroll <= 1) {
+        scrollThumb.style.opacity = '0';
+        return;
+      }
+      scrollThumb.style.opacity = '1';
+      const trackH = scrollHost.clientHeight - 20 - 46;
+      const top = Math.max(0, Math.min(trackH, (scrollBody.scrollTop / maxScroll) * trackH));
+      scrollThumb.style.transform = `translateY(${top}px)`;
+    }
+    scrollBody.addEventListener('scroll', () => {
+      scrollHost.classList.add('is-scrolling');
+      syncScrollThumb();
+      clearTimeout(window.__scrT);
+      window.__scrT = setTimeout(() => scrollHost.classList.remove('is-scrolling'), 450);
+    });
+
+    document.querySelectorAll('[data-main-nav]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('[data-main-nav]').forEach(x => x.classList.remove('active'));
+        btn.classList.add('active');
+        const map = { console: '控制台', audit: '账户审计', nodes: '节点流量', aitools: 'AI 工具箱（新入口预留）' };
+        showToast('已切换至「' + map[btn.dataset.mainNav] + '」');
+      });
+    });
+
+    document.querySelectorAll('[data-stab]').forEach(el => el.addEventListener('click', () => setTab(el.dataset.stab)));
+    document.querySelectorAll('[data-theme-opt]').forEach(el => el.addEventListener('click', () => setTheme(el.dataset.themeOpt)));
+    document.getElementById('chrome-theme-btn').addEventListener('click', () => setTheme(state.theme === 'dark' ? 'light' : 'dark'));
+    document.getElementById('sidebar-settings-trigger').addEventListener('click', () => {
+      if (state.simulateAlert) setTab('recovery');
+      setModalOpen(true);
+    });
+    document.getElementById('modal-close-btn').addEventListener('click', () => setModalOpen(false));
+    document.getElementById('btn-toggle-modal').addEventListener('click', () => setModalOpen(!state.modalOpen));
+    document.getElementById('btn-sim-alert').addEventListener('click', () => {
+      state.simulateAlert = !state.simulateAlert;
+      syncAlertUI();
+      if (state.simulateAlert) { setModalOpen(true); setTab('recovery'); }
+      else renderPanel();
+    });
+    document.getElementById('settings-scrim').addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) {
+        setModalOpen(false);
+        showToast('已关闭工具设置弹窗（点击左下角「工具设置」可重新打开）');
+      }
+    });
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && state.modalOpen) setModalOpen(false);
+    });
+    window.addEventListener('resize', () => renderPanel());
+
+    const params = new URLSearchParams(location.search);
+    if (params.get('shot') === '1') document.body.classList.add('screenshot-mode');
+    if (params.get('theme') === 'light') setTheme('light');
+    if (params.get('tab') && PANEL_META[params.get('tab')]) setTab(params.get('tab'));
+    else renderPanel();
+    if (params.get('closed') === '1') setModalOpen(false);
+    syncAlertUI();
+  </script>
+</body>
+</html>

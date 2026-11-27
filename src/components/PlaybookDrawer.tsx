@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
+import { ShieldCheck } from "lucide-react";
+import { ThinScrollArea } from "@/components/ThinScrollArea";
 import { PLAYBOOK_RULES } from "@/data/playbooks";
 import { useGuardStore } from "@/stores/guardStore";
 
+/**
+ * Claude 账号安全守则联动抽屉（v3.0 扁平白皮书文档流 + 固定顶栏防裁切 + ThinScrollArea）
+ */
 export function PlaybookDrawer() {
   const open = useGuardStore((s) => s.playbookOpen);
   const setOpen = useGuardStore((s) => s.setPlaybookOpen);
@@ -14,6 +19,15 @@ export function PlaybookDrawer() {
   const sortedRules = [...PLAYBOOK_RULES].sort(
     (a, b) => Number(triggeredSet.has(b.id)) - Number(triggeredSet.has(a.id))
   );
+
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, setOpen]);
 
   useEffect(() => {
     if (!open || !focusId) return;
@@ -41,6 +55,7 @@ export function PlaybookDrawer() {
   return (
     <div
       role="dialog"
+      aria-modal="true"
       aria-label="Claude 账号安全守则"
       data-testid="playbook-drawer"
       onClick={(e) => {
@@ -49,8 +64,8 @@ export function PlaybookDrawer() {
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(0, 0, 0, 0.52)",
-        backdropFilter: "blur(3px)",
+        background: "var(--drawer-backdrop)",
+        backdropFilter: "blur(2px)",
         zIndex: 140,
         display: "flex",
         justifyContent: "flex-end",
@@ -61,22 +76,43 @@ export function PlaybookDrawer() {
           width: 500,
           maxWidth: "94vw",
           height: "100%",
-          background: "var(--bg-canvas)",
-          borderLeft: "1px solid var(--border-strong)",
-          padding: "20px 22px",
-          overflowY: "auto",
+          background: "var(--bg-sidebar)",
+          borderLeft: "1px solid var(--divider-strong)",
           display: "flex",
           flexDirection: "column",
-          gap: 12,
-          boxShadow: "-16px 0 48px rgba(0, 0, 0, 0.5)",
+          overflow: "hidden",
+          boxShadow: "var(--shadow-drawer)",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div>
-            <h2 style={{ fontSize: 18, fontWeight: 600, margin: 0 }}>
-              Claude 账号安全守则（实时联动）
-            </h2>
-            <div style={{ fontSize: 12, color: "var(--text-2)", marginTop: 2 }}>
+        {/* 固定顶栏：滚动定位高亮条目时始终吸顶不被裁切 */}
+        <div
+          style={{
+            padding: "14px 20px",
+            borderBottom: "1px solid var(--divider)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            flexShrink: 0,
+            background: "var(--bg-sidebar)",
+          }}
+        >
+          <div style={{ minWidth: 0 }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+                fontSize: 14.5,
+                fontWeight: 500,
+                color: "var(--text-strong)",
+                lineHeight: 1.3,
+              }}
+            >
+              <ShieldCheck size={15} strokeWidth={1.55} style={{ color: "var(--primary)", flexShrink: 0 }} />
+              <span>Claude 账号安全守则（实时联动）</span>
+            </div>
+            <div style={{ fontSize: 11.5, color: "var(--text-3)", marginTop: 3 }}>
               结合本机实时日志与环境状态自动预警，已命中条目置顶高亮
             </div>
           </div>
@@ -89,62 +125,74 @@ export function PlaybookDrawer() {
           </button>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {sortedRules.map((rule) => {
-            const hit = triggeredSet.has(rule.id);
-            const isFlashing = flashingId === rule.id;
-            const cardCls = [
-              "pb-card",
-              hit ? (rule.level === "fail" ? "triggered" : "triggered-warn") : "",
-              isFlashing ? "flash-focus" : "",
-            ]
-              .filter(Boolean)
-              .join(" ");
-            const tagCls = hit
-              ? rule.level === "fail"
-                ? "guard-chip-fail"
-                : "guard-chip-warn"
-              : "guard-chip-neutral";
+        {/* 独立 ThinScrollArea 扁平文档流（零卡片套娃） */}
+        <ThinScrollArea>
+          <div
+            style={{
+              padding: "12px 20px 28px",
+              display: "flex",
+              flexDirection: "column",
+              userSelect: "text",
+            }}
+          >
+            {sortedRules.map((rule) => {
+              const hit = triggeredSet.has(rule.id);
+              const isFlashing = flashingId === rule.id;
+              const cardCls = [
+                "pb-card",
+                hit ? (rule.level === "fail" ? "triggered" : "triggered-warn") : "",
+                isFlashing ? "flash-focus" : "",
+              ]
+                .filter(Boolean)
+                .join(" ");
+              const tagCls = hit
+                ? rule.level === "fail"
+                  ? "guard-chip-fail"
+                  : "guard-chip-warn"
+                : "guard-chip-neutral";
 
-            return (
-              <div key={rule.id} id={`pb-card-${rule.id}`} className={cardCls}>
-                <h3
-                  style={{
-                    fontSize: 13.5,
-                    fontWeight: 600,
-                    margin: "0 0 5px 0",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 8,
-                  }}
-                >
-                  <span>
-                    {rule.code}. {rule.title}
-                  </span>
-                  <span className={`guard-chip ${tagCls}`}>
-                    {hit ? "当前已触发" : rule.tag}
-                  </span>
-                </h3>
-                {hit && (
-                  <div
+              return (
+                <div key={rule.id} id={`pb-card-${rule.id}`} className={cardCls}>
+                  <h3
                     style={{
-                      fontSize: 11.5,
-                      color: rule.level === "fail" ? "var(--danger-bright)" : "var(--warning)",
-                      marginBottom: 5,
+                      fontSize: 13,
                       fontWeight: 500,
+                      color: "var(--text-strong)",
+                      margin: "0 0 5px 0",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 10,
+                      lineHeight: 1.4,
                     }}
                   >
-                    • {rule.hitText}
-                  </div>
-                )}
-                <p style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.62, margin: 0 }}>
-                  {rule.desc}
-                </p>
-              </div>
-            );
-          })}
-        </div>
+                    <span>
+                      {rule.code}. {rule.title}
+                    </span>
+                    <span className={`guard-chip ${tagCls}`}>
+                      {hit ? "当前已触发" : rule.tag}
+                    </span>
+                  </h3>
+                  {hit && (
+                    <div
+                      style={{
+                        fontSize: 11.5,
+                        color: rule.level === "fail" ? "var(--bad-fg)" : "var(--warning-fg)",
+                        marginBottom: 5,
+                        fontWeight: 500,
+                      }}
+                    >
+                      • {rule.hitText}
+                    </div>
+                  )}
+                  <p style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.65, margin: 0 }}>
+                    {rule.desc}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </ThinScrollArea>
       </div>
     </div>
   );

@@ -99,7 +99,11 @@ interface GuardStore {
   safeLaunchClaude: () => Promise<void>;
   safeExitClaude: () => Promise<void>;
   refreshNodes: (force?: boolean) => Promise<boolean>;
-  startDeepNodeAudit: (forceAll?: boolean, targetNode?: string) => Promise<void>;
+  startDeepNodeAudit: (
+    forceAll?: boolean,
+    targetNode?: string,
+    targetNodes?: string[]
+  ) => Promise<void>;
   cancelDeepNodeAudit: () => Promise<void>;
   setDeepAuditFromEvent: (progress: DeepAuditProgress) => void;
   switchNode: (name: string, forceIgnoreRisk?: boolean) => Promise<void>;
@@ -376,10 +380,10 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
     }
   },
 
-  async startDeepNodeAudit(forceAll = false, targetNode?: string) {
+  async startDeepNodeAudit(forceAll = false, targetNode?: string, targetNodes?: string[]) {
     const beforeSeq = deepAuditEventSeq;
     try {
-      const progress = await ipc.startDeepNodeAudit(forceAll, targetNode);
+      const progress = await ipc.startDeepNodeAudit(forceAll, targetNode, targetNodes);
       // BUG-P0-15：若期间已收到后端推送的更新事件（尤其是 done/cancelled 终态），绝不拿滞后的 invoke 返回值把 running 覆写回 true
       if (deepAuditEventSeq === beforeSeq) {
         set({ deepAudit: progress });
@@ -492,7 +496,26 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
         };
       });
 
-      if (toastLabel) {
+      if (patch.lockCfAndStripeToClaude !== undefined) {
+        let syncMsg = "";
+        let syncFailed = false;
+        try {
+          syncMsg = await ipc.syncClashRulePolicy();
+        } catch (syncErr) {
+          syncFailed = true;
+          syncMsg = `配置已保存，但热同步 Clash 规则失败：${String(syncErr)}`;
+        }
+        await get().refreshPreflight(true);
+        void get().refreshAccountAudit(true);
+        if (toastLabel) {
+          const enabled = patch.lockCfAndStripeToClaude;
+          get().pushToast(
+            `${toastLabel} ${enabled ? "已开启" : "已关闭"}`,
+            syncMsg || "已同步更新分流规则策略。",
+            syncFailed ? "danger" : enabled ? "ok" : "info"
+          );
+        }
+      } else if (toastLabel) {
         const enabled = Object.values(patch)[0];
         const isBool = typeof enabled === "boolean";
         const suffix = isBool ? (enabled ? "已开启" : "已关闭") : "已更新";

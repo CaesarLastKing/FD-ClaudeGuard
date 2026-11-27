@@ -1,5 +1,9 @@
+import { X } from "lucide-react";
 import { useGuardStore } from "@/stores/guardStore";
 
+/**
+ * 全局轻提示队列（v3.0 双主题轻投影 + 柔和语义边框 + 进场微动效）
+ */
 export function ToastStack() {
   const toasts = useGuardStore((s) => s.toasts);
   const dismiss = useGuardStore((s) => s.dismissToast);
@@ -22,16 +26,17 @@ export function ToastStack() {
       {toasts.map((t) => (
         <div
           key={t.id}
+          className="toast-item-enter"
           onClick={() => dismiss(t.id)}
           style={{
             width: 356,
             pointerEvents: "auto",
             cursor: "pointer",
             background: "var(--bg-card)",
-            border: `1px solid ${t.type === "danger" ? "var(--danger)" : "var(--border-strong)"}`,
+            border: `1px solid ${t.type === "danger" ? "var(--bad-border)" : "var(--border-card)"}`,
             borderRadius: "var(--r-card)",
-            padding: "12px 14px",
-            boxShadow: "0 14px 36px rgba(0, 0, 0, 0.45)",
+            padding: "11px 13px",
+            boxShadow: "var(--shadow-toast)",
             display: "flex",
             alignItems: "flex-start",
             gap: 10,
@@ -42,22 +47,27 @@ export function ToastStack() {
             style={{ marginTop: 5 }}
           />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-1)" }}>{t.title}</div>
-              {t.badge && (
-                <span
-                  className={`guard-chip ${t.type === "danger" ? "guard-chip-fail" : "guard-chip-warn"}`}
-                  style={{ fontSize: 10, padding: "1px 6px" }}
-                >
-                  {t.badge}
-                </span>
-              )}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 500, color: "var(--text-strong)", lineHeight: 1.35 }}>
+                {t.title}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                {t.badge && (
+                  <span
+                    className={`guard-chip ${t.type === "danger" ? "guard-chip-fail" : "guard-chip-warn"}`}
+                    style={{ height: 18, fontSize: 10, padding: "0 6px" }}
+                  >
+                    {t.badge}
+                  </span>
+                )}
+                <X size={13} strokeWidth={1.5} style={{ color: "var(--text-4)" }} />
+              </div>
             </div>
-            <div style={{ fontSize: 12, color: "var(--text-2)", marginTop: 2, lineHeight: 1.48 }}>
+            <div style={{ fontSize: 11.5, color: "var(--text-2)", marginTop: 3, lineHeight: 1.5 }}>
               {t.body}
             </div>
             {t.action && (
-              <div style={{ marginTop: 7 }}>
+              <div style={{ marginTop: 8 }}>
                 <button
                   type="button"
                   className={`guard-btn ${

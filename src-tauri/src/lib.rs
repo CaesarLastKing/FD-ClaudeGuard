@@ -633,6 +633,23 @@ fn update_config(
     Ok(updated)
 }
 
+#[tauri::command]
+async fn sync_clash_rule_policy(state: State<'_, AppState>) -> Result<String, String> {
+    let cfg = state
+        .config
+        .read()
+        .map_err(|_| "读取配置锁失败".to_string())?
+        .clone();
+    let msg = crate::preflight::sync_clash_rules_for_config(&cfg).await?;
+    Ok(msg.unwrap_or_else(|| {
+        if cfg.lock_cf_and_stripe_to_claude {
+            "配置已保存；待首次在控制台写入 Claude-Fixed 规则时自动生效。".into()
+        } else {
+            "配置已保存；已取消 CF 盾与 Stripe 同步锁定。".into()
+        }
+    }))
+}
+
 /// 读取 Windows「辅助功能 → 文本大小」缩放倍率（HKCU\Software\Microsoft\Accessibility\TextScaleFactor）
 /// WebView2 会将该倍率叠加到页面整体缩放上，而 Win32/Tauri 的 scale_factor() 仅返回显示器 DPI 倍率，
 /// 若不叠乘，100% DPI + 130% 文本大小时悬浮窗会被裁切约 25% 宽度与高度。
@@ -1392,6 +1409,58 @@ impl Drop for DeepAuditLockGuard {
     }
 }
 
+/// 计算深度核验队列（纯函数：兼容单节点 target_node、按分类子集 target_nodes、全量 force_all 与增量缓存过滤）
+fn resolve_deep_audit_queue<F>(
+    candidates: &[String],
+    force_all: bool,
+    target_node: Option<&str>,
+    target_nodes: Option<&[String]>,
+    is_cached_fresh: F,
+) -> Vec<String>
+where
+    F: Fn(&str) -> bool,
+{
+    if let Some(single) = target_node.map(str::trim).filter(|s| !s.is_empty()) {
+        return vec![single.to_string()];
+    }
+
+    if let Some(list) = target_nodes {
+        let mut wanted = std::collections::HashSet::new();
+        for item in list {
+            let trimmed = item.trim();
+            if !trimmed.is_empty() {
+                wanted.insert(trimmed.to_string());
+            }
+        }
+        if !wanted.is_empty() {
+            // 按 candidates 既有优先级顺序（当前锁定节点优先）过滤出目标子集
+            let mut filtered: Vec<String> = candidates
+                .iter()
+                .filter(|c| wanted.contains(c.as_str()))
+                .cloned()
+                .collect();
+            // 兜底保留传入列表中不在 candidates 的合法非空节点（去重保序）
+            for item in list {
+                let trimmed = item.trim();
+                if !trimmed.is_empty() && !filtered.iter().any(|x| x == trimmed) && candidates.is_empty() {
+                    filtered.push(trimmed.to_string());
+                }
+            }
+            return filtered;
+        }
+    }
+
+    if force_all {
+        candidates.to_vec()
+    } else {
+        candidates
+            .iter()
+            .filter(|n| !is_cached_fresh(n))
+            .cloned()
+            .collect()
+    }
+}
+
 /// 统一后台深度核验调度器：
 /// - 仅在 Claude 进程 == 0 且存在 Claude-Fixed 且未脱组（非 direct/GLOBAL 脱组）时执行；
 /// - 永远将当前选中节点排第 1 位优先核验，随后按 1.2s 慢速逐个实测其余节点并落盘；
@@ -1400,6 +1469,7 @@ fn spawn_deep_node_audit_task(
     app: AppHandle,
     force_all: bool,
     target_node: Option<String>,
+    target_nodes: Option<Vec<String>>,
     auto_silent: bool,
 ) -> Result<DeepAuditProgress, String> {
     // BUG-P1-10：原子抢占单飞锁，杜绝前端并发双击触发双核验协程互抢节点
@@ -1548,21 +1618,22 @@ fn spawn_deep_node_audit_task(
             candidates.insert(0, cur);
         }
 
-        let queue: Vec<String> = if let Some(ref single) = target_node {
-            invalidate_verified_node_record(single);
-            vec![single.clone()]
-        } else if force_all {
-            for n in &candidates {
+        let has_target_nodes = target_nodes
+            .as_ref()
+            .map(|v| v.iter().any(|s| !s.trim().is_empty()))
+            .unwrap_or(false);
+        let queue: Vec<String> = resolve_deep_audit_queue(
+            &candidates,
+            force_all,
+            target_node.as_deref(),
+            target_nodes.as_deref(),
+            |n| get_fresh_verified_record(n).is_some(),
+        );
+        if target_node.is_some() || has_target_nodes || force_all {
+            for n in &queue {
                 invalidate_verified_node_record(n);
             }
-            candidates
-        } else {
-            // 增量核验：跳过已有 24h 有效缓存的节点；但若当前节点未缓存，一定排第 1 位
-            candidates
-                .into_iter()
-                .filter(|n| get_fresh_verified_record(n).is_none())
-                .collect()
-        };
+        }
 
         if queue.is_empty() {
             let done = DeepAuditProgress {
@@ -1766,8 +1837,15 @@ async fn start_deep_node_audit(
     app: AppHandle,
     force_all: Option<bool>,
     target_node: Option<String>,
+    target_nodes: Option<Vec<String>>,
 ) -> Result<DeepAuditProgress, String> {
-    spawn_deep_node_audit_task(app, force_all.unwrap_or(false), target_node, false)
+    spawn_deep_node_audit_task(
+        app,
+        force_all.unwrap_or(false),
+        target_node,
+        target_nodes,
+        false,
+    )
 }
 
 #[tauri::command]
@@ -4117,7 +4195,7 @@ fn spawn_background_engines(app: AppHandle) {
             let _gate = st.preflight_gate.lock().await;
             drop(_gate);
         }
-        let _ = spawn_deep_node_audit_task(app_preaudit, false, None, true);
+        let _ = spawn_deep_node_audit_task(app_preaudit, false, None, None, true);
     });
 }
 
@@ -4250,6 +4328,19 @@ fn build_runtime_guard_context(
         None
     };
 
+    let rule_audit = crate::preflight::get_latest_rule_audit();
+    let rule_audit_gaps = rule_audit.required_gap_messages();
+    let advisory_cross_group_conflicts: Vec<String> = rule_audit
+        .advisory_cross_group_conflicts()
+        .into_iter()
+        .map(|c| {
+            format!(
+                "{} 走「{} → {}」与 Claude-Fixed「{}」跨节点双 IP",
+                c.domain, c.matched_group, c.matched_node, c.claude_fixed_node
+            )
+        })
+        .collect();
+
     crate::account_audit::RuntimeGuardContext {
         clash_online: snap.as_ref().map(|s| s.clash_online).unwrap_or(false),
         clash_port: snap.as_ref().map(|s| s.clash_port).unwrap_or(7890),
@@ -4284,6 +4375,8 @@ fn build_runtime_guard_context(
             .as_ref()
             .map(|s| s.kill_hold_remaining_secs)
             .unwrap_or(0),
+        rule_audit_gaps,
+        advisory_cross_group_conflicts,
     }
 }
 
@@ -4310,10 +4403,44 @@ async fn audit_account_local(
             &ctx.profile_id,
             &local,
         );
-        crate::account_audit::build_account_audit_report(local, cache.as_ref(), &runtime)
+        let mut report =
+            crate::account_audit::build_account_audit_report(local, cache.as_ref(), &runtime);
+        let _ = crate::account_audit::upsert_account_history_from_report(&cache_path, &report);
+        report.archived_accounts = crate::account_audit::load_archived_account_summaries(
+            &cache_path,
+            report.org_id_prefix8.as_deref(),
+        );
+        report
     })
     .await
     .map_err(|e| format!("账户本地审计任务异常: {e}"))
+}
+
+#[tauri::command]
+async fn get_account_audit_history_report(
+    org_prefix8: String,
+) -> Result<Option<crate::account_audit::AccountAuditReport>, String> {
+    let cache_path = crate::account_audit::default_audit_cache_path();
+    tokio::task::spawn_blocking(move || {
+        crate::account_audit::load_account_history_report(&cache_path, &org_prefix8)
+    })
+    .await
+    .map_err(|e| format!("读取历史账户档案失败: {e}"))
+}
+
+#[tauri::command]
+async fn delete_account_audit_history(
+    org_prefix8: String,
+) -> Result<Vec<crate::account_audit::ArchivedAccountSummary>, String> {
+    let cache_path = crate::account_audit::default_audit_cache_path();
+    tokio::task::spawn_blocking(move || {
+        crate::account_audit::delete_account_history_entry(&cache_path, &org_prefix8)?;
+        Ok::<Vec<crate::account_audit::ArchivedAccountSummary>, String>(
+            crate::account_audit::load_archived_account_summaries(&cache_path, None),
+        )
+    })
+    .await
+    .map_err(|e| format!("删除历史账户档案任务异常: {e}"))?
 }
 
 #[tauri::command]
@@ -4715,6 +4842,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_config,
             update_config,
+            sync_clash_rule_policy,
             resize_hud_height,
             set_hud_edge_docked,
             set_hud_pinned,
@@ -4772,6 +4900,8 @@ pub fn run() {
             rollback_all_changes_cmd,
             run_network_emergency_rescue_cmd,
             audit_account_local,
+            get_account_audit_history_report,
+            delete_account_audit_history,
             verify_account_cloud_with_sk,
             fix_claude_telemetry_env,
             clean_claude_telemetry_dir,
@@ -5122,5 +5252,51 @@ mod window_size_tests {
             super::validate_hud_position(right_gone, 360, 306, &single),
             None
         );
+    }
+
+    #[test]
+    fn v036_deep_audit_queue_filters_target_nodes_subset_and_keeps_compat() {
+        let candidates = vec![
+            "US-01".to_string(),
+            "US-02".to_string(),
+            "JP-01".to_string(),
+            "SG-Timeout".to_string(),
+        ];
+
+        // 1. 按分类传入 target_nodes 子集：去重、忽略不存在节点、按 candidates 优先级保序
+        let target_subset = vec![
+            "SG-Timeout".to_string(),
+            "US-02".to_string(),
+            "US-02".to_string(),
+            "NonExistent".to_string(),
+        ];
+        let q_subset = super::resolve_deep_audit_queue(
+            &candidates,
+            false,
+            None,
+            Some(&target_subset),
+            |_| true,
+        );
+        assert_eq!(q_subset, vec!["US-02".to_string(), "SG-Timeout".to_string()]);
+
+        // 2. 向后兼容旧版单节点 target_node
+        let q_single = super::resolve_deep_audit_queue(
+            &candidates,
+            false,
+            Some("JP-01"),
+            Some(&target_subset),
+            |_| true,
+        );
+        assert_eq!(q_single, vec!["JP-01".to_string()]);
+
+        // 3. 增量模式跳过已缓存节点
+        let q_inc = super::resolve_deep_audit_queue(
+            &candidates,
+            false,
+            None,
+            None,
+            |n| n == "US-01" || n == "JP-01",
+        );
+        assert_eq!(q_inc, vec!["US-02".to_string(), "SG-Timeout".to_string()]);
     }
 }

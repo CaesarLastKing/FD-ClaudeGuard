@@ -42,7 +42,7 @@ function formatAnthropicStatusZh(indicator: string, desc: string): string {
   }
 }
 
-export function LogAnalysisPage() {
+export function LogAnalysisPage({ embedded = false }: { embedded?: boolean } = {}) {
   const [filter, setFilter] = useState<LogCategoryFilter>("anomaly");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -278,34 +278,49 @@ export function LogAnalysisPage() {
     snapshot.anthropicStatusIndicator === "none" || snapshot.anthropicStatusIndicator === "unknown";
 
   return (
-    <section style={{ display: "flex", flex: 1, minHeight: 0, flexDirection: "column" }}>
+    <section
+      style={{
+        display: "flex",
+        flex: 1,
+        minHeight: 0,
+        flexDirection: "column",
+        gap: embedded ? 12 : 0,
+      }}
+    >
       <div
         style={{
-          padding: "16px 22px 14px",
-          borderBottom: "1px solid var(--border)",
+          padding: embedded ? "10px 14px" : "14px 22px",
+          borderBottom: embedded ? undefined : "1px solid var(--divider)",
+          border: embedded ? "1px solid var(--border-card)" : undefined,
+          borderRadius: embedded ? "var(--r-card)" : undefined,
+          background: embedded ? "var(--bg-card)" : "var(--bg-header)",
+          boxShadow: embedded ? "var(--shadow-card)" : undefined,
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          gap: 14,
+          gap: 12,
           flexShrink: 0,
+          flexWrap: "wrap",
         }}
       >
-        <div style={{ minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <h1 style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.02em", margin: 0 }}>
+        <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          {!embedded && (
+            <h1 style={{ fontSize: 16.5, fontWeight: 500, letterSpacing: "-0.015em", margin: 0, color: "var(--text-strong)" }}>
               日志分析
             </h1>
-            <span
-              data-testid="log-claude-official-status"
-              className={`guard-chip ${statusOk ? "guard-chip-ok" : "guard-chip-warn"}`}
-              title="Anthropic 官方状态页 API (status.anthropic.com/api/v2/summary.json)"
-            >
-              Claude 官方：{formatAnthropicStatusZh(snapshot.anthropicStatusIndicator, snapshot.anthropicStatusDesc)}
+          )}
+          <span
+            data-testid="log-claude-official-status"
+            className={`guard-chip ${statusOk ? "guard-chip-ok" : "guard-chip-warn"}`}
+            title="Anthropic 官方状态页 API (status.anthropic.com/api/v2/summary.json)"
+          >
+            Claude 官方：{formatAnthropicStatusZh(snapshot.anthropicStatusIndicator, snapshot.anthropicStatusDesc)}
+          </span>
+          {!embedded && (
+            <span style={{ fontSize: 11.5, color: "var(--text-3)" }}>
+              24h 未读异常游标 · 原始日志绝不删改
             </span>
-          </div>
-          <div style={{ fontSize: 12, color: "var(--text-2)", marginTop: 4 }}>
-            24h 未读异常游标 · 原始日志文件保持完整绝不删改 · 点击下方统计卡可即时筛选明细
-          </div>
+          )}
         </div>
         <div
           style={{
@@ -320,17 +335,17 @@ export function LogAnalysisPage() {
           {simulatedCount > 0 && (
             <button
               type="button"
-              className="guard-btn guard-btn-flat guard-btn-sm"
+              className="guard-btn guard-btn-flat guard-btn-xs"
               onClick={() => void handleClearSimulated()}
             >
-              <Trash2 size={13} strokeWidth={1.85} />
+              <Trash2 size={12} strokeWidth={1.55} />
               <span>清空模拟 ({simulatedCount})</span>
             </button>
           )}
           {unreadAnomalies.length > 0 && (
             <button
               type="button"
-              className="guard-btn guard-btn-flat guard-btn-sm"
+              className="guard-btn guard-btn-flat guard-btn-xs"
               onClick={async () => {
                 const allIds = unreadAnomalies.flatMap((e) =>
                   e.collapsedIds && e.collapsedIds.length > 0 ? [e.id, ...e.collapsedIds] : [e.id]
@@ -348,17 +363,19 @@ export function LogAnalysisPage() {
               全部标为已读
             </button>
           )}
-          <div style={segWrapStyle}>
+          <div className="in-seg" style={{ height: 27 }}>
             <button
               type="button"
-              style={segBtnStyle(filter === "anomaly")}
+              className={`in-seg-btn ${filter === "anomaly" ? "active" : ""}`}
+              style={{ fontSize: 11.5, padding: "0 9px" }}
               onClick={() => setFilter("anomaly")}
             >
               仅看未读 ({unreadBadgeText})
             </button>
             <button
               type="button"
-              style={segBtnStyle(filter === "all")}
+              className={`in-seg-btn ${filter === "all" ? "active" : ""}`}
+              style={{ fontSize: 11.5, padding: "0 9px" }}
               onClick={() => setFilter("all")}
             >
               全部行为 ({report.events.length})
@@ -367,20 +384,20 @@ export function LogAnalysisPage() {
           <button
             type="button"
             disabled={loading}
-            className="guard-btn guard-btn-flat guard-btn-sm"
+            className="guard-btn guard-btn-flat guard-btn-xs"
             onClick={() => void loadLogs()}
           >
             {loading ? (
-              <Loader2 size={13} strokeWidth={2} className="guard-spin" />
+              <Loader2 size={12} strokeWidth={1.85} className="guard-spin" />
             ) : (
-              <RefreshCw size={13} strokeWidth={1.85} />
+              <RefreshCw size={12} strokeWidth={1.5} />
             )}
             <span>{loading ? "扫描中..." : "扫描日志"}</span>
           </button>
           {(import.meta.env.DEV || import.meta.env.MODE === "test") && (
             <button
               type="button"
-              className="guard-btn guard-btn-flat guard-btn-sm"
+              className="guard-btn guard-btn-flat guard-btn-xs"
               onClick={() => void handleSimulate()}
             >
               + 模拟高并发 429 异常
@@ -393,11 +410,11 @@ export function LogAnalysisPage() {
         style={{
           flex: 1,
           minHeight: 0,
-          padding: "16px 22px",
-          overflowY: "auto",
+          padding: embedded ? 0 : "16px 22px",
+          overflowY: embedded ? "visible" : "auto",
           display: "flex",
           flexDirection: "column",
-          gap: 16,
+          gap: 12,
         }}
       >
         {/* 时区跳变告警提示条（仅当检测到时区跳变时渲染） */}
@@ -423,54 +440,55 @@ export function LogAnalysisPage() {
           </div>
         )}
 
-        {/* 4 张可点击统计筛选卡（有数据时点击即选中并过滤下方列表） */}
-        <div
-          className="tabular"
-          style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, flexShrink: 0 }}
-        >
+        {/* v3.0 4 等分一体化统计筛选条（彻底消除窄容器文字折行挤压） */}
+        <div className="guard-card metric-strip-equal tabular" style={{ flexShrink: 0 }}>
           <button
             type="button"
             data-testid="log-stat-unread"
             onClick={() => handleStatCardClick("anomaly", unreadAnomalies.length)}
-            className="guard-card"
-            style={statCardBtnStyle(filter === "anomaly", unreadAnomalies.length > 0)}
+            className="metric-cell"
+            style={statCellBtnStyle(filter === "anomaly", unreadAnomalies.length > 0)}
           >
             <div style={statHeaderRow}>
-              <span>24h 未读风险 / 异常</span>
-              {filter === "anomaly" && <span className="guard-chip guard-chip-neutral">已选中</span>}
+              <span style={statTitleEllipsis}>24h 未读风险 / 异常</span>
+              {filter === "anomaly" && (
+                <span style={{ fontSize: 10, color: "var(--primary)", flexShrink: 0 }}>●</span>
+              )}
             </div>
             <div
               style={{
-                fontSize: 18,
-                fontWeight: 600,
+                fontSize: 15,
+                fontWeight: 500,
                 letterSpacing: "-0.01em",
-                marginTop: 6,
+                marginTop: 5,
                 lineHeight: 1.25,
                 display: "flex",
                 alignItems: "baseline",
-                gap: 8,
+                gap: 6,
                 flexWrap: "wrap",
               }}
             >
               {unreadAnomalies.length === 0 ? (
-                <span style={{ color: "var(--success)" }}>
+                <span style={{ color: "var(--ok-fg)" }}>
                   0<span style={statUnitStyle}>已清零</span>
                 </span>
               ) : (
                 <>
                   {unreadWarnCount > 0 && (
-                    <span style={{ color: "var(--warning)" }}>风险 {unreadWarnCount}</span>
+                    <span style={{ color: "var(--warning-fg)" }}>风险 {unreadWarnCount}</span>
                   )}
                   {unreadCritCount > 0 && (
-                    <span style={{ color: "var(--danger-bright)" }}>异常 {unreadCritCount}</span>
-                  )}
-                  {unreadWarnCount > 0 && unreadCritCount === 0 && (
-                    <span style={{ fontSize: 12, color: "var(--text-3)", fontWeight: 500 }}>
-                      · 异常 0
-                    </span>
+                    <span style={{ color: "var(--bad-fg)" }}>异常 {unreadCritCount}</span>
                   )}
                 </>
               )}
+            </div>
+            <div style={statSubRow}>
+              {unreadAnomalies.length === 0
+                ? "全部已读归档"
+                : unreadWarnCount > 0 && unreadCritCount === 0
+                ? "异常 0 · 点击筛选"
+                : "点击筛选未读项"}
             </div>
           </button>
 
@@ -478,86 +496,92 @@ export function LogAnalysisPage() {
             type="button"
             data-testid="log-stat-region-rate"
             onClick={() => handleStatCardClick("region_rate", report.stats.regionOrRateCount)}
-            className="guard-card"
-            style={statCardBtnStyle(filter === "region_rate", report.stats.regionOrRateCount > 0)}
+            className="metric-cell"
+            style={statCellBtnStyle(filter === "region_rate", report.stats.regionOrRateCount > 0)}
           >
             <div style={statHeaderRow}>
-              <span>地区 / 429 / 鉴权 / 封号</span>
+              <span style={statTitleEllipsis}>地区 / 429 / 鉴权</span>
               {filter === "region_rate" && (
-                <span className="guard-chip guard-chip-neutral">已选中</span>
+                <span style={{ fontSize: 10, color: "var(--primary)", flexShrink: 0 }}>●</span>
               )}
             </div>
             <div
               style={{
-                fontSize: 18,
-                fontWeight: 600,
+                fontSize: 15,
+                fontWeight: 500,
                 letterSpacing: "-0.01em",
-                marginTop: 6,
+                marginTop: 5,
                 lineHeight: 1.25,
                 color:
                   report.stats.regionOrRateCount > 0
                     ? regionRateCritCount > 0
-                      ? "var(--danger-bright)"
-                      : "var(--warning)"
-                    : "var(--success)",
+                      ? "var(--bad-fg)"
+                      : "var(--warning-fg)"
+                    : "var(--ok-fg)",
               }}
             >
               {report.stats.regionOrRateCount}
               <span style={statUnitStyle}>次</span>
             </div>
+            <div style={statSubRow}>含封号 / 限流 / 权限</div>
           </button>
 
           <button
             type="button"
             data-testid="log-stat-disconnect"
             onClick={() => handleStatCardClick("disconnect", report.stats.disconnectCount)}
-            className="guard-card"
-            style={statCardBtnStyle(filter === "disconnect", report.stats.disconnectCount > 0)}
+            className="metric-cell"
+            style={statCellBtnStyle(filter === "disconnect", report.stats.disconnectCount > 0)}
           >
             <div style={statHeaderRow}>
-              <span>网络断连累计</span>
+              <span style={statTitleEllipsis}>网络断连累计</span>
               {filter === "disconnect" && (
-                <span className="guard-chip guard-chip-neutral">已选中</span>
+                <span style={{ fontSize: 10, color: "var(--primary)", flexShrink: 0 }}>●</span>
               )}
             </div>
             <div
               style={{
-                fontSize: 18,
-                fontWeight: 600,
+                fontSize: 15,
+                fontWeight: 500,
                 letterSpacing: "-0.01em",
-                marginTop: 6,
+                marginTop: 5,
                 lineHeight: 1.25,
-                color: report.stats.disconnectCount > 0 ? "var(--warning)" : "var(--success)",
+                color: report.stats.disconnectCount > 0 ? "var(--warning-fg)" : "var(--ok-fg)",
               }}
             >
               {report.stats.disconnectCount}
               <span style={statUnitStyle}>次</span>
             </div>
+            <div style={statSubRow}>代理长连接重置</div>
           </button>
 
           <button
             type="button"
             data-testid="log-stat-telemetry"
             onClick={() => handleStatCardClick("telemetry", report.stats.telemetryOrDeviceCount)}
-            className="guard-card"
-            style={statCardBtnStyle(filter === "telemetry" || telemetryOpen, true)}
+            className="metric-cell"
+            style={statCellBtnStyle(filter === "telemetry" || telemetryOpen, true)}
           >
             <div style={statHeaderRow}>
-              <span>遥测 / 设备记录</span>
-              <span style={{ fontSize: 11, color: "var(--primary)" }}>点击查看明细 ↗</span>
+              <span style={statTitleEllipsis}>遥测 / 设备记录</span>
+              {(filter === "telemetry" || telemetryOpen) && (
+                <span style={{ fontSize: 10, color: "var(--primary)", flexShrink: 0 }}>●</span>
+              )}
             </div>
             <div
               style={{
-                fontSize: 18,
-                fontWeight: 600,
+                fontSize: 15,
+                fontWeight: 500,
                 letterSpacing: "-0.01em",
-                marginTop: 6,
+                marginTop: 5,
                 lineHeight: 1.25,
+                color: "var(--text-strong)",
               }}
             >
               {report.stats.telemetryOrDeviceCount}
               <span style={statUnitStyle}>条</span>
             </div>
+            <div style={{ ...statSubRow, color: "var(--primary)" }}>点击查看明细 ↗</div>
           </button>
         </div>
 
@@ -750,13 +774,13 @@ export function LogAnalysisPage() {
                   : filter === "anomaly" && unreadWarnCount > 0
                   ? "var(--warning)"
                   : "var(--text-1)",
-              fontSize: 13,
-              fontWeight: 600,
+              fontSize: 12.5,
+              fontWeight: 500,
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
               gap: 12,
-              borderBottom: "1px solid var(--border)",
+              borderBottom: "1px solid var(--divider)",
             }}
           >
             <span>{filterTitleMap[filter]}（点击条目展开原文上下文与安全守则联动）</span>
@@ -971,48 +995,44 @@ const statHeaderRow: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
-  fontSize: 12,
-  color: "var(--text-2)",
+  gap: 6,
+  fontSize: 11,
+  color: "var(--text-3)",
   width: "100%",
+  minWidth: 0,
+};
+
+const statTitleEllipsis: React.CSSProperties = {
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+  minWidth: 0,
+};
+
+const statSubRow: React.CSSProperties = {
+  marginTop: 3,
+  fontSize: 10.5,
+  color: "var(--text-3)",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
 };
 
 const statUnitStyle: React.CSSProperties = {
-  fontSize: 12,
-  fontWeight: 500,
+  fontSize: 11,
+  fontWeight: 400,
   color: "var(--text-3)",
   marginLeft: 3,
 };
 
-function statCardBtnStyle(selected: boolean, interactive: boolean): React.CSSProperties {
-  return {
-    padding: "12px 15px",
-    textAlign: "left",
-    cursor: interactive ? "pointer" : "default",
-    borderColor: selected ? "var(--primary)" : "var(--border)",
-    boxShadow: selected ? "0 0 0 1px var(--primary)" : "none",
-    transition: "border-color 0.14s, box-shadow 0.14s, background-color 0.14s",
-  };
-}
-
-const segWrapStyle: React.CSSProperties = {
-  display: "inline-flex",
-  padding: 2,
-  borderRadius: 8,
-  background: "var(--bg-subtle)",
-  border: "1px solid var(--border)",
-  gap: 2,
-};
-
-function segBtnStyle(active: boolean): React.CSSProperties {
+function statCellBtnStyle(selected: boolean, interactive: boolean): React.CSSProperties {
   return {
     border: "none",
-    background: active ? "var(--bg-card)" : "transparent",
-    color: active ? "var(--text-1)" : "var(--text-2)",
-    padding: "4px 10px",
-    borderRadius: 6,
+    background: selected ? "var(--sel-bar-bg)" : "transparent",
+    boxShadow: selected ? "inset 0 -2px 0 var(--primary)" : "none",
+    textAlign: "left",
     fontFamily: "var(--font-sans)",
-    fontSize: 12,
-    fontWeight: active ? 600 : 500,
-    cursor: "pointer",
+    cursor: interactive ? "pointer" : "default",
+    transition: "background-color 140ms var(--ease), box-shadow 140ms var(--ease)",
   };
 }

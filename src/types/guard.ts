@@ -32,6 +32,7 @@ export interface AppConfig {
   ackedLogIds?: string[];
   telemetryToolDiagEnabled?: boolean;
   telemetryClaudeSummaryEnabled?: boolean;
+  lockCfAndStripeToClaude?: boolean;
 }
 
 export type AppConfigPatch = Partial<AppConfig>;
@@ -248,7 +249,12 @@ export interface ClaudeConn {
   chain: string;
   action: string;
   time: string;
+  startedAtMs?: number | null;
   bytesLabel: string;
+  domainCategory?: string;
+  purposeLabel?: string;
+  purposeDetail?: string;
+  isUnlistedDomain?: boolean;
 }
 
 export interface KillReport {
@@ -713,6 +719,30 @@ export interface DetectedAccountBadge {
   isPrimary: boolean;
 }
 
+export interface ArchivedAccountSummary {
+  orgPrefix8: string;
+  emailMasked: string;
+  plan: string;
+  workspaceGeo?: string | null;
+  exitCountry?: string | null;
+  score: number;
+  scoreLevel: string;
+  scoreLevelLabel: string;
+  scoreColorToken: string;
+  cloudVerified: boolean;
+  verifyCount: number;
+  hasDangerIssue: boolean;
+  pendingIssueCount: number;
+  personaKycStatus?: string | null;
+  hasMonitoringNotice: boolean;
+  isBanned: boolean;
+  portalHold: boolean;
+  fiveHourPct?: number | null;
+  sevenDayPct?: number | null;
+  auditedAtMs: number;
+  hasFullReport: boolean;
+}
+
 export interface AccountAuditReport {
   profileId: string;
   auditedAtMs: number;
@@ -756,6 +786,7 @@ export interface AccountAuditReport {
   primarySource?: string;
   detectedAccounts?: DetectedAccountBadge[];
   topology?: LocalAccountTopology;
+  archivedAccounts?: ArchivedAccountSummary[];
 }
 
 export interface AccountAuditActionResult {

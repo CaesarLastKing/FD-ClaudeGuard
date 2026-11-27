@@ -7,6 +7,65 @@
 
 ---
 
+## [0.3.7] - 2026-11-27
+
+### 严格验收加固与补丁
+- **加固 NSIS 安装前旧版自动卸载钩子（`hooks.nsh`）**：显式切换 `SetShellVarContext current` 定位历史 `currentUser` 残留目录（`%LOCALAPPDATA%\FD Claude Guard`）与 HKCU 卸载项，并用 `${If} ${FileExists}` 替代相对跳转，清理完毕后严格恢复 `SetShellVarContext all`。
+- **补齐 Gate 3 破坏性故障注入与去重单测**：覆盖 `account-audit-cache.json` 截断损坏冷启动自愈、超 30 条历史上限淘汰、空/不存在 org 查询与删除安全、以及自动更新检查 25s 单飞 TTL 去重；Rust 单测增至 138 项全绿（0 警告）。
+- **精修历史档案卡片排版并完成终版双主题 1:1 复拍**：左栏历史归档卡片第二行改为 `归属 XX · orgPrefix8` 与右侧独立状态/分数短签，消除重复分数展示。
+
+---
+
+## [0.3.6] - 2026-11-26
+
+### 新增与体验升级
+- **账户审计多历史账号档案永久保留、点击切换与手动删除**：
+  - `account-audit-cache.json` 升级至 `v2`，按 `orgPrefix8` 独立持久化每个审计过账号的脱敏评分、云端 4 项本体状态、额度、属地与 7 项评估快照（严禁落盘任何明文 `sk` / Cookie；执行清理登录态/换号仅清本机登录目录与内存，绝不丢弃历史记录）；
+  - 账户审计左栏新增「历史归档 (N)」分区，支持在「当前本机激活账号」与任意历史归档账号间一键切换回溯查看当时评分与账户状态（右侧顶部叠加只读快照提示条并保护本机修复按钮防误操作），并支持单条二次确认删除；
+  - 向下兼容 `v1` 历史缓存，自动找回旧版缓存中的老号归档记录。
+
+### 核心修复与质量收口
+- **修复第 1 项「新号、支付与 KYC 后高敏观察窗」假绿与 KYC 状态未联动 Bug**：
+  - 未读到注册/订阅/KYC 时间时不再误标「已过观察」，改为诚实提示「待核观察」；
+  - 当云端核验查出 `personaKycStatus` 为 `expired` / `pending` / `required` / `failed` 时，右上角联动标示「实名已过期 / 待实名核验」，下方「过 KYC 后复核窗」子格立即更新为具体实名状态与高敏提醒，彻底消除「当前无实名复核观察记录」误导；
+  - `Free` 无订阅账号的「支付/升级复审窗」明确标注「Free 无订阅（不适用支付复审）」。
+- **修复多账号缓存覆写与核验次数串号 Bug**：
+  - 覆盖默认主档案前自动抢救原有旧号快照至历史归档，且各账号 `verifyCount` 按 `orgPrefix8` 独立计数，消除新号首验显示老号累计次数的问题。
+- **修复左栏「实时异常日志流」未读角标与正文自相矛盾**：
+  - 存在未读或非降噪异常事件（如 OAuth 403 / 令牌交换失败）时如实呈现待核异常摘要，不再显示「近 24 小时日志平稳」。
+- **NSIS 安装前自动静默卸载旧版 `currentUser` 残留**：
+  - 保持 `perMachine`（带 UAC 盾）安装模式，新增 `NSIS_HOOK_PREINSTALL` 在安装前自动结束旧实例并清理 `%LOCALAPPDATA%\FD Claude Guard` 残留与 HKCU 旧卸载项，杜绝新旧双份共存。
+- **其他实机体验与工程优化**：
+  - 修复 `cargo test` 单元测试向真实 `%LOCALAPPDATA%\FDClaudeGuard\logs\guard-runtime-*.jsonl` 写入测试噪音的问题；
+  - 为自动更新检查增加 25 秒进程级单飞缓存去重，消除启动 1.5s 内双窗重复检查与双写日志；
+  - 修复账户审计左栏底部免责声明微裁切问题，优化多档案流式滚动体验。
+
+---
+
+## [0.3.5] - 2026-11-26
+
+### 新增与体验升级
+- **实时连接域名用途精准区分与纯自动「未收录新域」雷达**：
+  - 「节点流量 → 实时连接监控」逐条标注每个域名的业务用途胶囊与大白话说明（`核心 API`、`主站与会话`、`开发者控制台`、`功能开关`、`资源 / 沙箱`、`KYC 身份核验`、`CF 人机盾`、`Stripe 支付`、`遥测 · 行为监控 / 崩溃上报 / 埋点配置 / 链路追踪` 等），并修正已被 `REJECT` 拦截的遥测连接状态为中性「已拦截」；
+  - 零用户配置自动雷达：当 `Claude.exe` 等进程访问不在已知清单的陌生外部域名时，进程规则自动兜底走 `Claude-Fixed`，列表自动标出琥珀黄「未收录新域」胶囊并按需出现「未收录新域 (N)」筛选按钮。
+- **守卫配置新增 Cloudflare 人机盾 & Stripe 支付同源同步开关**：
+  - 默认开启「同步锁定 Cloudflare 人机盾与 Stripe 支付至 Claude-Fixed」，切换后经 `sync_clash_rule_policy` 自动热同步分流规则与 `Script.js` 并实时刷新控制台与账户审计；关闭开关后若发生跨组双 IP 串线，于建议项 `opt_exit_geo` 与账户审计槽位 12 温和提醒，不阻断启动。
+
+### 核心修复与安全加固（C1~C7 + E1~E7）
+- **彻底修复 `🇨🇳台湾` 合规节点误杀 Bug（兼容 Go RE2）**：移除三处禁区正则中的裸 `🇨🇳`（补充 `回国|回國`），并在 Rust/JS 过滤中显式保护台湾合规节点不被剔除。
+- **补齐 Anthropic / Claude 规则单真源与 DNS 深度加固**：
+  - 补齐 14 条第 3 层遥测拦截（根治 `browser-intake-datadoghq.com` 连字符后缀逃逸，新增 `datadoghq.eu`、`statsigcdn.com`、`featureassets.org`、`prodregistryv2.org`、`segment.io`、`api.segment.com`、`honeycomb.io`，刻意不拦截 `statsig.anthropic.com` 功能开关）；
+  - 补齐 `anthropic.org`、`clau.de`、`servd-anthropic-website.b-cdn.net`、`withpersona.com` 及官方桥接进程 `chrome-native-host.exe` 至 `Claude-Fixed`（严守不锁 `accounts.google.com` 与 `node.exe` 边界）；
+  - 新增 `dns.ipv6: false`、无 `fallback` 时海外加密 DoH + `fallback-filter(geoip: CN)` 与基础 `fake-ip-filter`（保护局域网与 `time.windows.com` NTP）。
+- **升级运行态首命中体检引擎与持久化 `Script.js` 漂移检测（根治假绿灯）**：
+  - 自上而下首命中校验核心域截胡、14 条遥测逃逸、递归解包策略组链的跨组双 IP 冲突、`find-process-mode: off`、`dns.ipv6: true` 与磁盘 `Script.js` 版本漂移，并同步联动账户审计槽位 12。
+- **`Script.js` 标记块无损增量合并、回滚去痕与实时监控闭环**：
+  - 升级 `Script.js` 时原地更新 `FD-CLAUDE-GUARD` 标记块，100% 保留用户自定义的 `AGY_TELEMETRY_RULES` / Google 扩展段；
+  - 修复 `rollback` 撤回 Clash 规则时漏删本工具注入的 14 条 `REJECT` 遥测规则问题，实现正向升级与反向撤回 100% 双向还原；
+  - 修复实时流量监控漏抓 `withpersona.com` / `clau.de` / `anthropic.org`、命中机场规则的非 `MATCH` 脱组漏报，以及启动器自身进程（`fd-claude-guard.exe`）NTP 校时探测自报风险/新域误报（E8）。
+
+---
+
 ## [0.3.4] - 2026-11-26
 
 ### 新增与体验升级

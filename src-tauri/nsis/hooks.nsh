@@ -1,7 +1,37 @@
-; FD Claude Guard NSIS Uninstall Hook
-; 1. 先静默结束可能仍在后台运行的进程，避免文件占用卡住卸载或覆盖升级
-; 2. 仅在真正卸载（$UpdateMode <> 1）时清理防火墙守护规则，防止残留拦截规则影响卸载后使用 Claude
-; 3. 绝不调用易卡死的 PowerShell Get-NetFirewallRule，仅用极速 netsh 清理固定规则，1 秒内完成卸载
+; FD Claude Guard NSIS Install & Uninstall Hook
+; 1. 安装前自动结束运行中实例，并检测静默卸载历史 currentUser（%LOCALAPPDATA%\FD Claude Guard）残留，避免双份共存
+; 2. 安装完成后自动跳过等待页并刷新图标缓存
+; 3. 仅在真正卸载（$UpdateMode <> 1）时清理防火墙守护规则与计划任务，确保卸载后网络恢复正常
+
+!macro NSIS_HOOK_PREINSTALL
+  ; 先静默结束可能仍在运行的旧实例（含旧版 currentUser 与 perMachine 实例），防止文件占用或单实例锁冲突
+  nsExec::ExecToStack 'taskkill /F /T /IM fd-claude-guard.exe'
+  Pop $0
+  Pop $1
+  Sleep 400
+
+  ; 显式切至 current 用户上下文，精准定位历史 currentUser 模式（%LOCALAPPDATA%\FD Claude Guard）残留
+  SetShellVarContext current
+  ${If} ${FileExists} "$LOCALAPPDATA\FD Claude Guard\uninstall.exe"
+    nsExec::ExecToStack '"$LOCALAPPDATA\FD Claude Guard\uninstall.exe" /S _?=$LOCALAPPDATA\FD Claude Guard'
+    Pop $0
+    Pop $1
+    Sleep 800
+  ${EndIf}
+  ${If} ${FileExists} "$LOCALAPPDATA\FD Claude Guard\fd-claude-guard.exe"
+    RMDir /r "$LOCALAPPDATA\FD Claude Guard"
+  ${EndIf}
+  ${If} ${FileExists} "$LOCALAPPDATA\FD Claude Guard\uninstall.exe"
+    RMDir /r "$LOCALAPPDATA\FD Claude Guard"
+  ${EndIf}
+  ; 清理可能残留的旧 currentUser 快捷方式与 HKCU 卸载注册表项（静默忽略不存在项）
+  Delete "$SMPROGRAMS\FD Claude Guard.lnk"
+  RMDir /r "$SMPROGRAMS\FD Claude Guard"
+  DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\FD Claude Guard"
+  DeleteRegKey HKCU "Software\FD Claude Guard"
+  ; 严格恢复 perMachine 所需的 all 上下文，避免影响后续新版安装目录与公共快捷方式写入
+  SetShellVarContext all
+!macroend
 
 !macro NSIS_HOOK_POSTINSTALL
   ; 安装进度条完成后自动跳到「安装完成」页，不再停留在 Completed 界面多点一次 Next

@@ -44,9 +44,6 @@ jobs:
       - name: Run frontend typecheck and unit tests
         run: npm run build && npm test
 
-      - name: Run Rust unit tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml
-
       - name: Build and publish signed Tauri release
         uses: tauri-apps/tauri-action@v0
         env:

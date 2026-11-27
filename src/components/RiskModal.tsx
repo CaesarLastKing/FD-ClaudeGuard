@@ -3,10 +3,7 @@ import { AlertTriangle, ArrowRight, CheckCircle2, Loader2, ShieldAlert, X } from
 import { useGuardStore } from "@/stores/guardStore";
 
 /**
- * 现代三段式对话框（496px 宽，1:1 对齐增量 8 终版规范）
- * Header（36x36 语义圆角图标 + 中性高对比主标题 + 风险胶囊 + 副文 + 右上角 X）
- * Body（可选路由对比条 + 1px 细分割线紧凑键值卡）
- * Footer（独立浅底栏 + 右对齐单行主次按钮组）
+ * 现代三段式确认对话框（v3.0 双主题轻遮罩/轻投影 + 长节点名截断防溢出 + 统一纤细字阶）
  */
 export function RiskModal() {
   const modal = useGuardStore((s) => s.riskModal);
@@ -49,16 +46,22 @@ export function RiskModal() {
   const tone = modal.tone ?? "warn";
   const icoBg =
     tone === "danger"
-      ? "var(--danger-soft)"
+      ? "var(--bad-bg)"
       : tone === "ok"
-      ? "var(--success-soft)"
+      ? "var(--ok-bg)"
       : "var(--warning-soft)";
+  const icoBorder =
+    tone === "danger"
+      ? "var(--bad-border)"
+      : tone === "ok"
+      ? "var(--ok-border)"
+      : "var(--warning-border)";
   const icoColor =
     tone === "danger"
-      ? "var(--danger-bright)"
+      ? "var(--bad-fg)"
       : tone === "ok"
-      ? "var(--success)"
-      : "var(--warning)";
+      ? "var(--ok-fg)"
+      : "var(--warning-fg)";
   const badgeClass =
     tone === "danger"
       ? "guard-chip-fail"
@@ -81,8 +84,8 @@ export function RiskModal() {
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(0, 0, 0, 0.62)",
-        backdropFilter: "blur(5px)",
+        background: "var(--modal-backdrop)",
+        backdropFilter: "blur(4px)",
         zIndex: 150,
         display: "flex",
         alignItems: "center",
@@ -92,12 +95,12 @@ export function RiskModal() {
     >
       <div
         style={{
-          width: buttonCount >= 3 ? 560 : 496,
+          width: buttonCount >= 3 ? 560 : 512,
           maxWidth: "96vw",
           background: "var(--bg-card)",
-          border: "1px solid var(--border-strong)",
-          borderRadius: 14,
-          boxShadow: "0 28px 72px rgba(0, 0, 0, 0.68), 0 0 0 1px rgba(255, 255, 255, 0.03) inset",
+          border: "1px solid var(--border-card)",
+          borderRadius: 13,
+          boxShadow: "var(--shadow-modal)",
           display: "flex",
           flexDirection: "column",
           overflow: "hidden",
@@ -116,31 +119,32 @@ export function RiskModal() {
           <div style={{ display: "flex", alignItems: "flex-start", gap: 12, minWidth: 0 }}>
             <div
               style={{
-                width: 36,
-                height: 36,
-                borderRadius: 10,
+                width: 34,
+                height: 34,
+                borderRadius: 9,
                 display: "grid",
                 placeItems: "center",
                 flexShrink: 0,
                 background: icoBg,
+                border: `1px solid ${icoBorder}`,
                 color: icoColor,
               }}
             >
               {tone === "danger" ? (
-                <ShieldAlert size={18} strokeWidth={1.85} />
+                <ShieldAlert size={16} strokeWidth={1.5} />
               ) : tone === "ok" ? (
-                <CheckCircle2 size={18} strokeWidth={1.85} />
+                <CheckCircle2 size={16} strokeWidth={1.5} />
               ) : (
-                <AlertTriangle size={18} strokeWidth={1.85} />
+                <AlertTriangle size={16} strokeWidth={1.5} />
               )}
             </div>
             <div style={{ minWidth: 0 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <h3
                   style={{
-                    fontSize: 15.5,
-                    fontWeight: 600,
-                    color: "var(--text-1)",
+                    fontSize: 15,
+                    fontWeight: 500,
+                    color: "var(--text-strong)",
                     letterSpacing: "-0.01em",
                     margin: 0,
                   }}
@@ -150,7 +154,7 @@ export function RiskModal() {
                 {modal.badge && <span className={`guard-chip ${badgeClass}`}>{modal.badge}</span>}
               </div>
               {modal.subtitle && (
-                <div style={{ fontSize: 12, color: "var(--text-2)", marginTop: 3, lineHeight: 1.45 }}>
+                <div style={{ fontSize: 12, color: "var(--text-2)", marginTop: 3, lineHeight: 1.48 }}>
                   {modal.subtitle}
                 </div>
               )}
@@ -160,21 +164,10 @@ export function RiskModal() {
             type="button"
             aria-label="关闭弹窗"
             disabled={busyAction !== null}
+            className="modal-close-btn"
             onClick={close}
-            style={{
-              width: 28,
-              height: 28,
-              borderRadius: 7,
-              border: "none",
-              background: "transparent",
-              color: "var(--text-3)",
-              cursor: "pointer",
-              display: "grid",
-              placeItems: "center",
-              flexShrink: 0,
-            }}
           >
-            <X size={15} strokeWidth={1.85} />
+            <X size={15} strokeWidth={1.5} />
           </button>
         </div>
 
@@ -187,70 +180,79 @@ export function RiskModal() {
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
-                gap: 10,
+                gap: 12,
                 padding: "11px 14px",
                 borderRadius: 10,
                 background: "var(--bg-subtle)",
-                border: "1px solid var(--border)",
+                border: "1px solid var(--divider)",
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 9, flex: 1, minWidth: 0 }}>
                 <div
-                  className="font-mono-code"
-                  style={{
-                    width: 28,
-                    height: 28,
-                    borderRadius: 7,
-                    background: modal.routeCompare.fromDanger ? "var(--danger-soft)" : "var(--bg-card)",
-                    border: `1px solid ${
-                      modal.routeCompare.fromDanger ? "rgba(239, 68, 68, 0.4)" : "var(--border-strong)"
-                    }`,
-                    color: modal.routeCompare.fromDanger ? "var(--danger-bright)" : "var(--text-1)",
-                    display: "grid",
-                    placeItems: "center",
-                    fontSize: 11,
-                    fontWeight: 700,
-                    flexShrink: 0,
-                  }}
+                  className={`region-box ${modal.routeCompare.fromDanger ? "is-bad" : ""}`}
+                  style={{ width: 28, height: 28, fontSize: 10 }}
                 >
                   {modal.routeCompare.fromCode}
                 </div>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-1)", whiteSpace: "nowrap" }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div
+                    title={modal.routeCompare.fromName}
+                    style={{
+                      fontSize: 12.5,
+                      fontWeight: 500,
+                      color: "var(--text-strong)",
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
                     {modal.routeCompare.fromName}
                   </div>
-                  <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 1 }}>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: "var(--text-3)",
+                      marginTop: 1.5,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
                     {modal.routeCompare.fromRole}
                   </div>
                 </div>
               </div>
 
-              <ArrowRight size={15} style={{ color: "var(--text-3)", flexShrink: 0 }} />
+              <ArrowRight size={14} strokeWidth={1.5} style={{ color: "var(--text-3)", flexShrink: 0 }} />
 
-              <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
-                <div
-                  className="font-mono-code"
-                  style={{
-                    width: 28,
-                    height: 28,
-                    borderRadius: 7,
-                    background: "var(--bg-card)",
-                    border: "1px solid var(--border-strong)",
-                    color: "var(--text-1)",
-                    display: "grid",
-                    placeItems: "center",
-                    fontSize: 11,
-                    fontWeight: 700,
-                    flexShrink: 0,
-                  }}
-                >
+              <div style={{ display: "flex", alignItems: "center", gap: 9, flex: 1, minWidth: 0 }}>
+                <div className="region-box" style={{ width: 28, height: 28, fontSize: 10 }}>
                   {modal.routeCompare.toCode}
                 </div>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-1)", whiteSpace: "nowrap" }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div
+                    title={modal.routeCompare.toName}
+                    style={{
+                      fontSize: 12.5,
+                      fontWeight: 500,
+                      color: "var(--text-strong)",
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
                     {modal.routeCompare.toName}
                   </div>
-                  <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 1 }}>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: "var(--text-3)",
+                      marginTop: 1.5,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
                     {modal.routeCompare.toRole}
                   </div>
                 </div>
@@ -258,12 +260,12 @@ export function RiskModal() {
             </div>
           )}
 
-          {/* 1px 细分割线紧凑键值卡（左标签 74px） */}
+          {/* 1px 细分割线紧凑键值卡 */}
           <div
             style={{
               borderRadius: 10,
-              border: "1px solid var(--border)",
-              background: "rgba(128, 128, 140, 0.03)",
+              border: "1px solid var(--divider)",
+              background: "var(--bg-card-band)",
               overflow: "hidden",
             }}
           >
@@ -275,22 +277,22 @@ export function RiskModal() {
                   gridTemplateColumns: "74px 1fr",
                   gap: 12,
                   padding: "10px 14px",
-                  fontSize: 12.5,
-                  borderBottom: idx === modal.rows.length - 1 ? "none" : "1px solid var(--border)",
+                  fontSize: 12,
+                  borderBottom: idx === modal.rows.length - 1 ? "none" : "1px solid var(--divider)",
                   alignItems: "baseline",
                 }}
               >
-                <div style={{ color: "var(--text-3)", fontSize: 12 }}>{r.label}</div>
+                <div style={{ color: "var(--text-3)", fontSize: 11.5 }}>{r.label}</div>
                 <div
                   style={{
                     color:
                       r.tone === "danger"
-                        ? "var(--danger-bright)"
+                        ? "var(--bad-fg)"
                         : r.tone === "ok"
-                        ? "var(--success)"
+                        ? "var(--ok-fg)"
                         : "var(--text-1)",
-                    fontWeight: r.tone === "danger" ? 600 : 400,
-                    lineHeight: 1.5,
+                    fontWeight: r.tone === "danger" ? 500 : 400,
+                    lineHeight: 1.55,
                   }}
                 >
                   {r.value}
@@ -300,12 +302,12 @@ export function RiskModal() {
           </div>
         </div>
 
-        {/* Footer：独立浅底栏（当按钮 >= 3 时不放左下角易折行提示语，保持单行舒展右对齐） */}
+        {/* Footer：独立浅底栏 */}
         <div
           style={{
             padding: "12px 20px",
-            borderTop: "1px solid var(--border)",
-            background: "rgba(128, 128, 140, 0.03)",
+            borderTop: "1px solid var(--divider)",
+            background: "var(--bg-card-band)",
             display: "flex",
             alignItems: "center",
             justifyContent: buttonCount >= 3 || !modal.footTip ? "flex-end" : "space-between",
@@ -340,7 +342,7 @@ export function RiskModal() {
                 disabled={busyAction !== null}
                 onClick={() => void runAction("secondary", modal.onSecondary)}
               >
-                {busyAction === "secondary" && <Loader2 size={13} strokeWidth={2} className="guard-spin" />}
+                {busyAction === "secondary" && <Loader2 size={13} strokeWidth={1.85} className="guard-spin" />}
                 <span>{modal.secondaryLabel}</span>
               </button>
             )}
@@ -351,7 +353,7 @@ export function RiskModal() {
                 disabled={busyAction !== null}
                 onClick={() => void runAction("danger", modal.onDanger)}
               >
-                {busyAction === "danger" && <Loader2 size={13} strokeWidth={2} className="guard-spin" />}
+                {busyAction === "danger" && <Loader2 size={13} strokeWidth={1.85} className="guard-spin" />}
                 <span>{modal.dangerLabel}</span>
               </button>
             )}
@@ -361,7 +363,7 @@ export function RiskModal() {
               disabled={busyAction !== null}
               onClick={() => void runAction("primary", modal.onPrimary)}
             >
-              {busyAction === "primary" && <Loader2 size={13} strokeWidth={2} className="guard-spin" />}
+              {busyAction === "primary" && <Loader2 size={13} strokeWidth={1.85} className="guard-spin" />}
               <span>{modal.primaryLabel}</span>
             </button>
           </div>

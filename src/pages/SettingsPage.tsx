@@ -18,7 +18,8 @@ type BoolConfigKey =
   | "autoKillSwitch"
   | "antiUploadFlush"
   | "safeExitPrompt"
-  | "calm24h";
+  | "calm24h"
+  | "lockCfAndStripeToClaude";
 
 interface SwitchRowProps {
   configKey: BoolConfigKey;
@@ -437,6 +438,15 @@ export function SettingsPage() {
               desc="度过支付反欺诈异步审核期：严禁切节点、低并发提醒、最高级监控 401/403"
               badge={{ text: "按需开启", tone: "neutral" }}
               checked={config.calm24h}
+              onToggle={handleToggle}
+            />
+            <SwitchRow
+              configKey="lockCfAndStripeToClaude"
+              icon="group"
+              title="同步锁定 Cloudflare 人机盾与 Stripe 支付至 Claude-Fixed"
+              desc="防止 claude.ai 网页弹盾或升级付费时与主代理组发生跨节点双 IP 串线；切换后自动热同步分流规则。若同时在浏览器使用其他 Cloudflare 站点（如 ChatGPT），建议将主代理组与 Claude-Fixed 选在同一节点，或按需关闭此项"
+              badge={{ text: "推荐开启", tone: "ok" }}
+              checked={config.lockCfAndStripeToClaude ?? true}
               onToggle={handleToggle}
             />
             <div className="guard-row" style={{ cursor: "default" }}>

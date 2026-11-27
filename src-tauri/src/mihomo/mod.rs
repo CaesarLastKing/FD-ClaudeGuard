@@ -1184,20 +1184,36 @@ pub async fn probe_node_delay_via_mihomo(
         .filter(|&d| d > 0)
 }
 
-/// 禁区节点名称匹配正则（精确覆盖 HK01/HK_01/国旗 Emoji/Macao/Syria/Cuba，同时避免单字“澳”误杀“澳大利亚”）
+/// 禁区节点名称匹配正则（精确覆盖 HK01/HK_01/国旗 Emoji/Macao/Syria/Cuba/回国，移除裸 🇨🇳 避免误杀 🇨🇳台湾 合规节点，100% 兼容 Go RE2）
 pub fn blocked_region_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r"(?i)(香港|Hong\s*Kong|🇭🇰|澳门|澳門|Macau|Macao|🇲🇴|中国|中國|国内|China|🇨🇳|俄罗斯|俄羅斯|俄国|Russia|🇷🇺|白俄|Belarus|🇧🇾|朝鲜|朝鮮|North\s*Korea|🇰🇵|伊朗|Iran|🇮🇷|叙利亚|敘利亞|Syria|🇸🇾|古巴|Cuba|🇨🇺|(?:^|[^a-z])(HK|MO|CN|RU|BY|KP|IR|SY|CU)(?:[^a-z]|$))")
+        Regex::new(r"(?i)(香港|Hong\s*Kong|🇭🇰|澳门|澳門|Macau|Macao|🇲🇴|中国|中國|国内|回国|回國|China|俄罗斯|俄羅斯|俄国|Russia|🇷🇺|白俄|Belarus|🇧🇾|朝鲜|朝鮮|North\s*Korea|🇰🇵|伊朗|Iran|🇮🇷|叙利亚|敘利亞|Syria|🇸🇾|古巴|Cuba|🇨🇺|(?:^|[^a-z])(HK|MO|CN|RU|BY|KP|IR|SY|CU)(?:[^a-z]|$))")
             .expect("invalid blocked region regex")
+    })
+}
+
+fn taiwan_safe_regex() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i)(台湾|臺灣|Taiwan|🇹🇼)").expect("invalid taiwan regex"))
+}
+
+fn blocked_hard_conflict_regex() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)(香港|Hong\s*Kong|🇭🇰|澳门|澳門|Macau|Macao|🇲🇴|中国大陆|中國大陸|国内|直连|中转|回国|回國|China\s*Mainland)")
+            .expect("invalid blocked hard conflict regex")
     })
 }
 
 /// 国家代码黑名单（ISO 3166-1 alpha-2）
 pub const BLOCKED_COUNTRY_CODES: &[&str] = &["HK", "MO", "CN", "RU", "BY", "KP", "IR", "SY", "CU"];
 
-/// 判断节点名称是否落入禁区
+/// 判断节点名称是否落入禁区（显式保护 🇨🇳台湾 合规节点不被误杀）
 pub fn is_blocked_node_name(name: &str) -> bool {
+    if taiwan_safe_regex().is_match(name) && !blocked_hard_conflict_regex().is_match(name) {
+        return false;
+    }
     blocked_region_regex().is_match(name)
 }
 
@@ -1238,6 +1254,10 @@ pub struct MihomoConfigs {
     pub tun_enable: bool,
     pub dns_enhanced_mode: String,
     pub mode: String,
+    #[serde(default)]
+    pub dns_ipv6: bool,
+    #[serde(default)]
+    pub find_process_mode: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1871,6 +1891,16 @@ pub async fn fetch_configs(endpoint: &MihomoEndpoint) -> Result<MihomoConfigs, S
         .and_then(|v| v.as_str())
         .unwrap_or("normal")
         .to_string();
+    let dns_ipv6 = val
+        .get("dns")
+        .and_then(|d| d.get("ipv6"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let find_process_mode = val
+        .get("find-process-mode")
+        .and_then(|v| v.as_str())
+        .unwrap_or("strict")
+        .to_string();
     let mode = val
         .get("mode")
         .and_then(|v| v.as_str())
@@ -1883,6 +1913,8 @@ pub async fn fetch_configs(endpoint: &MihomoEndpoint) -> Result<MihomoConfigs, S
         tun_enable,
         dns_enhanced_mode,
         mode,
+        dns_ipv6,
+        find_process_mode,
     })
 }
 
@@ -2617,7 +2649,401 @@ pub fn compute_node_score_weighted(
     crate::protocol::calculate_node_quality_score(delay_ms, jitter_ms, drop_rate_pct, stability)
 }
 
-/// 校验规则表中是否包含 Claude 核心域名指向 Claude-Fixed
+/// 第 3 层防回传：第三方纯遥测拦截域名单真源（与 Script.js、preflight、rollback 100% 共享；刻意不拦 statsig.anthropic.com）
+pub const TELEMETRY_REJECT_DOMAINS: &[&str] = &[
+    "sentry.io",
+    "datadoghq.com",
+    "browser-intake-datadoghq.com",
+    "datadoghq.eu",
+    "statsigapi.net",
+    "statsig.com",
+    "statsigcdn.com",
+    "featureassets.org",
+    "prodregistryv2.org",
+    "intercom.io",
+    "intercomcdn.com",
+    "segment.io",
+    "api.segment.com",
+    "honeycomb.io",
+];
+
+/// Claude 官方核心全家桶 + KYC 核验域名（必须首命中锁死 Claude-Fixed）
+pub const CLAUDE_CORE_DOMAINS: &[&str] = &[
+    "anthropic.com",
+    "claude.ai",
+    "claude.com",
+    "claudeusercontent.com",
+    "anthropic.org",
+    "clau.de",
+    "servd-anthropic-website.b-cdn.net",
+    "withpersona.com",
+];
+
+/// 可选增强域：Cloudflare 人机盾 & Stripe 支付同源（受守卫配置 lock_cf_and_stripe_to_claude 控制）
+pub const CF_STRIPE_OPTIONAL_DOMAINS: &[&str] = &[
+    "challenges.cloudflare.com",
+    "stripe.com",
+    "stripe.network",
+];
+
+/// 出口 IP 合规监测域名（必须首命中 Claude-Fixed 保证体检与 Claude 100% 同源）
+pub const EXIT_PROBE_DOMAINS: &[&str] = &["ip-api.com", "ipapi.is", "ipinfo.io"];
+
+/// 必须覆盖的进程级兜底目标（刻意不锁 node.exe）
+pub const REQUIRED_CLAUDE_PROCESSES: &[&str] = &[
+    "Claude.exe",
+    "claude.exe",
+    "chrome-native-host.exe",
+];
+
+/// 跨策略组双 IP 串线冲突项
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CrossGroupConflict {
+    pub domain: String,
+    pub matched_group: String,
+    pub matched_node: String,
+    pub claude_fixed_node: String,
+    /// true 表示属于阻断级冲突（如 withpersona.com 或已开启 CF/Stripe 锁定开关时的串线）
+    pub required: bool,
+}
+
+/// 运行态 Clash /rules 与策略组深度审计报告（消除旧脚本与机场规则截胡导致的“假绿灯”）
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaudeRuleAuditReport {
+    pub matched_claude_rule_count: usize,
+    pub core_domains_missing: Vec<String>,
+    pub core_domains_hijacked: Vec<(String, String)>,
+    pub exit_probe_missing: Vec<String>,
+    pub telemetry_escape_items: Vec<(String, String)>,
+    pub missing_processes: Vec<String>,
+    pub optional_cf_stripe_missing: Vec<String>,
+    pub cross_group_conflicts: Vec<CrossGroupConflict>,
+    pub find_process_mode_off: bool,
+    pub dns_ipv6_enabled: bool,
+    /// 持久化 profiles/Script.js 版本漂移原因（防止运行态暂新但更新订阅后回退为漏洞旧脚本）
+    #[serde(default)]
+    pub script_drift_reason: Option<String>,
+}
+
+impl ClaudeRuleAuditReport {
+    /// 是否存在核心硬阻断故障（核心域缺失/截胡或出口探针未同源）
+    pub fn has_hard_core_failure(&self) -> bool {
+        !self.core_domains_missing.is_empty()
+            || !self.core_domains_hijacked.is_empty()
+            || !self.exit_probe_missing.is_empty()
+    }
+
+    /// 是否存在任意需要通过「一键升级规则」解决的缺口（含遥测逃逸、桥接进程缺失、CF/Stripe 开关开启未同步、find-process-mode:off、dns.ipv6:true、必选跨组串线、Script.js 漂移）
+    pub fn has_required_upgrade_gap(&self) -> bool {
+        self.has_hard_core_failure()
+            || !self.telemetry_escape_items.is_empty()
+            || !self.missing_processes.is_empty()
+            || !self.optional_cf_stripe_missing.is_empty()
+            || self.cross_group_conflicts.iter().any(|c| c.required)
+            || self.find_process_mode_off
+            || self.dns_ipv6_enabled
+            || self.script_drift_reason.is_some()
+    }
+
+    /// 仅非阻断的跨组双 IP 提醒（当用户关闭 CF/Stripe 同步锁但主组与 Claude-Fixed 选不同节点时）
+    pub fn advisory_cross_group_conflicts(&self) -> Vec<&CrossGroupConflict> {
+        self.cross_group_conflicts
+            .iter()
+            .filter(|c| !c.required)
+            .collect()
+    }
+
+    /// 面向控制台/账户审计槽位 12 的紧凑缺口摘要清单
+    pub fn required_gap_messages(&self) -> Vec<String> {
+        let mut msgs = Vec::new();
+        if !self.core_domains_hijacked.is_empty() {
+            let preview: Vec<String> = self
+                .core_domains_hijacked
+                .iter()
+                .take(3)
+                .map(|(d, p)| format!("{d} 被「{p}」截胡"))
+                .collect();
+            msgs.push(format!("核心域被上游规则截胡（{}）", preview.join("、")));
+        }
+        if !self.core_domains_missing.is_empty() {
+            let preview: Vec<&str> = self
+                .core_domains_missing
+                .iter()
+                .take(3)
+                .map(String::as_str)
+                .collect();
+            let extra = if self.core_domains_missing.len() > 3 {
+                format!(" 等 {} 项", self.core_domains_missing.len())
+            } else {
+                String::new()
+            };
+            msgs.push(format!("缺失 Claude/KYC 分流域（{}{extra}）", preview.join("、")));
+        }
+        if !self.exit_probe_missing.is_empty() {
+            msgs.push(format!(
+                "出口探针域未锁死至 Claude-Fixed（{}）",
+                self.exit_probe_missing.join("、")
+            ));
+        }
+        if !self.telemetry_escape_items.is_empty() {
+            let preview: Vec<String> = self
+                .telemetry_escape_items
+                .iter()
+                .take(2)
+                .map(|(d, p)| format!("{d} → {p}"))
+                .collect();
+            let extra = if self.telemetry_escape_items.len() > 2 {
+                format!(" 等 {} 项", self.telemetry_escape_items.len())
+            } else {
+                String::new()
+            };
+            msgs.push(format!("第三方遥测逃逸（{}{extra}）", preview.join("、")));
+        }
+        let req_conflicts: Vec<&CrossGroupConflict> = self
+            .cross_group_conflicts
+            .iter()
+            .filter(|c| c.required)
+            .collect();
+        if !req_conflicts.is_empty() {
+            let preview: Vec<String> = req_conflicts
+                .iter()
+                .take(2)
+                .map(|c| {
+                    format!(
+                        "{} 走「{} → {}」≠ Claude-Fixed「{}」",
+                        c.domain, c.matched_group, c.matched_node, c.claude_fixed_node
+                    )
+                })
+                .collect();
+            msgs.push(format!("跨组双 IP 串线（{}）", preview.join("；")));
+        } else if !self.optional_cf_stripe_missing.is_empty() {
+            msgs.push(format!(
+                "CF 盾/Stripe 尚未锁入 Claude-Fixed（{}）",
+                self.optional_cf_stripe_missing.join("、")
+            ));
+        }
+        if !self.missing_processes.is_empty() {
+            msgs.push(format!(
+                "缺少进程级兜底（{}）",
+                self.missing_processes.join("、")
+            ));
+        }
+        if self.find_process_mode_off {
+            msgs.push("Mihomo find-process-mode=off 导致进程规则失效".into());
+        }
+        if self.dns_ipv6_enabled {
+            msgs.push("Mihomo dns.ipv6=true 存在 DNS 侧 IPv6 泄漏".into());
+        }
+        if let Some(ref reason) = self.script_drift_reason {
+            msgs.push(reason.clone());
+        }
+        msgs
+    }
+}
+
+/// 标准化规则类型（兼容 Mihomo `/rules` 的 `DomainSuffix` 与 YAML 风格的 `DOMAIN-SUFFIX`）
+fn normalize_rule_type(raw: &str) -> String {
+    raw.chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect::<String>()
+        .to_ascii_lowercase()
+}
+
+/// 模拟 Mihomo 自上而下首命中规则匹配（返回首个命中的代理/策略组名称）
+pub fn resolve_first_matching_rule_proxy(rules: &[Value], domain: &str) -> Option<String> {
+    let target = domain.trim().trim_end_matches('.').to_ascii_lowercase();
+    if target.is_empty() {
+        return None;
+    }
+    for r in rules {
+        let rtype = normalize_rule_type(r.get("type").and_then(|v| v.as_str()).unwrap_or(""));
+        let payload = r
+            .get("payload")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .trim_end_matches('.')
+            .to_ascii_lowercase();
+        let proxy = r.get("proxy").and_then(|v| v.as_str()).unwrap_or("").trim();
+        if proxy.is_empty() {
+            continue;
+        }
+        let matched = match rtype.as_str() {
+            "domain" => !payload.is_empty() && target == payload,
+            "domainsuffix" => {
+                !payload.is_empty()
+                    && (target == payload || target.ends_with(&format!(".{payload}")))
+            }
+            "domainkeyword" => !payload.is_empty() && target.contains(&payload),
+            "match" => true,
+            _ => false,
+        };
+        if matched {
+            return Some(proxy.to_string());
+        }
+    }
+    None
+}
+
+/// 递归解包 Mihomo 策略组链，获得当前实际落地节点名称（最多 8 层防循环）
+pub fn resolve_final_proxy_node(proxies: &HashMap<String, Value>, target: &str) -> String {
+    let mut cur = target.trim().to_string();
+    for _ in 0..8 {
+        if cur.is_empty()
+            || cur.eq_ignore_ascii_case("DIRECT")
+            || cur.eq_ignore_ascii_case("REJECT")
+            || cur.eq_ignore_ascii_case("REJECT-DROP")
+            || cur.eq_ignore_ascii_case("PASS")
+        {
+            break;
+        }
+        let Some(entry) = proxies.get(&cur) else {
+            break;
+        };
+        let Some(next) = entry
+            .get("now")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        else {
+            break;
+        };
+        if next == cur {
+            break;
+        }
+        cur = next.to_string();
+    }
+    cur
+}
+
+fn is_reject_proxy(proxy: &str) -> bool {
+    proxy.eq_ignore_ascii_case("REJECT") || proxy.eq_ignore_ascii_case("REJECT-DROP")
+}
+
+/// 深度审计运行态 Mihomo `/rules`、`/proxies` 与 `/configs`（自上而下首命中 + 跨组双 IP 冲突检测）
+pub fn audit_claude_rules(
+    rules: &[Value],
+    proxies: Option<&HashMap<String, Value>>,
+    mihomo_cfg: Option<&MihomoConfigs>,
+    lock_cf_and_stripe: bool,
+) -> ClaudeRuleAuditReport {
+    let mut report = ClaudeRuleAuditReport {
+        find_process_mode_off: mihomo_cfg
+            .map(|c| c.find_process_mode.eq_ignore_ascii_case("off"))
+            .unwrap_or(false),
+        dns_ipv6_enabled: mihomo_cfg.map(|c| c.dns_ipv6).unwrap_or(false),
+        ..Default::default()
+    };
+
+    let mut has_claude_rule_for_payload = std::collections::HashSet::<String>::new();
+    let mut covered_processes = std::collections::HashSet::<String>::new();
+    for r in rules {
+        let proxy = r.get("proxy").and_then(|v| v.as_str()).unwrap_or("").trim();
+        let payload = r.get("payload").and_then(|v| v.as_str()).unwrap_or("").trim();
+        let rtype = normalize_rule_type(r.get("type").and_then(|v| v.as_str()).unwrap_or(""));
+        if proxy == "Claude-Fixed" {
+            report.matched_claude_rule_count += 1;
+            if !payload.is_empty() {
+                has_claude_rule_for_payload.insert(payload.to_ascii_lowercase());
+            }
+            if matches!(rtype.as_str(), "process" | "processname") && !payload.is_empty() {
+                covered_processes.insert(payload.to_ascii_lowercase());
+            }
+        }
+    }
+
+    let claude_fixed_node = proxies
+        .map(|pm| resolve_final_proxy_node(pm, "Claude-Fixed"))
+        .unwrap_or_default();
+
+    // 1. 校验核心官方域 + KYC 核验域首命中必须为 Claude-Fixed
+    for &domain in CLAUDE_CORE_DOMAINS {
+        let first = resolve_first_matching_rule_proxy(rules, domain);
+        if first.as_deref() != Some("Claude-Fixed") {
+            let lower = domain.to_ascii_lowercase();
+            let exists_later = has_claude_rule_for_payload.contains(&lower);
+            if exists_later {
+                report.core_domains_hijacked.push((
+                    domain.to_string(),
+                    first.clone().unwrap_or_else(|| "未命中".into()),
+                ));
+            } else {
+                report.core_domains_missing.push(domain.to_string());
+            }
+            if let (Some(pm), Some(matched_group)) = (proxies, first.as_deref()) {
+                if !is_reject_proxy(matched_group) && !claude_fixed_node.is_empty() {
+                    let matched_node = resolve_final_proxy_node(pm, matched_group);
+                    if !matched_node.is_empty() && matched_node != claude_fixed_node {
+                        report.cross_group_conflicts.push(CrossGroupConflict {
+                            domain: domain.to_string(),
+                            matched_group: matched_group.to_string(),
+                            matched_node,
+                            claude_fixed_node: claude_fixed_node.clone(),
+                            required: true,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. 校验出口 IP 监测域首命中必须为 Claude-Fixed
+    for &domain in EXIT_PROBE_DOMAINS {
+        if resolve_first_matching_rule_proxy(rules, domain).as_deref() != Some("Claude-Fixed") {
+            report.exit_probe_missing.push(domain.to_string());
+        }
+    }
+
+    // 3. 校验第 3 层第三方遥测域首命中必须为 REJECT（抓出 browser-intake-datadoghq.com 等后缀逃逸）
+    for &domain in TELEMETRY_REJECT_DOMAINS {
+        let first = resolve_first_matching_rule_proxy(rules, domain);
+        if !first.as_deref().map(is_reject_proxy).unwrap_or(false) {
+            report.telemetry_escape_items.push((
+                domain.to_string(),
+                first.unwrap_or_else(|| "未拦截(放行)".into()),
+            ));
+        }
+    }
+
+    // 4. 校验可选 CF 人机盾 & Stripe 支付域：
+    //    - 开关开启：必须首命中 Claude-Fixed（否则报缺口 + 跨组冲突阻断）；
+    //    - 开关关闭：不强制写入规则，但若实际命中组落地节点 ≠ Claude-Fixed 节点，记录为非阻断跨组冲突提醒。
+    for &domain in CF_STRIPE_OPTIONAL_DOMAINS {
+        let first = resolve_first_matching_rule_proxy(rules, domain);
+        if first.as_deref() != Some("Claude-Fixed") {
+            if lock_cf_and_stripe {
+                report.optional_cf_stripe_missing.push(domain.to_string());
+            }
+            if let (Some(pm), Some(matched_group)) = (proxies, first.as_deref()) {
+                if !is_reject_proxy(matched_group) && !claude_fixed_node.is_empty() {
+                    let matched_node = resolve_final_proxy_node(pm, matched_group);
+                    if !matched_node.is_empty() && matched_node != claude_fixed_node {
+                        report.cross_group_conflicts.push(CrossGroupConflict {
+                            domain: domain.to_string(),
+                            matched_group: matched_group.to_string(),
+                            matched_node,
+                            claude_fixed_node: claude_fixed_node.clone(),
+                            required: lock_cf_and_stripe,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // 5. 校验进程级兜底规则（Claude.exe / claude.exe / chrome-native-host.exe）
+    for &proc_name in REQUIRED_CLAUDE_PROCESSES {
+        if !covered_processes.contains(&proc_name.to_ascii_lowercase()) {
+            report.missing_processes.push(proc_name.to_string());
+        }
+    }
+
+    report
+}
+
+/// 校验规则表中是否包含 Claude 核心域名指向 Claude-Fixed（保留兼容旧调用/单测）
 pub fn verify_claude_rules(rules: &[Value]) -> (bool, usize) {
     let required = ["anthropic.com", "claude.ai"];
     let mut matched_count = 0usize;
@@ -2639,7 +3065,7 @@ pub fn verify_claude_rules(rules: &[Value]) -> (bool, usize) {
     (hit_required.iter().all(|&x| x), matched_count)
 }
 
-/// 校验规则表中是否已包含出口 IP 监测域名（ip-api.com 等）指向 Claude-Fixed
+/// 校验规则表中是否已包含出口 IP 监测域名（ip-api.com 等）指向 Claude-Fixed（保留兼容旧调用/单测）
 pub fn verify_exit_probe_rules(rules: &[Value]) -> bool {
     rules.iter().any(|r| {
         let payload = r.get("payload").and_then(|v| v.as_str()).unwrap_or("");
@@ -2997,5 +3423,136 @@ mod tests {
         let (pct2, cnt2) = compute_recent_drop_stats(&[true, true, true, true, true], 10, 1);
         assert_eq!(cnt2, 5);
         assert_eq!(pct2, 0.0);
+    }
+
+    #[test]
+    fn v035_taiwan_flag_node_is_never_blocked_while_mainland_hk_and_huiguo_are_blocked() {
+        // C7 回归：🇨🇳台湾 合规节点绝不得被误杀
+        for safe in [
+            "🇨🇳台湾1|流媒体AI",
+            "🇨🇳台湾原生",
+            "🇨🇳臺灣-02",
+            "🇹🇼 Taiwan-ISP",
+            "🇺🇸美国1|流媒体AI",
+        ] {
+            assert!(
+                !is_blocked_node_name(safe),
+                "合规台湾/海外节点不得被误杀: {safe}"
+            );
+        }
+        for blocked in [
+            "🇭🇰香港1|流媒体AI",
+            "HK01",
+            "🇨🇳中国直连",
+            "🇨🇳 回国专线",
+            "🇨🇳台湾香港中转",
+            "MO01",
+            "SY01",
+            "CU-1",
+        ] {
+            assert!(
+                is_blocked_node_name(blocked),
+                "禁区/伪装中转节点必须被拦截: {blocked}"
+            );
+        }
+    }
+
+    #[test]
+    fn v035_audit_claude_rules_catches_datadog_escape_cf_cross_group_hijack_and_passes_after_upgrade() {
+        let mut proxies: HashMap<String, Value> = HashMap::new();
+        proxies.insert(
+            "Claude-Fixed".into(),
+            serde_json::json!({ "type": "Selector", "now": "🇺🇸美国1|流媒体AI" }),
+        );
+        proxies.insert(
+            "天悦云".into(),
+            serde_json::json!({ "type": "Selector", "now": "🇺🇸美国2|流媒体AI" }),
+        );
+
+        // 1) 旧规则态：datadoghq.com 拦不住 browser-intake-datadoghq.com，CF 盾落入「天悦云(美国2)」，claude.ai 被顶部 DIRECT 截胡，find-process-mode=off
+        let legacy_rules = vec![
+            serde_json::json!({"type": "DomainSuffix", "payload": "datadoghq.com", "proxy": "REJECT"}),
+            serde_json::json!({"type": "DomainSuffix", "payload": "claude.ai", "proxy": "DIRECT"}),
+            serde_json::json!({"type": "DomainSuffix", "payload": "anthropic.com", "proxy": "Claude-Fixed"}),
+            serde_json::json!({"type": "DomainSuffix", "payload": "claude.ai", "proxy": "Claude-Fixed"}),
+            serde_json::json!({"type": "DomainSuffix", "payload": "challenges.cloudflare.com", "proxy": "天悦云"}),
+            serde_json::json!({"type": "DomainSuffix", "payload": "browser-intake-datadoghq.com", "proxy": "天悦云"}),
+            serde_json::json!({"type": "Match", "payload": "", "proxy": "天悦云"}),
+        ];
+        let bad_cfg = MihomoConfigs {
+            mixed_port: 7897,
+            ipv6: false,
+            tun_enable: true,
+            dns_enhanced_mode: "fake-ip".into(),
+            mode: "rule".into(),
+            dns_ipv6: true,
+            find_process_mode: "off".into(),
+        };
+        let rep_on = audit_claude_rules(&legacy_rules, Some(&proxies), Some(&bad_cfg), true);
+        assert!(rep_on.has_hard_core_failure());
+        assert!(rep_on.has_required_upgrade_gap());
+        assert!(rep_on
+            .core_domains_hijacked
+            .iter()
+            .any(|(d, p)| d == "claude.ai" && p == "DIRECT"));
+        assert!(rep_on
+            .telemetry_escape_items
+            .iter()
+            .any(|(d, p)| d == "browser-intake-datadoghq.com" && p == "天悦云"));
+        assert!(rep_on.cross_group_conflicts.iter().any(|c| {
+            c.domain == "challenges.cloudflare.com"
+                && c.matched_group == "天悦云"
+                && c.matched_node == "🇺🇸美国2|流媒体AI"
+                && c.claude_fixed_node == "🇺🇸美国1|流媒体AI"
+                && c.required
+        }));
+        assert!(rep_on.find_process_mode_off);
+        assert!(rep_on.dns_ipv6_enabled);
+
+        // 2) 关闭 CF/Stripe 开关时：challenges.cloudflare.com 跨组仅进非阻断 advisory
+        let rep_off = audit_claude_rules(&legacy_rules, Some(&proxies), Some(&bad_cfg), false);
+        assert!(rep_off.optional_cf_stripe_missing.is_empty());
+        assert!(rep_off
+            .advisory_cross_group_conflicts()
+            .iter()
+            .any(|c| c.domain == "challenges.cloudflare.com"));
+
+        // 3) 注入完整新版规则后全部通过，且 statsig.anthropic.com 首命中走 Claude-Fixed（绝不误拦）
+        let mut upgraded_rules = Vec::new();
+        for &d in TELEMETRY_REJECT_DOMAINS {
+            upgraded_rules.push(serde_json::json!({"type": "DomainSuffix", "payload": d, "proxy": "REJECT"}));
+        }
+        for &d in CLAUDE_CORE_DOMAINS {
+            upgraded_rules.push(serde_json::json!({"type": "DomainSuffix", "payload": d, "proxy": "Claude-Fixed"}));
+        }
+        for &d in CF_STRIPE_OPTIONAL_DOMAINS {
+            upgraded_rules.push(serde_json::json!({"type": "DomainSuffix", "payload": d, "proxy": "Claude-Fixed"}));
+        }
+        for &d in EXIT_PROBE_DOMAINS {
+            upgraded_rules.push(serde_json::json!({"type": "DomainSuffix", "payload": d, "proxy": "Claude-Fixed"}));
+        }
+        for &p in REQUIRED_CLAUDE_PROCESSES {
+            upgraded_rules.push(serde_json::json!({"type": "Process", "payload": p, "proxy": "Claude-Fixed"}));
+        }
+        upgraded_rules.push(serde_json::json!({"type": "DomainSuffix", "payload": "challenges.cloudflare.com", "proxy": "天悦云"}));
+        upgraded_rules.push(serde_json::json!({"type": "Match", "payload": "", "proxy": "天悦云"}));
+
+        let good_cfg = MihomoConfigs {
+            mixed_port: 7897,
+            ipv6: false,
+            tun_enable: true,
+            dns_enhanced_mode: "fake-ip".into(),
+            mode: "rule".into(),
+            dns_ipv6: false,
+            find_process_mode: "strict".into(),
+        };
+        let rep_ok = audit_claude_rules(&upgraded_rules, Some(&proxies), Some(&good_cfg), true);
+        assert!(!rep_ok.has_hard_core_failure(), "升级后不应有核心失败: {:?}", rep_ok);
+        assert!(!rep_ok.has_required_upgrade_gap(), "升级后不应有待升级缺口: {:?}", rep_ok.required_gap_messages());
+        assert_eq!(
+            resolve_first_matching_rule_proxy(&upgraded_rules, "statsig.anthropic.com").as_deref(),
+            Some("Claude-Fixed"),
+            "statsig.anthropic.com 必须走 Claude-Fixed，绝不可被 REJECT"
+        );
     }
 }

@@ -944,8 +944,22 @@ pub fn strip_claude_from_clash_yaml(raw: &str) -> Result<(String, bool), String>
             let Some(line) = r.as_str() else {
                 return true;
             };
-            let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
-            !parts.contains(&"Claude-Fixed")
+            let trimmed = line.trim();
+            let parts: Vec<&str> = trimmed.split(',').map(|s| s.trim()).collect();
+            if parts.contains(&"Claude-Fixed") {
+                return false;
+            }
+            // 修复 E1：同步精准剥离本工具注入的第 3 层第三方遥测 REJECT 规则，避免撤回后永久残留拦截
+            if parts.len() >= 3
+                && parts[0].eq_ignore_ascii_case("DOMAIN-SUFFIX")
+                && parts[2].eq_ignore_ascii_case("REJECT")
+                && crate::mihomo::TELEMETRY_REJECT_DOMAINS
+                    .iter()
+                    .any(|d| parts[1].eq_ignore_ascii_case(d))
+            {
+                return false;
+            }
+            true
         });
         if rules.len() != before {
             changed = true;
@@ -2226,5 +2240,42 @@ rules:
             .flatten()
             .any(|e| e.file_name().to_string_lossy().contains(".corrupt-"));
         assert!(has_corrupt_backup, "坏基线文件应自动保留 .corrupt-* 备份");
+    }
+
+    #[test]
+    fn v035_e1_strip_claude_from_clash_yaml_removes_injected_telemetry_reject_rules_but_keeps_user_rules() {
+        let yaml = r#"
+proxy-groups:
+  - name: Claude-Fixed
+    type: select
+    proxies: [US-01]
+  - name: 天悦云
+    type: select
+    proxies: [US-01]
+rules:
+  - DOMAIN-SUFFIX,sentry.io,REJECT
+  - DOMAIN-SUFFIX,browser-intake-datadoghq.com,REJECT
+  - DOMAIN-SUFFIX,segment.io,REJECT
+  - DOMAIN-SUFFIX,ads.user-custom.example,REJECT
+  - DOMAIN-SUFFIX,anthropic.com,Claude-Fixed
+  - DOMAIN-SUFFIX,withpersona.com,Claude-Fixed
+  - PROCESS-NAME,chrome-native-host.exe,Claude-Fixed
+  - DOMAIN-SUFFIX,challenges.cloudflare.com,天悦云
+  - MATCH,天悦云
+"#;
+        let (stripped, changed) = strip_claude_from_clash_yaml(yaml).unwrap();
+        assert!(changed);
+        assert!(!stripped.contains("Claude-Fixed"));
+        assert!(!stripped.contains("sentry.io,REJECT"));
+        assert!(!stripped.contains("browser-intake-datadoghq.com,REJECT"));
+        assert!(!stripped.contains("segment.io,REJECT"));
+        assert!(
+            stripped.contains("ads.user-custom.example,REJECT"),
+            "用户自己的其他 REJECT 规则必须 100% 保留"
+        );
+        assert!(
+            stripped.contains("challenges.cloudflare.com,天悦云"),
+            "机场原有规则必须 100% 保留"
+        );
     }
 }

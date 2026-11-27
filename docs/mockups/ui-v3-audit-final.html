@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FD Claude 安全启动器 · 账户审计 v5.3（9.5+ 封板 · 展开态深度精修）</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    /* =========================================================================
+       FDTools Commercial Design System v5.3 — 账户审计 9.5+ 封板版
+       专项升级：
+         1. 彻底解决图 1「展开后与背景同灰发穿」：选中/展开态改用极清透的冰蓝雾底
+            (浅色 rgba(0,108,224,0.038) / 暗色 rgba(74,158,255,0.072)) + 微蓝边界，与背景彻底划界
+         2. 补齐全部 7 项展开后的结构化子指标卡片 + 说明 + 快捷操作，绝不光秃秃一行字
+         3. 三级弱文字对比度微提半档（兼顾 2K/4K 与老 1080P 低分屏）+ 行 hover 箭头灵动提示
+       ========================================================================= */
+
+    @font-face {
+      font-family: "FD-Fine";
+      src:
+        local("SF Pro Text Light"),
+        local("Segoe UI Variable Text Semilight"),
+        local("Noto Sans SC DemiLight"),
+        local("HarmonyOS Sans SC Light"),
+        local("HarmonyOS Sans SC");
+      font-weight: 400;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: "FD-Fine";
+      src:
+        local("SF Pro Text"),
+        local("Segoe UI Variable Text"),
+        local("Noto Sans SC"),
+        local("HarmonyOS Sans SC");
+      font-weight: 500;
+      font-style: normal;
+    }
+
+    :root {
+      --font-sans: "FD-Fine", "SF Pro Text", "Segoe UI Variable Text", "Noto Sans SC", "HarmonyOS Sans SC", -apple-system, sans-serif;
+      --font-mono: "Cascadia Code", "SF Mono", "JetBrains Mono", "Consolas", ui-monospace, monospace;
+      --r-win: 11px;
+      --r-card: 10px;
+      --r-btn: 7px;
+      --r-icon: 7px;
+      --r-chip: 5px;
+      --ease: cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    [data-theme="light"] {
+      --page-backdrop: #EAECEF;
+      --seg-track: rgba(15, 23, 42, 0.065);
+      --seg-thumb: #FFFFFF;
+      --seg-thumb-shadow: 0 1px 2px rgba(15, 23, 42, 0.08), 0 0 0 0.5px rgba(15, 23, 42, 0.04);
+
+      --bg-chrome: #FBFBFD;
+      --bg-sidebar: #FBFBFD;
+      --bg-header: #F8F9FB;
+      --bg-canvas: #F5F6F8;
+
+      --bg-card: #FFFFFF;
+      --bg-card-band: #FAFBFD;
+      --bg-subtle: #F2F4F7;
+      --bg-nav-active: #EEF0F4;
+      --bg-row-hover: rgba(0, 108, 224, 0.026);
+      /* 9.5+ 关键：展开/聚焦底改用柔和冰蓝雾底，绝不与 #F5F6F8 画布撞灰！ */
+      --bg-row-open: rgba(0, 108, 224, 0.038);
+      --border-row-open: rgba(0, 108, 224, 0.14);
+      --bg-subcard: #FFFFFF;
+
+      --border-card: rgba(15, 23, 42, 0.072);
+      --border-card-hover: rgba(15, 23, 42, 0.12);
+      --divider: rgba(15, 23, 42, 0.06);
+      --divider-strong: rgba(15, 23, 42, 0.105);
+      --icon-border: rgba(15, 23, 42, 0.052);
+
+      --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.024), 0 4px 10px -2px rgba(15, 23, 42, 0.028);
+      --shadow-card-hover: 0 2px 4px rgba(15, 23, 42, 0.03), 0 6px 14px -3px rgba(15, 23, 42, 0.04);
+      --acct-border: rgba(0, 108, 224, 0.34);
+      --shadow-acct-active: 0 0 0 2.5px rgba(0, 108, 224, 0.06), 0 2px 6px rgba(15, 23, 42, 0.028);
+      --shadow-btn: 0 1px 1.5px rgba(15, 23, 42, 0.032);
+      --shadow-window: 0 0 0 1px rgba(15, 23, 42, 0.08), 0 24px 60px -14px rgba(15, 23, 42, 0.14);
+
+      /* 9.5+ 微调：--text-3 对比度更稳健，低分屏也清澈 */
+      --text-strong: #2B303B;
+      --text-1: #3D4350;
+      --text-2: #727A8A;
+      --text-3: #8991A2;
+      --text-4: #B4BCC9;
+
+      --primary: #006CE0;
+      --primary-soft: rgba(0, 108, 224, 0.065);
+      --primary-border: rgba(0, 108, 224, 0.18);
+
+      --success-dot: #22A559;
+      --success-fg: #1C8247;
+      --success-soft: rgba(22, 163, 74, 0.075);
+      --success-border: rgba(22, 163, 74, 0.16);
+
+      --warning-dot: #DE8812;
+      --warning-fg: #B06A0B;
+      --warning-soft: rgba(222, 136, 18, 0.085);
+      --warning-border: rgba(222, 136, 18, 0.19);
+
+      --danger-dot: rgba(217, 45, 32, 0.68);
+      --warn-exp-dot: rgba(217, 119, 6, 0.70);
+
+      --guide-bg: rgba(0, 108, 224, 0.048);
+      --guide-fg: #0A5EC0;
+      --guide-border: rgba(0, 108, 224, 0.17);
+      --geo-bg: rgba(0, 108, 224, 0.058);
+      --geo-fg: #2454C8;
+      --geo-border: rgba(0, 108, 224, 0.14);
+      --promo-bg: linear-gradient(135deg, rgba(0, 108, 224, 0.042) 0%, #FFFFFF 70%);
+      --promo-border: rgba(0, 108, 224, 0.15);
+    }
+
+    [data-theme="dark"] {
+      --page-backdrop: #070709;
+      --seg-track: rgba(255, 255, 255, 0.065);
+      --seg-thumb: #22222A;
+      --seg-thumb-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+
+      --bg-chrome: #111115;
+      --bg-sidebar: #111115;
+      --bg-header: #0F0F13;
+      --bg-canvas: #0C0C0F;
+
+      --bg-card: #15151A;
+      --bg-card-band: #121217;
+      --bg-subtle: #1D1D24;
+      --bg-nav-active: #1B1B22;
+      --bg-row-hover: rgba(74, 158, 255, 0.04);
+      /* 9.5+ 关键：暗色展开用微蓝暗雾，绝不和 #0C0C0F 画布混淆 */
+      --bg-row-open: rgba(74, 158, 255, 0.072);
+      --border-row-open: rgba(74, 158, 255, 0.22);
+      --bg-subcard: rgba(18, 18, 24, 0.85);
+
+      --border-card: rgba(255, 255, 255, 0.082);
+      --border-card-hover: rgba(255, 255, 255, 0.13);
+      --divider: rgba(255, 255, 255, 0.06);
+      --divider-strong: rgba(255, 255, 255, 0.105);
+      --icon-border: rgba(255, 255, 255, 0.065);
+
+      --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.24);
+      --shadow-card-hover: 0 4px 12px rgba(0, 0, 0, 0.32);
+      --acct-border: rgba(74, 158, 255, 0.44);
+      --shadow-acct-active: 0 0 0 2.5px rgba(74, 158, 255, 0.10), 0 2px 8px rgba(0, 0, 0, 0.24);
+      --shadow-btn: 0 1px 2px rgba(0, 0, 0, 0.22);
+      --shadow-window: 0 0 0 1px rgba(255, 255, 255, 0.09), 0 28px 72px -12px rgba(0, 0, 0, 0.85);
+
+      --text-strong: #C9CED8;
+      --text-1: #B4BAC6;
+      --text-2: #7D8494;
+      --text-3: #646C7C;
+      --text-4: #4A5160;
+
+      --primary: #4A9EFF;
+      --primary-soft: rgba(74, 158, 255, 0.105);
+      --primary-border: rgba(74, 158, 255, 0.24);
+
+      --success-dot: #2CB568;
+      --success-fg: #52C583;
+      --success-soft: rgba(44, 181, 104, 0.10);
+      --success-border: rgba(44, 181, 104, 0.20);
+
+      --warning-dot: #E5A53B;
+      --warning-fg: #E2AA4E;
+      --warning-soft: rgba(229, 165, 59, 0.10);
+      --warning-border: rgba(229, 165, 59, 0.21);
+
+      --danger-dot: rgba(239, 106, 106, 0.68);
+      --warn-exp-dot: rgba(235, 178, 72, 0.70);
+
+      --guide-bg: rgba(74, 158, 255, 0.082);
+      --guide-fg: #7CB8FF;
+      --guide-border: rgba(74, 158, 255, 0.21);
+      --geo-bg: rgba(74, 158, 255, 0.09);
+      --geo-fg: #88BFFF;
+      --geo-border: rgba(74, 158, 255, 0.19);
+      --promo-bg: linear-gradient(135deg, rgba(74, 158, 255, 0.07) 0%, rgba(21, 21, 26, 0.96) 65%);
+      --promo-border: rgba(74, 158, 255, 0.19);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 16px 24px 28px;
+      min-height: 100vh;
+      background: var(--page-backdrop);
+      color: var(--text-1);
+      font-family: var(--font-sans);
+      font-weight: 400;
+      font-synthesis: none;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: optimizeLegibility;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      transition: background-color 180ms var(--ease), color 180ms var(--ease);
+    }
+
+    .tabular { font-variant-numeric: tabular-nums; }
+    .font-mono-code { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+    .seg-2 {
+      position: relative;
+      display: inline-grid;
+      grid-template-columns: 1fr 1fr;
+      padding: 2.5px;
+      border-radius: 9px;
+      background: var(--seg-track);
+    }
+    .seg-2 .seg-thumb {
+      position: absolute; top: 2.5px; bottom: 2.5px; left: 2.5px;
+      width: calc(50% - 2.5px); border-radius: 7px;
+      background: var(--seg-thumb); box-shadow: var(--seg-thumb-shadow);
+      transition: transform 180ms var(--ease), background-color 180ms;
+      pointer-events: none;
+    }
+    .seg-2[data-pos="1"] .seg-thumb { transform: translateX(100%); }
+
+    .fd-window {
+      width: 100%;
+      max-width: 1280px;
+      height: 774px;
+      border-radius: var(--r-win);
+      background: var(--bg-canvas);
+      box-shadow: var(--shadow-window);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      user-select: none;
+      transition: background-color 180ms var(--ease), box-shadow 180ms var(--ease);
+    }
+
+    .c-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-card);
+      border-radius: var(--r-card);
+      box-shadow: var(--shadow-card);
+      overflow: hidden;
+      transition: background-color 160ms var(--ease), border-color 160ms var(--ease);
+    }
+
+    .c-acct-card {
+      background: var(--bg-card);
+      border: 1px solid var(--acct-border);
+      border-radius: var(--r-card);
+      box-shadow: var(--shadow-acct-active);
+      padding: 13px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+      cursor: pointer;
+    }
+
+    .c-live-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-card);
+      border-radius: var(--r-card);
+      box-shadow: var(--shadow-card);
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      cursor: pointer;
+      text-align: left;
+      width: 100%;
+      font-family: var(--font-sans);
+      transition: border-color 150ms var(--ease), box-shadow 150ms var(--ease);
+    }
+    .c-live-card:hover { border-color: var(--border-card-hover); box-shadow: var(--shadow-card-hover); }
+
+    .c-promo-slot {
+      background: var(--promo-bg);
+      border: 1px solid var(--promo-border);
+      border-radius: var(--r-card);
+      padding: 10px 12px;
+      cursor: pointer;
+      transition: border-color 150ms var(--ease), transform 130ms var(--ease);
+    }
+    .c-promo-slot:hover { border-color: var(--primary); transform: translateY(-0.5px); }
+
+    .c-btn {
+      height: 31px;
+      padding: 0 11px;
+      border: 1px solid var(--divider-strong);
+      border-radius: var(--r-btn);
+      background: var(--bg-card);
+      color: var(--text-1);
+      box-shadow: var(--shadow-btn);
+      font-family: var(--font-sans);
+      font-size: 12px;
+      font-weight: 400;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5.5px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: transform 110ms var(--ease), background-color 140ms var(--ease), border-color 140ms var(--ease);
+    }
+    .c-btn:hover { background: var(--bg-row-hover); color: var(--text-strong); border-color: var(--border-card-hover); }
+    .c-btn:active { transform: scale(0.985); }
+
+    .c-btn-guide {
+      height: 31px;
+      padding: 0 11px;
+      border-radius: var(--r-btn);
+      border: 1px solid var(--guide-border);
+      background: var(--guide-bg);
+      color: var(--guide-fg);
+      font-family: var(--font-sans);
+      font-size: 12px;
+      font-weight: 400;
+      display: inline-flex;
+      align-items: center;
+      gap: 5.5px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: transform 110ms var(--ease), filter 140ms var(--ease);
+    }
+    .c-btn-guide:hover { filter: brightness(0.97); }
+    .c-btn-guide:active { transform: scale(0.985); }
+
+    .c-seg-wrap {
+      height: 31px;
+      padding: 2.5px;
+      border-radius: var(--r-btn);
+      background: var(--bg-subtle);
+      border: 1px solid var(--divider);
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+    }
+    .c-seg-btn {
+      height: 24px;
+      padding: 0 11px;
+      border: none;
+      border-radius: 5px;
+      background: transparent;
+      color: var(--text-2);
+      font-family: var(--font-sans);
+      font-size: 12px;
+      font-weight: 400;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 140ms var(--ease);
+    }
+    .c-seg-btn:hover { color: var(--text-1); }
+    .c-seg-btn.active {
+      background: var(--bg-card);
+      color: var(--text-strong);
+      font-weight: 500;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+    }
+
+    .c-nav-item {
+      height: 33px;
+      padding: 0 10px;
+      border: none;
+      border-radius: var(--r-btn);
+      background: transparent;
+      color: var(--text-2);
+      font-family: var(--font-sans);
+      font-size: 12.5px;
+      font-weight: 400;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      cursor: pointer;
+      transition: background-color 130ms var(--ease), color 130ms var(--ease);
+    }
+    .c-nav-item:hover { background: var(--bg-nav-active); color: var(--text-1); }
+    .c-nav-item.active { background: var(--bg-nav-active); color: var(--text-strong); font-weight: 500; }
+
+    .c-status-card { padding: 10px 12px; display: flex; flex-direction: column; gap: 7px; }
+    .c-status-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 20px; }
+    .c-hold-chip {
+      height: 20px; padding: 0 7px; border-radius: 5px;
+      background: var(--primary-soft); color: var(--primary); border: 1px solid var(--primary-border);
+      font-family: var(--font-sans); font-size: 10.5px;
+      display: inline-flex; align-items: center; gap: 3.5px; cursor: pointer; white-space: nowrap;
+    }
+
+    .c-icon-box {
+      width: 28px; height: 28px; border-radius: var(--r-icon);
+      background: var(--bg-subtle); color: var(--text-2); border: 1px solid var(--icon-border);
+      display: grid; place-items: center; flex-shrink: 0;
+      transition: all 140ms var(--ease);
+    }
+    .c-icon-box svg { width: 14.5px; height: 14.5px; }
+    .c-icon-box.is-warn { background: var(--warning-soft); color: var(--warning-fg); border-color: var(--warning-border); }
+
+    /* 9.5+ 展开态核心：柔和冰蓝雾底 + 微蓝分隔，彻底区别于 #F5F6F8 灰背景 */
+    .c-audit-group {
+      border-bottom: 1px solid var(--divider);
+      transition: background-color 150ms var(--ease);
+    }
+    .c-audit-group:last-child { border-bottom: none; }
+    .c-audit-group.is-open {
+      background: var(--bg-row-open);
+      box-shadow: inset 0 1px 0 var(--border-row-open), inset 0 -1px 0 var(--border-row-open);
+    }
+    .c-audit-group.is-open .c-icon-box:not(.is-warn) {
+      background: var(--primary-soft);
+      color: var(--primary);
+      border-color: var(--primary-border);
+    }
+
+    .c-audit-row {
+      padding: 10.5px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      cursor: pointer;
+      transition: background-color 130ms var(--ease);
+    }
+    .c-audit-group:not(.is-open) .c-audit-row:hover { background: var(--bg-row-hover); }
+    .c-audit-row:hover .c-chev { color: var(--text-1) !important; transform: translateY(1.5px); }
+    .c-audit-group.is-open .c-chev { color: var(--primary) !important; transform: rotate(180deg); }
+
+    .c-row-title { font-size: 12.5px; font-weight: 400; line-height: 1.38; color: var(--text-1); }
+    .c-audit-group.is-open .c-row-title { color: var(--text-strong); font-weight: 500; }
+    .c-row-sub { margin-top: 2.5px; font-size: 11.5px; line-height: 1.48; color: var(--text-2); }
+
+    .c-prefix-tag {
+      display: inline-flex; align-items: center; gap: 4px; height: 17px; padding: 0 5.5px;
+      border-radius: var(--r-chip); background: var(--bg-subtle); border: 1px solid var(--divider);
+      font-size: 10px; color: var(--text-2); flex-shrink: 0;
+    }
+
+    .c-status-pill {
+      min-width: 64px; height: 21px; padding: 0 8px; border-radius: var(--r-chip);
+      font-size: 11px; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap;
+    }
+    .c-status-pill.st-ok { color: var(--text-3); background: transparent; border: 1px solid var(--divider-strong); }
+    .c-status-pill.st-warn { color: var(--warning-fg); background: var(--warning-soft); border: 1px solid var(--warning-border); font-weight: 500; }
+
+    /* 展开区子卡片（纯白/微深浮起在冰蓝雾底上，层次极清晰！） */
+    .c-expand { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 180ms var(--ease); }
+    .c-audit-group.is-open .c-expand { grid-template-rows: 1fr; }
+    .c-expand > div { overflow: hidden; }
+
+    .c-sub-metric {
+      background: var(--bg-subcard);
+      border: 1px solid var(--divider);
+      border-radius: 7px;
+      padding: 8px 11px;
+    }
+
+    .c-inline-btn {
+      height: 24px; padding: 0 9px; border-radius: 5.5px;
+      background: var(--bg-subcard); color: var(--text-1); border: 1px solid var(--divider-strong);
+      font-family: var(--font-sans); font-size: 11px;
+      display: inline-flex; align-items: center; gap: 4px; cursor: pointer; white-space: nowrap;
+      transition: all 120ms var(--ease);
+    }
+    .c-inline-btn:hover { border-color: var(--primary-border); color: var(--primary); }
+
+    .chrome-btn { color: var(--text-2); transition: background-color 120ms, color 120ms; }
+    .chrome-btn:hover { background: var(--bg-subtle); color: var(--text-strong); }
+    .chrome-close:hover { background: #DC2626 !important; color: #FFFFFF !important; }
+
+    .fd-scroll::-webkit-scrollbar { width: 5px; }
+    .fd-scroll::-webkit-scrollbar-track { background: transparent; }
+    .fd-scroll::-webkit-scrollbar-thumb { background: rgba(120, 128, 144, 0.22); border-radius: 99px; }
+
+    @media (max-width: 1120px) {
+      .audit-workspace-grid { grid-template-columns: 236px minmax(0, 1fr) !important; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ================= 外部审阅控制条 ================= -->
+  <div class="w-full max-w-[1280px] mb-2.5 flex flex-wrap items-center justify-between gap-2.5">
+    <div class="flex items-center gap-2 text-[11.5px]" style="color: var(--text-2);">
+      <span class="inline-flex items-center gap-2 px-3 py-1 rounded-full"
+        style="background: var(--bg-card); color: var(--text-1); border: 1px solid var(--border-card);">
+        <span class="w-1.5 h-1.5 rounded-full" style="background: var(--primary);"></span>
+        账户审计 v5.3（9.5+ 封板 · 已默认展开「单号与设备纯净」展示柔和冰蓝雾底与结构化子卡）
+      </span>
+    </div>
+
+    <div id="theme-switch" class="seg-2" data-pos="0" role="tablist">
+      <div class="seg-thumb"></div>
+      <button id="btn-theme-light" type="button" class="relative z-10 px-3 py-1 text-[11.5px] cursor-pointer whitespace-nowrap" style="color: var(--text-strong); font-weight: 500;">浅色版</button>
+      <button id="btn-theme-dark" type="button" class="relative z-10 px-3 py-1 text-[11.5px] cursor-pointer whitespace-nowrap" style="color: var(--text-3);">暗色版</button>
+    </div>
+  </div>
+
+  <!-- ================= 商业精密窗口 ================= -->
+  <div class="fd-window">
+
+    <!-- 顶栏（38px） -->
+    <header class="h-[38px] shrink-0 pl-4 flex items-center justify-between transition-colors"
+      style="background: var(--bg-chrome); border-bottom: 1px solid var(--divider);">
+      <div class="flex items-center gap-2 min-w-0">
+        <img src="data:image/png;base64,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"
+          alt="FD Claude Guard" class="w-[17px] h-[17px] rounded-[4px] shrink-0" />
+        <span class="text-[12.5px] tracking-[-0.005em]" style="color: var(--text-1);">FD Claude 安全启动器</span>
+        <span class="text-[11px] px-0.5" style="color: var(--text-3);">Fuck Dario！！！</span>
+      </div>
+      <div class="flex items-center h-full">
+        <div class="flex items-center gap-0.5 pr-2">
+          <button type="button" class="chrome-btn w-[28px] h-[25px] rounded-[6px] flex items-center justify-center cursor-pointer"><svg class="w-[14px] h-[14px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/></svg></button>
+          <button type="button" class="chrome-btn w-[28px] h-[25px] rounded-[6px] flex items-center justify-center cursor-pointer"><svg class="w-[14px] h-[14px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="15" rx="2.8"/><rect x="12" y="8" width="6" height="4.5" rx="1"/></svg></button>
+          <button type="button" class="chrome-btn w-[28px] h-[25px] rounded-[6px] flex items-center justify-center cursor-pointer"><svg class="w-[14px] h-[14px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8.7 3A6 6 0 0 1 18 8a21.3 21.3 0 0 0 .6 5"/><path d="M17 17H4a1 1 0 0 1-.8-1.6A9.5 9.5 0 0 0 6 8c0-.8.2-1.5.5-2.2"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/><line x1="2.5" y1="2.5" x2="21.5" y2="21.5"/></svg></button>
+          <button id="top-btn-theme" type="button" class="chrome-btn w-[28px] h-[25px] rounded-[6px] flex items-center justify-center cursor-pointer"><svg id="theme-ico-svg" class="w-[13.5px] h-[13.5px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg></button>
+        </div>
+        <span class="w-px h-[13px] mr-1" style="background: var(--divider-strong);"></span>
+        <button type="button" class="chrome-btn w-[38px] h-full flex items-center justify-center cursor-pointer"><svg class="w-[12.5px] h-[12.5px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45"><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+        <button type="button" class="chrome-btn w-[38px] h-full flex items-center justify-center cursor-pointer"><svg class="w-[10.5px] h-[10.5px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55"><rect x="4" y="4" width="16" height="16" rx="2"/></svg></button>
+        <button type="button" class="chrome-btn chrome-close w-[38px] h-full flex items-center justify-center cursor-pointer"><svg class="w-[12.5px] h-[12.5px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg></button>
+      </div>
+    </header>
+
+    <div class="flex-1 min-h-0 flex">
+      <!-- 左侧栏 -->
+      <aside class="w-[212px] shrink-0 px-3 py-3 flex flex-col justify-between transition-colors"
+        style="background: var(--bg-sidebar); border-right: 1px solid var(--divider);">
+        <nav class="flex flex-col gap-[3px]">
+          <button type="button" class="c-nav-item"><span class="flex items-center gap-2.5"><svg class="w-[15px] h-[15px]" style="color: var(--text-3);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 10.5 12 3.8l8.5 6.7V19a1.8 1.8 0 0 1-1.8 1.8h-4.5v-5.2a1.2 1.2 0 0 0-1.2-1.2h-2a1.2 1.2 0 0 0-1.2 1.2v5.2H5.3A1.8 1.8 0 0 1 3.5 19v-8.5Z"/></svg><span>控制台</span></span><span class="tabular text-[10px] px-1.5 py-[1px] rounded-[4.5px]" style="background: var(--success-soft); color: var(--success-fg);">OK</span></button>
+          <button type="button" class="c-nav-item active"><span class="flex items-center gap-2.5"><svg class="w-[15px] h-[15px]" style="color: var(--text-strong);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7.5 3v5.4c0 4.8-3.2 8.5-7.5 10-4.3-1.5-7.5-5.2-7.5-10V6L12 3Z" fill="currentColor" fill-opacity="0.06"/><path d="m9.2 12.2 2 2 3.8-4"/></svg><span>账户审计</span></span><span class="tabular text-[10px] min-w-[17px] h-[17px] px-1 rounded-[4.5px] inline-flex items-center justify-center" style="background: var(--warning-soft); color: var(--warning-fg);">1</span></button>
+          <button type="button" class="c-nav-item"><span class="flex items-center gap-2.5"><svg class="w-[15px] h-[15px]" style="color: var(--text-3);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a13.5 13.5 0 0 0 0 18 13.5 13.5 0 0 0 0-18"/><path d="M3.2 12h17.6"/></svg><span>节点流量</span></span></button>
+          <button type="button" class="c-nav-item"><span class="flex items-center gap-2.5"><svg class="w-[15px] h-[15px]" style="color: var(--text-3);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.4-3.4a5.8 5.8 0 0 1-7.6 7.6l-6.6 6.6a2 2 0 1 1-2.9-2.9l6.6-6.6a5.8 5.8 0 0 1 7.6-7.6l-3.5 3.3Z"/></svg><span>环境维护</span></span></button>
+          <button type="button" class="c-nav-item"><span class="flex items-center gap-2.5"><svg class="w-[15px] h-[15px]" style="color: var(--text-3);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M4 6.5h16M4 12h16M4 17.5h16"/><circle cx="9" cy="6.5" r="2" fill="var(--bg-sidebar)"/><circle cx="15" cy="12" r="2" fill="var(--bg-sidebar)"/><circle cx="10.5" cy="17.5" r="2" fill="var(--bg-sidebar)"/></svg><span>守卫配置</span></span></button>
+        </nav>
+
+        <div class="flex flex-col gap-2">
+          <div class="c-promo-slot">
+            <div class="flex items-center justify-between gap-1.5">
+              <span class="text-[11.5px]" style="color: var(--text-strong); font-weight: 500;">住宅静态节点精选</span>
+              <span class="text-[9.5px] px-1.5 py-[0.5px] rounded-[4px]" style="background: var(--primary-soft); color: var(--primary); border: 1px solid var(--primary-border);">推荐</span>
+            </div>
+            <div class="mt-1 text-[11px] leading-[1.45]" style="color: var(--text-2);">美国原生静态 ISP · 低风控专线 →</div>
+          </div>
+          <div class="c-card c-status-card">
+            <div class="c-status-row"><span class="flex items-center gap-2 text-[12px]" style="color: var(--text-1);"><span class="w-[5.5px] h-[5.5px] rounded-full" style="background: var(--success-dot);"></span><span>Claude 进程</span></span><span class="tabular text-[11px]" style="color: var(--text-3);">0 进程</span></div>
+            <div class="c-status-row"><span class="text-[11px]" style="color: var(--text-3);">已退出</span><button type="button" class="c-hold-chip tabular"><svg class="w-[10.5px] h-[10.5px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3l7.5 3v5.4c0 4.8-3.2 8.5-7.5 10-4.3-1.5-7.5-5.2-7.5-10V6L12 3Z"/></svg><span>盯防 45s</span></button></div>
+          </div>
+          <div class="c-card c-status-card">
+            <div class="c-status-row"><span class="flex items-center gap-2 text-[12px]" style="color: var(--text-1);"><span class="w-[5.5px] h-[5.5px] rounded-full" style="background: var(--success-dot);"></span><span>Clash Verge</span></span><span class="tabular text-[11px]" style="color: var(--text-3);">:7890</span></div>
+            <div class="c-status-row"><span class="text-[11px] tabular" style="color: var(--text-3);">Mihomo v1.19.33</span><span class="text-[11px]" style="color: var(--success-fg);">在线</span></div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- 右侧：账户审计页 -->
+      <main class="flex-1 min-w-0 flex flex-col" style="background: var(--bg-canvas);">
+        <div class="h-[58px] px-7 flex items-center justify-between gap-4 shrink-0"
+          style="background: var(--bg-header); border-bottom: 1px solid var(--divider);">
+          <div class="flex items-baseline gap-3 min-w-0">
+            <h1 class="m-0 text-[16.5px] tracking-[-0.015em] shrink-0" style="color: var(--text-strong); font-weight: 500;">账户审计</h1>
+            <span class="text-[11.5px] truncate" style="color: var(--text-3);">只读体检 · 按需云端核验风控隐患</span>
+          </div>
+          <div class="flex items-center gap-2 shrink-0">
+            <button type="button" class="c-btn-guide"><svg class="w-[13.5px] h-[13.5px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4h6a3.5 3.5 0 0 1 3.5 3.5V20a2.5 2.5 0 0 0-2.5-2.5h-7V4Z"/><path d="M21.5 4h-6A3.5 3.5 0 0 0 12 7.5V20a2.5 2.5 0 0 1 2.5-2.5h7V4Z"/></svg><span>防封宝典</span></button>
+            <span class="w-px h-[16px] mx-1" style="background: var(--divider-strong);"></span>
+            <button type="button" class="c-btn"><svg class="w-[13px] h-[13px]" style="color: var(--text-2);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 12a8.5 8.5 0 1 1-2.5-6"/><polyline points="20.5 3.5 20.5 9 15 9"/></svg><span>重新审计</span></button>
+            <div class="c-seg-wrap"><button type="button" class="c-seg-btn active">安全审计</button><button type="button" class="c-seg-btn">异常日志</button></div>
+          </div>
+        </div>
+
+        <div class="audit-workspace-grid flex-1 min-h-0 grid" style="grid-template-columns: 268px minmax(0, 1fr);">
+          <!-- 左 2：档案栏 -->
+          <section class="min-h-0 overflow-y-auto fd-scroll px-4 py-4 flex flex-col justify-between gap-4" style="border-right: 1px solid var(--divider);">
+            <div class="flex flex-col gap-3">
+              <div class="flex items-center justify-between px-0.5"><span class="text-[11.5px]" style="color: var(--text-2);">当前档案 (1)</span><span class="text-[11px]" style="color: var(--text-3);">本机激活</span></div>
+              <div class="c-acct-card">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="flex items-center gap-2 text-[12.5px] min-w-0" style="color: var(--text-strong); font-weight: 500;"><span class="w-[5.5px] h-[5.5px] rounded-full shrink-0" style="background: var(--warning-dot);"></span><span class="truncate">jaso***11@gmail.com</span></span>
+                  <span class="text-[10.5px] px-1.5 py-[1px] rounded-[4.5px] shrink-0" style="background: var(--bg-subtle); color: var(--text-2);">Free</span>
+                </div>
+                <div class="flex items-center justify-between text-[11px] tabular" style="color: var(--text-3);"><span>归属 US · 出口 TPE</span><span>85 天</span></div>
+                <div class="grid grid-cols-2 gap-3 py-2" style="border-top: 1px solid var(--divider); border-bottom: 1px solid var(--divider);">
+                  <div class="flex flex-col gap-1.5"><div class="flex items-center justify-between text-[10.5px]" style="color: var(--text-2);"><span>5h 额度</span><span style="color: var(--text-3);">—</span></div><div class="w-full h-[3px] rounded-full" style="background: var(--bg-subtle);"></div></div>
+                  <div class="flex flex-col gap-1.5"><div class="flex items-center justify-between text-[10.5px]" style="color: var(--text-2);"><span>7d 额度</span><span style="color: var(--text-3);">—</span></div><div class="w-full h-[3px] rounded-full" style="background: var(--bg-subtle);"></div></div>
+                </div>
+                <div class="flex items-center justify-between text-[11.5px] tabular"><span style="color: var(--warning-fg);">1 项待处理</span><span style="color: var(--text-3);">90 分</span></div>
+              </div>
+              <button type="button" class="c-live-card">
+                <div class="flex items-center justify-between text-[12px]"><span class="flex items-center gap-2" style="color: var(--text-1);"><span class="w-[5.5px] h-[5.5px] rounded-full" style="background: var(--success-dot);"></span><span>实时异常日志</span></span><span class="text-[11px] tabular" style="color: var(--text-3);">0 未读</span></div>
+                <div class="text-[11.5px] leading-[1.5]" style="color: var(--text-2);">近 24h 日志平稳；6 条背景 OAuth 403 已静默降噪。</div>
+                <div class="text-[11.5px]" style="color: var(--primary);">进入日志流 →</div>
+              </button>
+            </div>
+            <div class="text-[11px] leading-[1.52] px-3 py-2 rounded-[8px]" style="color: var(--text-3); border: 1px dashed var(--divider-strong);">风控为黑盒模型，无“集齐必封”公式；本页仅保留真机验证有效的防封项。</div>
+          </section>
+
+          <!-- 右主区 -->
+          <section class="min-h-0 overflow-y-auto fd-scroll px-7 py-5 flex flex-col gap-4">
+            <div class="c-card shrink-0">
+              <div class="px-4 py-3 flex items-center justify-between gap-3" style="border-bottom: 1px solid var(--divider);">
+                <div class="min-w-0 space-y-1.5">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="text-[13.5px] tracking-[-0.01em]" style="color: var(--text-strong); font-weight: 500;">jaso***11@gmail.com</span>
+                    <span class="text-[10.5px] px-1.5 py-[1px] rounded-[4.5px]" style="background: var(--bg-subtle); color: var(--text-2);">Free</span>
+                    <span class="text-[10.5px] px-1.5 py-[1px] rounded-[4.5px]" style="background: var(--bg-subtle); color: var(--text-2);">桌面主号</span>
+                    <span class="text-[10.5px] px-1.5 py-[1px] rounded-[4.5px]" style="background: var(--geo-bg); color: var(--geo-fg); border: 1px solid var(--geo-border);">属地 US</span>
+                  </div>
+                  <div class="flex items-center gap-2 text-[11px] tabular flex-wrap" style="color: var(--text-3);">
+                    <span>注册 85 天</span><span style="color: var(--text-4);">·</span><span style="color: var(--text-2);">订阅 40 天 ⇄</span><span style="color: var(--text-4);">·</span><span>本机 250 天</span><span style="color: var(--text-4);">·</span><span>组织 <span class="font-mono-code text-[10.5px]">a4722ea6</span></span>
+                  </div>
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                  <span class="text-[11px] tabular" style="color: var(--text-3);">刚刚同步</span>
+                  <span class="inline-flex items-center px-2.5 h-[26px] rounded-[6px] text-[11px] tabular" style="background: var(--success-soft); color: var(--success-fg); border: 1px solid var(--success-border);">90 分 · 低危稳健</span>
+                  <button type="button" class="c-btn !h-[26px] !px-2.5 !text-[11px]">重验 sk</button>
+                </div>
+              </div>
+              <div class="grid grid-cols-4" style="background: var(--bg-card-band);">
+                <div class="px-4 py-2.5 flex flex-col gap-0.5" style="border-right: 1px solid var(--divider);"><span class="text-[11px]" style="color: var(--text-3);">对话状态</span><span class="text-[12.5px] flex items-center gap-1.5" style="color: var(--text-1);"><span class="w-[5px] h-[5px] rounded-full" style="background: var(--success-dot);"></span><span>对话可用</span></span><span class="text-[11px]" style="color: var(--text-3);">无封禁限制</span></div>
+                <div class="px-4 py-2.5 flex flex-col gap-0.5" style="border-right: 1px solid var(--divider);"><div class="flex items-center justify-between text-[11px]" style="color: var(--text-3);"><span>官方警告</span><span class="w-[13.5px] h-[13.5px] rounded-full inline-grid place-items-center text-[9px]" style="border: 1px solid var(--divider-strong);">?</span></div><span class="text-[12.5px] flex items-center gap-1.5 tabular" style="color: var(--text-1);"><span class="w-[5px] h-[5px] rounded-full" style="background: var(--success-dot);"></span><span>0 警告</span></span><span class="text-[11px]" style="color: var(--text-3);">无后台观察标</span></div>
+                <div class="px-4 py-2.5 flex flex-col gap-0.5" style="border-right: 1px solid var(--divider);"><div class="flex items-center justify-between text-[11px]" style="color: var(--text-3);"><span>实名 KYC</span><span class="w-[13.5px] h-[13.5px] rounded-full inline-grid place-items-center text-[9px]" style="border: 1px solid var(--divider-strong);">?</span></div><span class="text-[12.5px] flex items-center gap-1.5" style="color: var(--text-1);"><span class="w-[5px] h-[5px] rounded-full" style="background: var(--success-dot);"></span><span>已通过</span></span><span class="text-[11px]" style="color: var(--text-3);">Persona 实名 · 抗误杀 +5</span></div>
+                <div class="px-4 py-2.5 flex flex-col gap-0.5"><div class="flex items-center justify-between text-[11px]" style="color: var(--text-3);"><span>风控门户</span><span class="w-[13.5px] h-[13.5px] rounded-full inline-grid place-items-center text-[9px]" style="border: 1px solid var(--divider-strong);">?</span></div><span class="text-[12.5px] flex items-center gap-1.5" style="color: var(--text-1);"><span class="w-[5px] h-[5px] rounded-full" style="background: var(--success-dot);"></span><span>正常放行</span></span><span class="text-[11px]" style="color: var(--text-3);">Portal 无挂起</span></div>
+              </div>
+            </div>
+
+            <!-- 区块一 -->
+            <div class="flex flex-col gap-2 shrink-0">
+              <div class="flex items-center justify-between px-0.5"><span class="text-[11.5px]" style="color: var(--text-2);">一、行为自查预警</span><span class="text-[11px]" style="color: var(--text-3);">避开高危操作习惯</span></div>
+              <div id="part-1-list" class="c-card"></div>
+            </div>
+
+            <!-- 区块二 -->
+            <div class="flex flex-col gap-2 shrink-0">
+              <div class="flex items-center justify-between px-0.5"><span class="text-[11.5px]" style="color: var(--text-2);">二、本机防御与修复</span><span class="text-[11px]" style="color: var(--text-3);">检出隐患可直接修复</span></div>
+              <div id="part-2-list" class="c-card"></div>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    const ICONS = {
+      clock: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.8" fill="currentColor" fill-opacity="0.06"/><path d="M12 7.2V12l3.2 1.9"/></svg>`,
+      pulse: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h3.5l2.4-6.8 4.2 13.6 2.5-6.8H21"/></svg>`,
+      globe: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.8" fill="currentColor" fill-opacity="0.05"/><path d="M12 3.2a13.2 13.2 0 0 0 0 17.6 13.2 13.2 0 0 0 0-17.6"/><path d="M3.4 12h17.2"/></svg>`,
+      users: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="9.2" cy="7.8" r="3.4" fill="currentColor" fill-opacity="0.05"/><path d="M3.2 19.6c.7-3 3-4.6 6-4.6s5.3 1.6 6 4.6"/><path d="M16 5.2a3 3 0 0 1 0 5.6M20.8 19.6c-.4-2-1.6-3.4-3.4-4"/></svg>`,
+      link: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.2 13.8a4.5 4.5 0 0 0 6.8.5l2.7-2.7a4.5 4.5 0 0 0-6.4-6.4L11.8 6.7"/><path d="M13.8 10.2a4.5 4.5 0 0 0-6.8-.5l-2.7 2.7a4.5 4.5 0 0 0 6.4 6.4l1.5-1.5"/></svg>`,
+      shield: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2l7.4 2.9v5.2c0 4.6-3.1 8.2-7.4 9.7-4.3-1.5-7.4-5.1-7.4-9.7V6.1L12 3.2Z" fill="currentColor" fill-opacity="0.05"/></svg>`,
+      eyeoff: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.4 6.2A9 9 0 0 1 12 6c5.4 0 9 6 9 6a16 16 0 0 1-2.9 3.6M6.5 8.2A15.8 15.8 0 0 0 3 12s3.6 6 9 6c1.4 0 2.7-.3 3.9-.9"/><line x1="3.2" y1="3.2" x2="20.8" y2="20.8"/></svg>`
+    };
+
+    const P1 = [
+      { id: "kyc_window", icon: "clock", isWarn: true, tag: "经验", dot: "var(--warn-exp-dot)", title: "新号与 KYC 观察期", sub: "注册 85 天 · 订阅 40 天 · 过 KYC 61h（观察期内）· 0 次套餐剧变", pill: "高敏观察", pillCls: "st-warn", metrics: [{ k: "KYC 完成距今", v: "61 小时（建议满 72h）", warn: true }, { k: "账号生命周期", v: "注册 85 天 · 订阅 40 天" }, { k: "套餐升降剧变", v: "0 次异常记录" }], note: "建议在过 KYC 后 72 小时观察期内固定单一出口节点与自然对话频率，避免突然跨洲切线或高并发任务。", action: "查看观察期建议" },
+      { id: "rhythm", icon: "pulse", isWarn: false, tag: "红线", dot: "var(--danger-dot)", title: "自动化与交互节律", sub: "无跨夜机刷 · 子代理 0% · 活跃定时 0（历史 10 个不计）· 0 次 429", pill: "节律正常", pillCls: "st-ok", metrics: [{ k: "跨夜机刷循环", v: "0 次异常" }, { k: "子代理与定时", v: "子代理 0% · 活跃定时 0" }, { k: "429 频率限流", v: "近 24h 0 次命中" }], note: "交互节律完全符合正常人类使用特征，历史留存定时任务已排除在风控风险外。", action: null }
+    ];
+
+    const P2 = [
+      { id: "geo_match", icon: "globe", isWarn: false, tag: "红线", dot: "var(--danger-dot)", title: "归属地与出口一致", sub: "注册属地 US · 当前出口 US (TPE) 同区一致", pill: "同区一致", pillCls: "st-ok", metrics: [{ k: "账号注册属地", v: "US（云端实测）" }, { k: "当前锁定出口", v: "US · 140.235.xx.xx (TPE)" }, { k: "24h 落地漂移", v: "0 次跨区漂移" }], note: "账号注册属地与当前代理落地同区稳定一致，无需切换节点。", action: "前往节点流量" },
+      { id: "single_acct", icon: "users", isWarn: false, tag: "红线", dot: "var(--danger-dot)", title: "单号与设备纯净", sub: "仅桌面端单号（jaso***11@gmail.com）· CLI 已清空 · 无残留", pill: "单端纯净", pillCls: "st-ok", metrics: [{ k: "桌面端主账号", v: "jaso***11@gmail.com" }, { k: "CLI 凭据状态", v: "已清空 · 无混登" }, { k: "绑定组织基线", v: "a4722ea6 · 0 次跨号冲突" }], note: "已锁定本机唯一绑定主号，未检出历史封号残留或双端混登竞态；换号时支持透明分项备份清理。", action: "打开分项清理清单" },
+      { id: "api_ep", icon: "link", isWarn: false, tag: "红线", dot: "var(--danger-dot)", title: "官方原生 API 端点", sub: "未检出反代或 BASE_URL 改写 · 直连官方原生端点", pill: "原生端点", pillCls: "st-ok", metrics: [{ k: "CLI settings.json", v: "官方原生（未改写）" }, { k: "系统环境变量", v: "ANTHROPIC_BASE_URL 未设置" }], note: "消费级订阅账号保持直连官方原生端点，避免第三方反代导致指纹异常。", action: null },
+      { id: "clash_403", icon: "shield", isWarn: false, tag: "防护", dot: "var(--warn-exp-dot)", title: "断连防漏与 403 防护", sub: "TUN 接管在线 · 5 重防漏与盯防就绪 · 0 次 Cookie 403", pill: "防护就绪", pillCls: "st-ok", metrics: [{ k: "代理接管", v: "Clash TUN (Meta) 在线" }, { k: "防漏链状态", v: "5/5 就绪 · 防复活盯防可用" }, { k: "断连 Cookie 403", v: "近 24h 0 次触发" }], note: "全链路断连熔断已处于待命状态，代理异常掉线时可毫秒级阻断裸连回传。", action: null },
+      { id: "telemetry", icon: "eyeoff", isWarn: false, tag: "隐私", dot: "var(--text-3)", mutedTag: true, title: "CLI 隐私降噪与缓存", sub: "4/4 官方降噪开启（已关非必要遥测与报错）· 缓存 0 B", pill: "降噪已全", pillCls: "st-ok", metrics: [{ k: "官方降噪变量", v: "4 / 4 项均已开启" }, { k: "待传遥测目录", v: "0 文件 · 0 B" }], note: "仅作用于 Claude CLI 遥测与非必要上报，绝不触碰聊天记录、凭据与 MCP 配置。", action: null }
+    ];
+
+    let openId = "single_acct";
+
+    function renderGroupList(containerId, list) {
+      document.getElementById(containerId).innerHTML = list.map(item => {
+        const isOpen = item.id === openId;
+        const cols = item.metrics.length === 2 ? "grid-cols-2" : "grid-cols-3";
+        return `
+          <div class="c-audit-group ${isOpen ? "is-open" : ""}" data-gid="${item.id}">
+            <div class="c-audit-row">
+              <div class="flex items-center gap-3 min-w-0 flex-1">
+                <div class="c-icon-box ${item.isWarn ? "is-warn" : ""}">${ICONS[item.icon]}</div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-2">
+                    <span class="c-prefix-tag" ${item.mutedTag ? `style="color: var(--text-3);"` : ""}>
+                      <span class="w-[4px] h-[4px] rounded-full shrink-0" style="background: ${item.dot};"></span>
+                      <span>${item.tag}</span>
+                    </span>
+                    <span class="c-row-title truncate">${item.title}</span>
+                  </div>
+                  <div class="c-row-sub truncate tabular">${item.sub}</div>
+                </div>
+              </div>
+              <div class="flex items-center gap-2.5 shrink-0">
+                <span class="c-status-pill ${item.pillCls}">${item.pill}</span>
+                <svg class="c-chev w-3 h-3 transition-all duration-150" style="color: var(--text-4);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              </div>
+            </div>
+
+            <div class="c-expand">
+              <div>
+                <div class="px-4 pb-3.5 pl-[56px] space-y-2.5">
+                  <div class="grid ${cols} gap-2.5">
+                    ${item.metrics.map(m => `
+                      <div class="c-sub-metric">
+                        <div class="text-[10.5px]" style="color: var(--text-3);">${m.k}</div>
+                        <div class="mt-0.5 text-[11.5px] tabular truncate" style="color: ${m.warn ? "var(--warning-fg)" : "var(--text-1)"}; font-weight: ${m.warn ? "500" : "400"};">${m.v}</div>
+                      </div>
+                    `).join("")}
+                  </div>
+                  <div class="flex items-center justify-between gap-4 pt-0.5">
+                    <p class="m-0 text-[11.5px] leading-[1.55]" style="color: var(--text-2);">${item.note}</p>
+                    ${item.action ? `<button type="button" class="c-inline-btn shrink-0">${item.action} →</button>` : ""}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function renderAll() {
+      renderGroupList("part-1-list", P1);
+      renderGroupList("part-2-list", P2);
+      document.querySelectorAll("[data-gid]").forEach(el => {
+        el.querySelector(".c-audit-row").addEventListener("click", () => {
+          const gid = el.dataset.gid;
+          openId = openId === gid ? null : gid;
+          renderAll();
+        });
+      });
+    }
+
+    const root = document.documentElement;
+    function setTheme(theme) {
+      root.setAttribute("data-theme", theme);
+      document.getElementById("theme-switch").dataset.pos = theme === "dark" ? "1" : "0";
+      document.getElementById("btn-theme-light").style.color = theme === "light" ? "var(--text-strong)" : "var(--text-3)";
+      document.getElementById("btn-theme-light").style.fontWeight = theme === "light" ? "500" : "400";
+      document.getElementById("btn-theme-dark").style.color = theme === "dark" ? "var(--text-strong)" : "var(--text-3)";
+      document.getElementById("btn-theme-dark").style.fontWeight = theme === "dark" ? "500" : "400";
+      document.getElementById("theme-ico-svg").innerHTML = theme === "dark"
+        ? `<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>`
+        : `<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>`;
+    }
+    document.getElementById("btn-theme-light").addEventListener("click", () => setTheme("light"));
+    document.getElementById("btn-theme-dark").addEventListener("click", () => setTheme("dark"));
+    document.getElementById("top-btn-theme").addEventListener("click", () => setTheme(root.getAttribute("data-theme") === "light" ? "dark" : "light"));
+
+    renderAll();
+  </script>
+</body>
+</html>

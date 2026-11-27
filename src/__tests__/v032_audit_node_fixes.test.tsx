@@ -292,14 +292,15 @@ describe("v0.3.2 节点悬浮解释、运行中 B 级警示、严防漏链与全
     expect(screen.getByTestId("node-hover-tooltip")).toHaveTextContent("标记风险 · 不禁用");
     fireEvent.mouseLeave(agyLimitChip);
 
-    // 隔离区悬浮解释 + 单行重测
+    // 切换至「隔离区」胶囊查看悬浮解释 + 按类型批量重测（重测超时类 / 重测隔离区）
+    fireEvent.click(screen.getByTestId("tab-nodes-quarantine"));
     const timeoutChip = screen.getByText("Claude 超时");
     fireEvent.mouseEnter(timeoutChip);
     expect(screen.getByTestId("node-hover-tooltip")).toHaveTextContent("TLS handshake timeout");
     fireEvent.mouseLeave(timeoutChip);
 
-    fireEvent.click(screen.getByTestId("btn-reprobe-node-🇸🇬新加坡1"));
-    expect(startAuditSpy).toHaveBeenCalledWith(false, "🇸🇬新加坡1");
+    fireEvent.click(screen.getByTestId("btn-retest-timeout"));
+    expect(startAuditSpy).toHaveBeenCalledWith(true, undefined, ["🇸🇬新加坡1"]);
   });
 
   it("守卫配置离线/检查更新失败时绝不陷入无限重试死循环（最多自动静默检查 1 次）", async () => {

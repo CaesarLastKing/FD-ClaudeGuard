@@ -102,16 +102,13 @@ describe("FD Claude Guard M2 真实探针与一键修复闭环", () => {
     fireEvent.click(screen.getByRole("button", { name: /节点流量/ }));
 
     expect(await screen.findByText("US-LA-Static-02")).toBeInTheDocument();
-    expect(
-      screen.getAllByText((_, el) => el?.tagName === "DIV" && el.textContent?.replace(/\s+/g, "") === "3个")
-        .length
-    ).toBeGreaterThanOrEqual(1);
+    expect(screen.getByTestId("nodes-usable-count")).toHaveTextContent("3");
 
     // 同区切换（US -> US）
     const switchBtns = screen.getAllByRole("button", { name: "切换锁定" });
     fireEvent.click(switchBtns[0]);
     expect(await screen.findByRole("dialog", { name: "节点切换风险评估" })).toBeInTheDocument();
-    expect(screen.getByText("同区热备")).toBeInTheDocument();
+    expect(screen.getAllByText("同区热备").length).toBeGreaterThanOrEqual(1);
 
     // 关闭弹窗后测试跨洲切换（US -> JP）
     fireEvent.click(screen.getByRole("button", { name: "关闭弹窗" }));

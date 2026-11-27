@@ -21,8 +21,8 @@ interface CheckIconProps {
   size?: number;
 }
 
-export function CheckIcon({ name, size = 16 }: CheckIconProps) {
-  const props = { size, strokeWidth: 1.75 };
+export function CheckIcon({ name, size = 14.5 }: CheckIconProps) {
+  const props = { size, strokeWidth: 1.45 };
   switch (name) {
     case "proxy":
       return <Server {...props} />;

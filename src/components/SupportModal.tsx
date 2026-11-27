@@ -5,7 +5,7 @@ import { useGuardStore } from "@/stores/guardStore";
 export const OFFICIAL_SUPPORT_QQ = "2568515327";
 
 /**
- * 开源交流与技术支持弹窗（由主窗口顶栏纯图标耳机按钮唤起）
+ * 开源交流与技术支持弹窗（v3.0 双主题轻遮罩/轻投影规范）
  */
 export function SupportModal() {
   const open = useGuardStore((s) => s.supportModalOpen);
@@ -65,8 +65,8 @@ export function SupportModal() {
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(0, 0, 0, 0.62)",
-        backdropFilter: "blur(5px)",
+        background: "var(--modal-backdrop)",
+        backdropFilter: "blur(4px)",
         zIndex: 160,
         display: "flex",
         alignItems: "center",
@@ -79,9 +79,9 @@ export function SupportModal() {
           width: 496,
           maxWidth: "96vw",
           background: "var(--bg-card)",
-          border: "1px solid var(--border-strong)",
-          borderRadius: 14,
-          boxShadow: "0 28px 72px rgba(0, 0, 0, 0.68), 0 0 0 1px rgba(255, 255, 255, 0.03) inset",
+          border: "1px solid var(--border-card)",
+          borderRadius: 13,
+          boxShadow: "var(--shadow-modal)",
           display: "flex",
           flexDirection: "column",
           overflow: "hidden",
@@ -100,25 +100,26 @@ export function SupportModal() {
           <div style={{ display: "flex", alignItems: "flex-start", gap: 12, minWidth: 0 }}>
             <div
               style={{
-                width: 36,
-                height: 36,
-                borderRadius: 10,
+                width: 34,
+                height: 34,
+                borderRadius: 9,
                 background: "var(--primary-soft)",
+                border: "1px solid var(--primary-border)",
                 color: "var(--primary)",
                 display: "grid",
                 placeItems: "center",
                 flexShrink: 0,
               }}
             >
-              <Headphones size={17} strokeWidth={1.9} />
+              <Headphones size={16} strokeWidth={1.5} />
             </div>
             <div style={{ minWidth: 0 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <h3
                   style={{
-                    fontSize: 15.5,
-                    fontWeight: 600,
-                    color: "var(--text-1)",
+                    fontSize: 15,
+                    fontWeight: 500,
+                    color: "var(--text-strong)",
                     letterSpacing: "-0.01em",
                     margin: 0,
                   }}
@@ -136,21 +137,10 @@ export function SupportModal() {
           <button
             type="button"
             aria-label="关闭弹窗"
+            className="modal-close-btn"
             onClick={() => setOpen(false)}
-            style={{
-              width: 28,
-              height: 28,
-              borderRadius: 7,
-              border: "none",
-              background: "transparent",
-              color: "var(--text-3)",
-              cursor: "pointer",
-              display: "grid",
-              placeItems: "center",
-              flexShrink: 0,
-            }}
           >
-            <X size={15} strokeWidth={1.9} />
+            <X size={15} strokeWidth={1.5} />
           </button>
         </div>
 
@@ -159,7 +149,7 @@ export function SupportModal() {
           <div className="qq-card">
             <div>
               <div style={{ fontSize: 11.5, color: "var(--text-3)" }}>开发者交流 QQ</div>
-              <div className="qq-num" data-testid="support-qq-number">
+              <div className="qq-num tabular" data-testid="support-qq-number">
                 {OFFICIAL_SUPPORT_QQ}
               </div>
             </div>
@@ -169,20 +159,20 @@ export function SupportModal() {
               className="guard-btn guard-btn-primary guard-btn-sm"
               onClick={() => void handleCopyQq()}
             >
-              {copied ? <Check size={13.5} strokeWidth={2} /> : <Copy size={13.5} strokeWidth={1.9} />}
+              {copied ? <Check size={13.5} strokeWidth={1.8} /> : <Copy size={13.5} strokeWidth={1.5} />}
               <span>{copied ? "已复制 QQ 号" : "复制 QQ 号"}</span>
             </button>
           </div>
 
           <div
             style={{
-              borderRadius: 10,
-              border: "1px solid var(--border)",
-              background: "rgba(128, 128, 140, 0.03)",
+              borderRadius: 9,
+              border: "1px solid var(--divider)",
+              background: "var(--bg-card-band)",
               padding: "10px 14px",
               fontSize: 12,
               color: "var(--text-2)",
-              lineHeight: 1.6,
+              lineHeight: 1.62,
             }}
           >
             <div>• 添加好友时请备注「FD 启动器」，方便快速响应与协助。</div>
@@ -194,8 +184,8 @@ export function SupportModal() {
         <div
           style={{
             padding: "12px 20px",
-            borderTop: "1px solid var(--border)",
-            background: "rgba(128, 128, 140, 0.03)",
+            borderTop: "1px solid var(--divider)",
+            background: "var(--bg-card-band)",
             display: "flex",
             alignItems: "center",
             justifyContent: "flex-end",

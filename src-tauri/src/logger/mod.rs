@@ -73,14 +73,31 @@ pub fn log_event(
     message: impl AsRef<str>,
     meta: Option<Value>,
 ) {
-    let dir = guard_logs_dir();
-    let _ = write_structured_to_dir(&dir, level, module, event, duration_ms, message.as_ref(), meta);
+    // 单元测试环境下不污染宿主机真实运行日志目录（显式路径单测请直接调用 write_structured_to_dir）
+    #[cfg(test)]
+    {
+        let _ = (level, module, event, duration_ms, message.as_ref(), meta);
+        return;
+    }
+    #[cfg(not(test))]
+    {
+        let dir = guard_logs_dir();
+        let _ = write_structured_to_dir(&dir, level, module, event, duration_ms, message.as_ref(), meta);
+    }
 }
 
 /// 便捷日志写入（自动生成 event="log"）
 pub fn write_log(level: &str, module: &str, message: &str) {
-    let dir = guard_logs_dir();
-    let _ = write_structured_to_dir(&dir, level, module, "log", None, message, None);
+    #[cfg(test)]
+    {
+        let _ = (level, module, message);
+        return;
+    }
+    #[cfg(not(test))]
+    {
+        let dir = guard_logs_dir();
+        let _ = write_structured_to_dir(&dir, level, module, "log", None, message, None);
+    }
 }
 
 pub fn log_info(module: &str, message: impl AsRef<str>) {
