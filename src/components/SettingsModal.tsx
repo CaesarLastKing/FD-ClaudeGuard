@@ -212,7 +212,7 @@ export function SettingsModal() {
 
   const busy = busyKey !== null;
   const appVersionLabel =
-    typeof __APP_VERSION__ === "string" && __APP_VERSION__ ? `v${__APP_VERSION__}` : "v0.4.2";
+    typeof __APP_VERSION__ === "string" && __APP_VERSION__ ? `v${__APP_VERSION__}` : "v0.4.3";
 
   const showPopover = (el: HTMLElement, title: string, body: string) => {
     const rect = el.getBoundingClientRect();

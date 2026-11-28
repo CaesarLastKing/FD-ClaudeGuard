@@ -4853,16 +4853,28 @@ fn spawn_delayed_silent_update_check(app: AppHandle, delay_secs: u64) {
 }
 
 /// 智能更新后台守护调度器：
-/// 1. 启动后延迟 3 分钟首次静默自检（此时 Clash 代理已探测就绪，且受 4h 持久化节流约束）；
-/// 2. 常驻期间每 4 小时周期静默自检；
-/// 3. 监测代理从离线恢复在线后延迟 60 秒补偿自检（仍受 4h 持久化节流约束）。
+/// 1. 每次进程冷启动/重启后，等待首检（19 项真实探针）完成即立刻执行 1 次真实联网检查（穿透旧会话 4h 磁盘节流，不再死锁）；
+/// 2. 首次检查结束后，常驻运行期间严格按 4 小时频率周期静默巡检；
+/// 3. 监测代理从离线恢复在线后延迟 60 秒补偿自检（受 4h 节流约束）。
 fn spawn_smart_update_scheduler(app: AppHandle) {
     let startup_app = app.clone();
     tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(
-            crate::updater::UPDATE_STARTUP_DELAY_SECS,
-        ))
-        .await;
+        // 等待冷启动首检（19 项真实探针）完成，确保 Clash 代理端口已探测就绪；最长兜底 30s
+        let wait_deadline = Instant::now()
+            + Duration::from_secs(crate::updater::UPDATE_STARTUP_PREFLIGHT_WAIT_CAP_SECS);
+        while Instant::now() < wait_deadline {
+            let done = startup_app
+                .try_state::<AppState>()
+                .map(|st| st.initial_preflight_done.load(Ordering::Acquire))
+                .unwrap_or(false);
+            if done {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+
+        // 首检结束后的首次检查：force = true，确保重启打开即可正常探测线上新版本（不被旧进程 4h 磁盘缓存死锁）
+        let mut is_startup_check = true;
         loop {
             let clash_port = startup_app.try_state::<AppState>().and_then(|st| {
                 st.snapshot
@@ -4870,7 +4882,10 @@ fn spawn_smart_update_scheduler(app: AppHandle) {
                     .ok()
                     .and_then(|s| if s.clash_online { Some(s.clash_port) } else { None })
             });
-            let _ = crate::updater::check_for_app_update(&startup_app, clash_port, false).await;
+            let _ =
+                crate::updater::check_for_app_update(&startup_app, clash_port, is_startup_check)
+                    .await;
+            is_startup_check = false;
             tokio::time::sleep(Duration::from_millis(
                 crate::updater::UPDATE_CHECK_INTERVAL_MS as u64,
             ))

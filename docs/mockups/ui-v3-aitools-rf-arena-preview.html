@@ -1,0 +1,2329 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FD Claude 安全启动器 · AI 工具箱 · 第一幕优化 + 第二幕试玩</title>
+  <style>
+    @font-face {
+      font-family: "FD-Fine";
+      src:
+        local("SF Pro Text Light"),
+        local("Segoe UI Variable Text Semilight"),
+        local("Noto Sans SC DemiLight"),
+        local("HarmonyOS Sans SC Light"),
+        local("HarmonyOS Sans SC");
+      font-weight: 400;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: "FD-Fine";
+      src:
+        local("SF Pro Text"),
+        local("Segoe UI Variable Text"),
+        local("Noto Sans SC"),
+        local("HarmonyOS Sans SC");
+      font-weight: 500;
+      font-style: normal;
+    }
+
+    :root {
+      --font-sans: "FD-Fine", "SF Pro Text", "Segoe UI Variable Text", "Noto Sans SC", "HarmonyOS Sans SC", -apple-system, sans-serif;
+      --r-win: 11px;
+      --r-card: 10px;
+      --r-btn: 7px;
+      --ease: cubic-bezier(0.22, 1, 0.36, 1);
+      --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    [data-theme="dark"] {
+      --page-backdrop: #070709;
+      --bg-chrome: #111115;
+      --bg-sidebar: #111115;
+      --bg-header: #0f0f13;
+      --bg-canvas: #0c0c0f;
+      --bg-card: #15151a;
+      --bg-subtle: #1d1d24;
+      --bg-nav-active: #1b1b22;
+      --nav-active-fg: #c9ced8;
+      --border-card: rgba(255, 255, 255, 0.082);
+      --border-card-hover: rgba(255, 255, 255, 0.16);
+      --divider: rgba(255, 255, 255, 0.056);
+      --divider-strong: rgba(255, 255, 255, 0.105);
+      --text-strong: #c9ced8;
+      --text-1: #b4bac6;
+      --text-2: #7d8494;
+      --text-3: #646c7c;
+      --text-4: #4a5160;
+      --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.24);
+      --shadow-btn: 0 1px 2px rgba(0, 0, 0, 0.22);
+      --shadow-window: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 28px 72px -12px rgba(0, 0, 0, 0.85);
+      --modal-backdrop: rgba(8, 9, 13, 0.72);
+      --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.58), 0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+      --primary: #3b93fa;
+      --primary-hi: #55a3ff;
+      --primary-soft: rgba(59, 147, 250, 0.11);
+      --primary-border: rgba(59, 147, 250, 0.26);
+      --ok-dot: #449c69;
+      --ok-fg: #4f9b70;
+      --ok-bg: rgba(74, 158, 108, 0.08);
+      --ok-border: rgba(74, 158, 108, 0.22);
+      --bad-fg: #d97570;
+      --bad-bg: rgba(196, 102, 97, 0.12);
+      --bad-border: rgba(196, 102, 97, 0.28);
+      --warning-fg: #e2a44c;
+      --warning-soft: rgba(217, 155, 56, 0.11);
+      --warning-border: rgba(217, 155, 56, 0.3);
+      --hold-btn-bg: rgba(59, 147, 250, 0.052);
+      --hold-btn-border: rgba(59, 147, 250, 0.16);
+      --hold-btn-fg: #93c5fd;
+      --arena-bg: #101218;
+      --arena-hud-bg: rgba(18, 20, 27, 0.88);
+      --slot-bg: #171820;
+    }
+
+    [data-theme="light"] {
+      --page-backdrop: #e6e9f0;
+      --bg-chrome: #ffffff;
+      --bg-sidebar: #ffffff;
+      --bg-header: #ffffff;
+      --bg-canvas: #f3f4f8;
+      --bg-card: #ffffff;
+      --bg-subtle: #eff1f5;
+      --bg-nav-active: #ebf3ff;
+      --nav-active-fg: #1d4ed8;
+      --border-card: rgba(15, 23, 42, 0.08);
+      --border-card-hover: rgba(15, 23, 42, 0.16);
+      --divider: rgba(15, 23, 42, 0.068);
+      --divider-strong: rgba(15, 23, 42, 0.135);
+      --text-strong: #111827;
+      --text-1: #1f2937;
+      --text-2: #4b5563;
+      --text-3: #6b7280;
+      --text-4: #9ca3af;
+      --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.036), 0 6px 16px -6px rgba(15, 23, 42, 0.056);
+      --shadow-btn: 0 1px 2px rgba(15, 23, 42, 0.045);
+      --shadow-window: 0 0 0 1px rgba(15, 23, 42, 0.08), 0 24px 60px -14px rgba(15, 23, 42, 0.16);
+      --modal-backdrop: rgba(241, 245, 249, 0.82);
+      --shadow-modal: 0 22px 56px -8px rgba(15, 23, 42, 0.18), 0 2px 10px rgba(15, 23, 42, 0.06);
+      --primary: #2563eb;
+      --primary-hi: #1d4ed8;
+      --primary-soft: rgba(37, 99, 235, 0.075);
+      --primary-border: rgba(37, 99, 235, 0.22);
+      --ok-dot: #10b981;
+      --ok-fg: #059669;
+      --ok-bg: #ecfdf5;
+      --ok-border: #a7f3d0;
+      --bad-fg: #be123c;
+      --bad-bg: #fff1f2;
+      --bad-border: #fecdd3;
+      --warning-fg: #c2410c;
+      --warning-soft: #fff7ed;
+      --warning-border: #fed7aa;
+      --hold-btn-bg: rgba(37, 99, 235, 0.036);
+      --hold-btn-border: rgba(37, 99, 235, 0.15);
+      --hold-btn-fg: #3b82f6;
+      --arena-bg: #f7f8fc;
+      --arena-hud-bg: rgba(255, 255, 255, 0.92);
+      --slot-bg: #ffffff;
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0; height: 100%; overflow: hidden;
+      font-family: var(--font-sans); font-weight: 400; font-synthesis: none;
+      background: var(--page-backdrop); color: var(--text-1);
+      -webkit-font-smoothing: antialiased; user-select: none;
+    }
+    .tabular { font-variant-numeric: tabular-nums; }
+
+    .preview-stage {
+      height: 100vh; padding: 10px 18px 14px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+      overflow: hidden;
+    }
+    .preview-bar {
+      width: min(1320px, 100%); padding: 6px 12px; border-radius: 9px;
+      background: var(--bg-card); border: 1px solid var(--border-card); box-shadow: var(--shadow-card);
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      font-size: 11px; flex-shrink: 0;
+    }
+    .preview-bar-group { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+    .preview-label { color: var(--text-3); font-size: 11px; }
+    .preview-pill-btn {
+      height: 24px; padding: 0 8.5px; border-radius: 6px;
+      border: 1px solid var(--divider-strong); background: var(--bg-subtle); color: var(--text-2);
+      font-family: var(--font-sans); font-size: 11px; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
+      transition: all 140ms var(--ease);
+    }
+    .preview-pill-btn:hover { color: var(--text-strong); border-color: var(--border-card-hover); }
+    .preview-pill-btn.active {
+      background: var(--primary-soft); color: var(--primary); border-color: var(--primary-border); font-weight: 500;
+    }
+
+    .app-window {
+      width: min(1320px, 100%); flex: 1; max-height: 826px; min-height: 580px;
+      border-radius: var(--r-win); background: var(--bg-canvas);
+      box-shadow: var(--shadow-window); border: 1px solid var(--divider);
+      display: flex; flex-direction: column; overflow: hidden; position: relative;
+    }
+
+    .window-chrome {
+      height: 38px; flex-shrink: 0; background: var(--bg-chrome);
+      border-bottom: 1px solid var(--divider);
+      display: flex; align-items: center; justify-content: space-between; padding-left: 15px;
+    }
+    .chrome-brand { display: flex; align-items: center; gap: 8px; }
+    .brand-icon-badge {
+      width: 17px; height: 17px; border-radius: 4px;
+      background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+      color: #ffffff; display: grid; place-items: center; flex-shrink: 0;
+    }
+    .brand-title { font-size: 12.5px; color: var(--text-1); white-space: nowrap; }
+    .brand-subtitle { color: var(--text-3); font-size: 11px; white-space: nowrap; }
+    .chrome-right { display: flex; align-items: center; height: 100%; }
+    .chrome-toggles { display: flex; align-items: center; gap: 6px; padding-right: 10px; }
+    .chrome-btn {
+      color: var(--text-2); border: none; background: transparent; cursor: pointer;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .chrome-btn:hover { background: var(--bg-subtle); color: var(--text-strong); }
+    .chrome-ico-btn { width: 28px; height: 25px; border-radius: 6px; color: var(--text-3); }
+    .chrome-ico-btn.is-on { color: var(--text-1); }
+    .chrome-sep { width: 1px; height: 13px; background: var(--divider-strong); margin-right: 4px; }
+    .win-btn { width: 38px; height: 100%; }
+    .win-close:hover { background: #dc2626 !important; color: #ffffff !important; }
+
+    .app-body { flex: 1; min-height: 0; display: flex; }
+
+    .sidebar {
+      width: clamp(214px, 17vw, 238px); flex-shrink: 0; background: var(--bg-sidebar);
+      border-right: 1px solid var(--divider); padding: 12px;
+      display: flex; flex-direction: column; justify-content: space-between; min-height: 0;
+    }
+    .sidebar-nav { display: flex; flex-direction: column; gap: 3px; }
+    .c-nav-item {
+      height: 35px; padding: 0 11px; border: none; border-radius: var(--r-btn);
+      background: transparent; color: var(--text-2); font-family: var(--font-sans);
+      font-size: 12.5px; display: flex; align-items: center; justify-content: space-between;
+      width: 100%; cursor: pointer;
+    }
+    .c-nav-item:hover, .c-nav-item.active { background: var(--bg-nav-active); color: var(--nav-active-fg); }
+    .c-nav-item.active { font-weight: 500; }
+    .c-nav-left { display: flex; align-items: center; gap: 9px; }
+    .nav-badge {
+      font-size: 10px; min-width: 17px; height: 17px; padding: 0 5px; border-radius: 4.5px;
+      display: inline-flex; align-items: center; justify-content: center;
+      background: var(--ok-bg); color: var(--ok-fg);
+    }
+    .sidebar-bottom { display: flex; flex-direction: column; gap: 9px; margin-top: auto; }
+    .guard-card {
+      background: var(--bg-card); border: 1px solid var(--border-card);
+      border-radius: var(--r-card); box-shadow: var(--shadow-card); overflow: hidden;
+    }
+    .promo-mini-card { padding: 8.5px 10.5px; display: flex; flex-direction: column; gap: 3.5px; cursor: pointer; }
+    .promo-line-1 { display: flex; align-items: center; gap: 6px; }
+    .promo-tag {
+      font-size: 10px; font-weight: 500; padding: 2px 5.5px; border-radius: 4.5px;
+      background: var(--bg-subtle); color: var(--text-2); border: 1px solid var(--divider-strong);
+    }
+    .promo-title { font-size: 12px; font-weight: 500; color: var(--text-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .promo-desc { font-size: 10.5px; color: var(--text-3); }
+    .side-card { padding: 9.5px 11.5px; display: flex; flex-direction: column; gap: 5px; }
+    .status-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .status-label { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-1); }
+    .guard-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok-dot); display: inline-block; }
+    .hold-btn {
+      width: 100%; height: 27px; border-radius: 6px;
+      background: var(--hold-btn-bg); border: 1px solid var(--hold-btn-border);
+      color: var(--hold-btn-fg); font-family: var(--font-sans); font-size: 11px;
+      display: inline-flex; align-items: center; justify-content: center; gap: 5px; cursor: pointer;
+    }
+    .sidebar-settings-wrap { margin-top: -1px; padding-top: 8px; border-top: 1px solid var(--divider); }
+
+    .main-area {
+      flex: 1; min-width: 0; min-height: 0;
+      display: flex; flex-direction: column; background: var(--bg-canvas);
+    }
+    .page-hd {
+      height: 54px; padding: 0 20px; background: var(--bg-header);
+      border-bottom: 1px solid var(--divider);
+      display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0;
+    }
+    .page-hd-left { display: flex; align-items: baseline; gap: 11px; min-width: 0; }
+    .page-title { margin: 0; font-size: 16px; font-weight: 500; color: var(--text-strong); white-space: nowrap; }
+    .page-sub { font-size: 11.5px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .page-hd-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+    .hud-pill {
+      height: 27px; padding: 0 10px; border-radius: 7px;
+      background: var(--bg-card); border: 1px solid var(--border-card); box-shadow: var(--shadow-btn);
+      font-size: 11.5px; color: var(--text-2); display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+    }
+    .hud-pill strong { color: var(--warning-fg); font-weight: 500; }
+    .icon-btn-sm {
+      width: 28px; height: 28px; border-radius: 7px; border: 1px solid var(--border-card);
+      background: var(--bg-card); color: var(--text-2); display: inline-flex; align-items: center; justify-content: center;
+      cursor: pointer; box-shadow: var(--shadow-btn);
+    }
+    .icon-btn-sm.is-muted { color: var(--text-4); }
+
+    /* 竞技场主画布 */
+    .arena-workspace {
+      flex: 1; min-height: 0; padding: 10px 16px 12px;
+      display: flex; flex-direction: column; gap: 9px;
+    }
+    .arena-frame {
+      flex: 1; min-height: 0; position: relative;
+      border-radius: 12px; border: 1px solid var(--border-card);
+      background: var(--arena-bg); box-shadow: var(--shadow-card);
+      overflow: hidden; transition: border-color 180ms ease;
+    }
+    .arena-frame.is-kyc-debuff { border-color: rgba(245, 158, 11, 0.72); box-shadow: 0 0 22px rgba(245, 158, 11, 0.22) inset; }
+    .arena-frame.is-danger { border-color: rgba(225, 29, 72, 0.76); box-shadow: 0 0 22px rgba(225, 29, 72, 0.22) inset; }
+    .arena-frame.is-sacrifice { border-color: rgba(236, 72, 153, 0.65); box-shadow: 0 0 26px rgba(236, 72, 153, 0.16) inset; }
+
+    #arena-canvas { width: 100%; height: 100%; display: block; cursor: crosshair; touch-action: none; }
+
+    /* 顶部极简步骤与状态条 */
+    .top-hud-stack {
+      position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+      pointer-events: none; z-index: 6;
+    }
+    .act-stepper {
+      padding: 5.5px 12px; border-radius: 999px;
+      background: var(--arena-hud-bg); border: 1px solid var(--divider-strong);
+      backdrop-filter: blur(8px);
+      display: flex; align-items: center; gap: 8px; white-space: nowrap;
+      box-shadow: 0 8px 22px rgba(0, 0, 0, 0.18);
+    }
+    .act-badge {
+      padding: 1px 6.5px; border-radius: 999px; font-size: 10px; font-weight: 500;
+      background: var(--primary-soft); color: var(--primary); border: 1px solid var(--primary-border);
+    }
+    .act-step { display: inline-flex; align-items: center; gap: 4.5px; font-size: 11px; color: var(--text-3); }
+    .act-step-dot {
+      width: 15px; height: 15px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+      font-size: 9px; font-weight: 500; background: var(--bg-subtle); border: 1px solid var(--divider-strong); color: var(--text-3);
+    }
+    .act-step.is-now { color: var(--text-strong); font-weight: 500; }
+    .act-step.is-now .act-step-dot { background: var(--primary-soft); border-color: var(--primary); color: var(--primary); }
+    .act-step.is-done { color: var(--ok-fg); }
+    .act-step.is-done .act-step-dot { background: var(--ok-bg); border-color: var(--ok-border); color: var(--ok-fg); }
+    .act-sep { width: 10px; height: 1px; background: var(--divider-strong); }
+
+    /* 第二幕紧凑怒气条 + 身份验证 Debuff 告警条 */
+    .sub-hud-pill {
+      padding: 4px 11px; border-radius: 8px;
+      background: var(--arena-hud-bg); border: 1px solid var(--divider-strong);
+      display: none; align-items: center; gap: 9px; font-size: 10.5px; color: var(--text-2);
+    }
+    .sub-hud-pill.show { display: inline-flex; }
+    .sub-hud-pill.is-kyc {
+      background: rgba(180, 83, 9, 0.9); border-color: #fde68a; color: #ffffff;
+    }
+    .rage-mini-track { width: 92px; height: 5px; border-radius: 99px; background: var(--bg-subtle); overflow: hidden; }
+    .rage-mini-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #f59e0b, #ef4444); transition: width 120ms linear; }
+
+    /* 左下角角色微标 & 右下角操作提示 */
+    .hero-corner-badge {
+      position: absolute; left: 12px; bottom: 11px; z-index: 7;
+      height: 30px; padding: 0 9px 0 8px; border-radius: 8px;
+      background: var(--arena-hud-bg); border: 1px solid var(--divider-strong);
+      backdrop-filter: blur(8px); display: inline-flex; align-items: center; gap: 7px;
+      font-size: 11.5px; color: var(--text-strong);
+    }
+    .hero-corner-dot { width: 7px; height: 7px; border-radius: 50%; }
+    .hero-corner-change {
+      border: none; background: transparent; padding: 0 2px;
+      color: var(--primary); font-family: var(--font-sans); font-size: 11px; font-weight: 500; cursor: pointer;
+    }
+    .arena-mini-hint {
+      position: absolute; right: 12px; bottom: 12px; z-index: 6;
+      padding: 4px 9px; border-radius: 7px;
+      background: var(--arena-hud-bg); border: 1px solid var(--divider);
+      font-size: 10.5px; color: var(--text-3); pointer-events: none;
+      display: inline-flex; align-items: center; gap: 5px;
+    }
+    .arena-mini-hint kbd {
+      padding: 0.5px 4px; border-radius: 3.5px; background: var(--bg-subtle);
+      border: 1px solid var(--divider-strong); color: var(--text-2); font-size: 9.5px;
+    }
+
+    /* 浮层：许愿唤灵 / 1 血申诉 / 幕间结算 */
+    .arena-overlay {
+      position: absolute; inset: 0; z-index: 16;
+      background: var(--modal-backdrop); backdrop-filter: blur(5px);
+      display: none; align-items: center; justify-content: center; padding: 16px;
+    }
+    .arena-overlay.show { display: flex; }
+
+    .wish-modal-card {
+      width: min(740px, 95%); max-height: 100%; overflow-y: auto;
+      padding: 15px 17px 14px; border-radius: 12px;
+      background: var(--bg-card); border: 1px solid var(--divider-strong); box-shadow: var(--shadow-modal);
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .wish-modal-hd { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .wish-modal-title { font-size: 14px; font-weight: 500; color: var(--text-strong); margin: 0; }
+    .wish-modal-sub { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+    .wish-close-btn {
+      width: 26px; height: 26px; border-radius: 6px; border: 1px solid var(--divider);
+      background: transparent; color: var(--text-3); cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+    }
+    .wish-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; }
+    .wish-hero-card {
+      padding: 8px 9px; border-radius: 8.5px; border: 1px solid var(--border-card);
+      background: var(--bg-subtle); text-align: left; cursor: pointer;
+      display: flex; flex-direction: column; gap: 3px; font-family: var(--font-sans);
+      transition: transform 110ms var(--spring), border-color 140ms ease;
+    }
+    .wish-hero-card:hover { transform: translateY(-1.5px); border-color: var(--border-card-hover); background: var(--bg-card); }
+    .wish-hero-card.is-active { border-color: var(--primary); background: var(--primary-soft); }
+    .wish-hero-top { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+    .wish-hero-service { font-size: 11.5px; font-weight: 500; color: var(--text-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .wish-voted-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok-dot); display: none; }
+    .wish-hero-card.is-voted .wish-voted-dot { display: inline-block; }
+    .wish-hero-role { font-size: 10.5px; color: var(--text-2); }
+    .wish-color-bar { height: 2px; width: 22px; border-radius: 99px; margin-top: 2px; }
+
+    .wish-custom-row { display: flex; align-items: center; gap: 8px; padding-top: 9px; border-top: 1px solid var(--divider); }
+    .custom-input-wrap { flex: 1; position: relative; display: flex; align-items: center; }
+    .custom-wish-input {
+      width: 100%; height: 31px; padding: 0 46px 0 11px; border-radius: 7px;
+      border: 1px solid var(--divider-strong); background: var(--bg-canvas); color: var(--text-strong);
+      font-family: var(--font-sans); font-size: 11.5px; outline: none;
+    }
+    .custom-wish-count { position: absolute; right: 10px; font-size: 10px; color: var(--text-3); pointer-events: none; }
+
+    .guard-btn-primary {
+      height: 31px; padding: 0 13px; border: none; border-radius: 7px;
+      background: linear-gradient(180deg, var(--primary-hi) 0%, var(--primary) 100%);
+      color: #ffffff; font-family: var(--font-sans); font-size: 11.5px; font-weight: 500;
+      display: inline-flex; align-items: center; justify-content: center; gap: 5px; cursor: pointer; white-space: nowrap;
+    }
+    .guard-btn-flat {
+      height: 31px; padding: 0 12px; border-radius: 7px;
+      border: 1px solid var(--divider-strong); background: var(--bg-card); color: var(--text-1);
+      font-family: var(--font-sans); font-size: 11.5px; cursor: pointer;
+      display: inline-flex; align-items: center; justify-content: center; gap: 5px; white-space: nowrap;
+    }
+
+    .result-card {
+      width: min(478px, 94%); padding: 16px 18px; border-radius: 12px;
+      background: var(--bg-card); border: 1px solid var(--divider-strong); box-shadow: var(--shadow-modal);
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .result-card.is-win { border-color: var(--ok-border); }
+    .result-card.is-appeal { border-color: var(--warning-border); }
+    .result-hd { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .result-title { font-size: 14.5px; font-weight: 500; color: var(--text-strong); margin: 0; }
+    .result-badge {
+      padding: 2px 8px; border-radius: 99px; font-size: 10.5px; font-weight: 500;
+      background: var(--bg-subtle); color: var(--text-2); border: 1px solid var(--divider-strong);
+    }
+    .result-desc { font-size: 12px; color: var(--text-2); line-height: 1.5; margin: 0; }
+    .result-list { display: flex; flex-direction: column; gap: 5px; }
+    .result-item {
+      padding: 6px 9px; border-radius: 7px; background: var(--bg-subtle); border: 1px solid var(--divider);
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      font-size: 11px; color: var(--text-2);
+    }
+    .result-item strong { color: var(--text-strong); font-weight: 500; }
+    .result-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 2px; }
+
+    /* 底部状态 & 技能栏（一/二幕平滑切换） */
+    .bottom-dock {
+      height: 64px; flex-shrink: 0; padding: 0 14px; border-radius: 11px;
+      background: var(--bg-card); border: 1px solid var(--border-card); box-shadow: var(--shadow-card);
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    }
+    .dock-left { display: flex; align-items: center; min-width: 178px; }
+    .hp-block { flex: 1; display: flex; flex-direction: column; gap: 4.5px; }
+    .hp-top { display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: var(--text-2); }
+    .hp-top strong { color: var(--ok-fg); font-weight: 500; }
+    .hp-track { height: 6px; border-radius: 99px; background: var(--bg-subtle); overflow: hidden; }
+    .hp-fill {
+      height: 100%; width: 100%; border-radius: 99px;
+      background: linear-gradient(90deg, #3b8d60 0%, #52b07d 100%);
+      transition: width 150ms var(--ease);
+    }
+    .hp-fill.is-low { background: linear-gradient(90deg, #b85450 0%, #e11d48 100%); }
+    .hp-sub { font-size: 9.5px; color: var(--text-3); white-space: nowrap; }
+
+    .dock-center { display: flex; align-items: center; gap: 8px; }
+    .gear-slot {
+      position: relative; height: 48px; padding: 0 10px; border-radius: 9px;
+      border: 1px solid var(--divider-strong); background: var(--slot-bg);
+      display: inline-flex; align-items: center; gap: 7px;
+      opacity: 0.45; transition: all 160ms var(--ease);
+    }
+    .gear-slot.is-on { opacity: 1; border-color: var(--primary-border); background: var(--primary-soft); }
+    .gear-slot.is-blessed { opacity: 1; border-color: var(--warning-border); background: var(--warning-soft); }
+    .gear-meta { display: flex; flex-direction: column; gap: 1.5px; }
+    .gear-name { font-size: 11px; font-weight: 500; color: var(--text-strong); white-space: nowrap; }
+    .gear-sub { font-size: 9.5px; color: var(--text-3); white-space: nowrap; }
+    .gear-decay-bar {
+      position: absolute; left: 6px; right: 6px; bottom: 3px; height: 2px;
+      border-radius: 99px; background: var(--divider); overflow: hidden;
+    }
+    .gear-decay-fill { height: 100%; width: 0%; background: var(--primary); }
+    .gear-slot.is-blessed .gear-decay-fill { background: #f59e0b; width: 100% !important; }
+
+    /* 第二幕主动技能按钮 */
+    .skill-btn {
+      position: relative; height: 48px; padding: 0 34px 0 10px; min-width: 122px; border-radius: 9px;
+      border: 1px solid var(--divider-strong); background: var(--slot-bg); color: var(--text-1);
+      font-family: var(--font-sans); cursor: pointer; text-align: left;
+      display: inline-flex; align-items: center; gap: 7px; overflow: hidden;
+      transition: transform 100ms var(--spring), border-color 140ms ease;
+    }
+    .skill-btn:hover:not(:disabled) { border-color: var(--border-card-hover); transform: translateY(-1px); }
+    .skill-btn:disabled { opacity: 0.42; cursor: not-allowed; }
+    .skill-btn.is-buff { border-color: var(--primary); background: var(--primary-soft); }
+    .skill-key {
+      position: absolute; top: 3px; right: 5px; font-size: 8.5px; padding: 0 3.5px; border-radius: 3.5px;
+      background: var(--bg-subtle); border: 1px solid var(--divider-strong); color: var(--text-2);
+    }
+    .skill-cd {
+      position: absolute; inset: 0; z-index: 3;
+      background: rgba(10, 12, 18, 0.7); color: #ffffff; font-size: 11.5px; font-weight: 500;
+      display: none; align-items: center; justify-content: center;
+    }
+    [data-theme="light"] .skill-cd { background: rgba(15, 23, 42, 0.56); }
+    .skill-btn.is-cooling .skill-cd { display: flex; }
+
+    .dock-right { display: flex; align-items: center; justify-content: flex-end; min-width: 110px; }
+    .wish-dock-btn {
+      height: 34px; padding: 0 11px; border-radius: 8px;
+      border: 1px solid var(--divider-strong); background: var(--bg-subtle); color: var(--text-strong);
+      font-family: var(--font-sans); font-size: 11.5px; font-weight: 500;
+      display: inline-flex; align-items: center; gap: 5px; cursor: pointer; white-space: nowrap;
+    }
+    .wish-dock-btn:hover { border-color: var(--primary-border); color: var(--primary); background: var(--primary-soft); }
+
+    .toast-stack { position: fixed; right: 22px; top: 64px; z-index: 800; display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
+    .toast-item {
+      padding: 8px 11px; border-radius: 8px; width: 288px;
+      background: var(--bg-card); border: 1px solid var(--border-card-hover); font-size: 11.5px; color: var(--text-strong);
+    }
+    .toast-sub { font-size: 10.5px; color: var(--text-2); margin-top: 2px; }
+  </style>
+</head>
+<body>
+  <div class="preview-stage">
+    <!-- 顶部快速体验调试条 -->
+    <div class="preview-bar" role="toolbar" aria-label="一/二幕试玩控制栏">
+      <div class="preview-bar-group">
+        <span class="preview-label">主题</span>
+        <button type="button" class="preview-pill-btn active" id="btn-theme-dark" onclick="setTheme('dark')">暗色</button>
+        <button type="button" class="preview-pill-btn" id="btn-theme-light" onclick="setTheme('light')">浅色</button>
+        <span style="width:1px;height:13px;background:var(--divider-strong);margin:0 2px;"></span>
+        <span class="preview-label">跳步体验</span>
+        <button type="button" class="preview-pill-btn" onclick="startAct1()">重玩第一幕</button>
+        <button type="button" class="preview-pill-btn" onclick="debugAct1Trees()">第一幕·圣剑砍树</button>
+        <button type="button" class="preview-pill-btn" onclick="debugTriggerKycDebuff()">触发身份验证(捡KYC钥匙)</button>
+        <button type="button" class="preview-pill-btn" onclick="debugStartAct2()">直跳第二幕(4触手+献祭)</button>
+        <button type="button" class="preview-pill-btn" onclick="debugTriggerAppeal()">体验1血申诉(40%/60%)</button>
+      </div>
+      <div class="preview-bar-group">
+        <span class="preview-label">操作：按住左键/WASD走位 · 靠近自动挥剑 · 二幕解锁 Q隐身 / W盾 / Space瞬移</span>
+      </div>
+    </div>
+
+    <div class="app-window">
+      <header class="window-chrome">
+        <div class="chrome-brand">
+          <div class="brand-icon-badge" aria-hidden="true">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="m9 12 2 2 4-4"></path></svg>
+          </div>
+          <span class="brand-title">FD Claude 安全启动器</span>
+          <span class="brand-subtitle">Fuck Dario！！！</span>
+        </div>
+        <div class="chrome-right">
+          <div class="chrome-toggles">
+            <button type="button" class="chrome-btn chrome-ico-btn is-on" title="联系作者"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45"><path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"></path></svg></button>
+            <button type="button" class="chrome-btn chrome-ico-btn is-on" title="悬浮窗"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45"><rect x="3" y="4.5" width="18" height="15" rx="2.8"></rect><rect x="11.5" y="7.8" width="6.5" height="5" rx="1.2" fill="currentColor" stroke="none"></rect></svg></button>
+            <button type="button" class="chrome-btn chrome-ico-btn is-on" title="提醒"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"></path><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"></path></svg></button>
+            <button type="button" class="chrome-btn chrome-ico-btn" title="切换主题" onclick="toggleTheme()"><svg width="13.5" height="13.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path></svg></button>
+          </div>
+          <span class="chrome-sep"></span>
+          <button type="button" class="chrome-btn win-btn"><svg width="12.5" height="12.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 12h14"></path></svg></button>
+          <button type="button" class="chrome-btn win-btn"><svg width="10.5" height="10.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55"><rect x="4" y="4" width="16" height="16" rx="1.5"></rect></svg></button>
+          <button type="button" class="chrome-btn win-btn win-close"><svg width="12.5" height="12.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M18 6 6 18M6 6l12 12"></path></svg></button>
+        </div>
+      </header>
+
+      <div class="app-body">
+        <aside class="sidebar">
+          <nav class="sidebar-nav" aria-label="主导航">
+            <button type="button" class="c-nav-item"><span class="c-nav-left"><svg width="14.5" height="14.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg><span>控制台</span></span><span class="nav-badge tabular">OK</span></button>
+            <button type="button" class="c-nav-item"><span class="c-nav-left"><svg width="14.5" height="14.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg><span>账户审计</span></span><span class="nav-badge tabular">OK</span></button>
+            <button type="button" class="c-nav-item"><span class="c-nav-left"><svg width="14.5" height="14.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="12" cy="12" r="10"></circle><path d="M2 12h20"></path></svg><span>节点流量</span></span></button>
+            <button type="button" class="c-nav-item active"><span class="c-nav-left"><svg width="14.5" height="14.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path></svg><span>AI 工具箱</span></span></button>
+          </nav>
+
+          <div class="sidebar-bottom">
+            <div class="guard-card promo-mini-card">
+              <div class="promo-line-1"><span class="promo-tag">推荐</span><span class="promo-title">纯净美西家宽直达</span></div>
+              <span class="promo-desc">远程配置下发 · 免更新直达</span>
+            </div>
+            <div class="guard-card side-card">
+              <div class="status-row"><span class="status-label"><span class="guard-dot"></span><span>Claude 进程</span></span><span class="tabular" style="font-size:11px;color:var(--text-3);">0 残留</span></div>
+              <span style="font-size:10.5px;color:var(--text-3);">已彻底退出，可安全操作</span>
+              <button type="button" class="hold-btn"><span>强杀防复活盯防 (45s)</span></button>
+            </div>
+            <div class="guard-card side-card">
+              <div class="status-row"><span class="status-label"><span class="guard-dot"></span><span>Clash Verge</span></span><span style="font-size:11px;color:var(--ok-fg);">在线</span></div>
+              <div class="status-row"><span class="tabular" style="font-size:11px;color:var(--text-3);">v1.19.33</span><span class="tabular" style="font-size:11px;color:var(--text-3);">7890</span></div>
+            </div>
+            <div class="sidebar-settings-wrap">
+              <button type="button" class="c-nav-item" style="height:33px;"><span class="c-nav-left"><span>系统设置</span></span><span class="tabular" style="font-size:10.5px;color:var(--text-3);">v0.4.1</span></button>
+            </div>
+          </div>
+        </aside>
+
+        <main class="main-area">
+          <div class="page-hd">
+            <div class="page-hd-left">
+              <h1 class="page-title">AI 工具箱</h1>
+              <span class="page-sub" id="page-sub-txt">第一幕 · 集 3 层 Clash 盾降速探测球 → 领 FD 加护套装 → 斩红光树与优化小怪</span>
+            </div>
+            <div class="page-hd-right">
+              <div class="hud-pill tabular">夺取 Claude <strong id="claude-count">0</strong> 次</div>
+              <div class="hud-pill tabular">已许愿 <strong id="voted-count" style="color:var(--ok-fg);">0</strong> 项</div>
+              <button type="button" class="icon-btn-sm" id="btn-sound" title="开/关音效" onclick="toggleSound()">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="arena-workspace">
+            <div class="arena-frame" id="arena-frame">
+              <canvas id="arena-canvas"></canvas>
+
+              <!-- 顶部极简步骤条 + Debuff/怒气副条 -->
+              <div class="top-hud-stack">
+                <div class="act-stepper" id="act-stepper"></div>
+                <div class="sub-hud-pill tabular" id="sub-hud-pill"></div>
+              </div>
+
+              <!-- 左下角角色微标 -->
+              <div class="hero-corner-badge">
+                <span class="hero-corner-dot" id="hero-corner-dot" style="background:#22c55e;"></span>
+                <span id="hero-corner-name">🏡 家宽游侠</span>
+                <span style="color:var(--text-4);">·</span>
+                <button type="button" class="hero-corner-change" onclick="openWishModal()">换愿</button>
+              </div>
+
+              <!-- 右下角动态小提示 -->
+              <div class="arena-mini-hint" id="arena-mini-hint">
+                <kbd>按住左键</kbd>/<kbd>WASD</kbd> 走位拾取 Clash 盾降速探测球
+              </div>
+
+              <!-- 浮层 1：战前许愿唤灵 -->
+              <div class="arena-overlay show" id="wish-overlay">
+                <div class="wish-modal-card">
+                  <div class="wish-modal-hd">
+                    <div>
+                      <h2 class="wish-modal-title">许愿唤灵 · 选 1 个最想要的 AI 服务开启第一~二幕</h2>
+                      <div class="wish-modal-sub">一幕：集 3 盾降速 → 领 FD 加护套装 → 斩红光障碍(2次泄露触发KYC抢钥匙) · 二幕：躲路面禁区 → 斩 4 触手 → 献祭血液拿 Claude</div>
+                    </div>
+                    <button type="button" class="wish-close-btn" id="btn-close-wish" onclick="closeWishModal()" style="display:none;">✕</button>
+                  </div>
+                  <div class="wish-grid" id="wish-grid"></div>
+                  <div class="wish-custom-row">
+                    <div class="custom-input-wrap">
+                      <input type="text" id="custom-wish-input" class="custom-wish-input"
+                        placeholder="或自定义想要的服务（限 10 字，防注入过滤，每日限 3 次）..."
+                        oninput="onCustomInput()" onkeydown="if(event.key==='Enter') summonCustomWish()" />
+                      <span class="custom-wish-count tabular" id="custom-wish-count">0/10</span>
+                    </div>
+                    <button type="button" class="guard-btn-primary" onclick="summonCustomWish()">✨ 许愿出战</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 浮层 2：1 血申诉(40%/60%) / 幕间结算 -->
+              <div class="arena-overlay" id="result-overlay">
+                <div class="result-card" id="result-card">
+                  <div class="result-hd">
+                    <h2 class="result-title" id="result-title">提示</h2>
+                    <span class="result-badge tabular" id="result-badge">状态</span>
+                  </div>
+                  <p class="result-desc" id="result-desc"></p>
+                  <div class="result-list" id="result-list"></div>
+                  <div class="result-actions" id="result-actions"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 底部操作栏：一幕显示 3 盾 + FD 加护套装；二幕自动解锁 Q/W/Space 主动防护技能 -->
+            <div class="bottom-dock">
+              <div class="dock-left">
+                <div class="hp-block">
+                  <div class="hp-top">
+                    <span>账号血量</span>
+                    <strong class="tabular" id="player-hp-txt">100 / 100</strong>
+                  </div>
+                  <div class="hp-track"><div class="hp-fill" id="player-hp-fill"></div></div>
+                  <span class="hp-sub tabular" id="player-status-sub">泄露标记 0/2 · 0 盾（Dario 紧盯快射）</span>
+                </div>
+              </div>
+
+              <!-- 第一幕装备栏 -->
+              <div class="dock-center" id="dock-act1">
+                <div class="gear-slot" id="gear-rule">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3b93fa" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                  <div class="gear-meta"><span class="gear-name">策略组盾</span><span class="gear-sub" id="gear-rule-sub">待拾取</span></div>
+                  <div class="gear-decay-bar"><div class="gear-decay-fill" id="decay-rule"></div></div>
+                </div>
+                <div class="gear-slot" id="gear-tun">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="1.8"><circle cx="12" cy="12" r="9"></circle><path d="M2 12h20"></path></svg>
+                  <div class="gear-meta"><span class="gear-name">TUN 盾</span><span class="gear-sub" id="gear-tun-sub">待拾取</span></div>
+                  <div class="gear-decay-bar"><div class="gear-decay-fill" id="decay-tun"></div></div>
+                </div>
+                <div class="gear-slot" id="gear-dns">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="1.8"><path d="M12 22s7-3.5 7-9V5.5L12 3 5 5.5V13c0 5.5 7 9 7 9Z"></path></svg>
+                  <div class="gear-meta"><span class="gear-name">DNS 防漏</span><span class="gear-sub" id="gear-dns-sub">待拾取</span></div>
+                  <div class="gear-decay-bar"><div class="gear-decay-fill" id="decay-dns"></div></div>
+                </div>
+                <div class="gear-slot" id="gear-fdset">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="1.9"><path d="M14.5 17.5 3 6V3h3l11.5 11.5"></path><path d="m13 19 6-6"></path></svg>
+                  <div class="gear-meta"><span class="gear-name">FD 加护套装</span><span class="gear-sub" id="gear-fdset-sub">圣剑+自动反震</span></div>
+                </div>
+              </div>
+
+              <!-- 第二幕主动技能栏（带冷却） -->
+              <div class="dock-center" id="dock-act2" style="display:none;">
+                <button type="button" class="skill-btn" id="sk-stealth" onclick="useAct2Skill('stealth')">
+                  <span class="skill-key">Q</span>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="1.8"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+                  <div class="gear-meta"><span class="gear-name">隐身定位</span><span class="gear-sub">无视路面禁区</span></div>
+                  <span class="skill-cd tabular" id="cd-stealth"></span>
+                </button>
+                <button type="button" class="skill-btn" id="sk-shield" onclick="useAct2Skill('shield')">
+                  <span class="skill-key">W</span>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3b93fa" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="m9 12 2 2 4-4"></path></svg>
+                  <div class="gear-meta"><span class="gear-name">VPN 净化盾</span><span class="gear-sub">挡球+清禁区</span></div>
+                  <span class="skill-cd tabular" id="cd-shield"></span>
+                </button>
+                <button type="button" class="skill-btn" id="sk-dash" onclick="useAct2Skill('dash')">
+                  <span class="skill-key">Space</span>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="1.9"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                  <div class="gear-meta"><span class="gear-name">熔断瞬移</span><span class="gear-sub">闪现躲触手</span></div>
+                  <span class="skill-cd tabular" id="cd-dash"></span>
+                </button>
+                <div class="gear-slot is-blessed" id="gear-claude-trophy" style="opacity:0.42;">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="1.9"><path d="m12 3-1.9 5.8L4 12l6.1 3.2L12 21l1.9-5.8L20 12l-6.1-3.2Z"></path></svg>
+                  <div class="gear-meta"><span class="gear-name">Claude 战利品</span><span class="gear-sub" id="claude-trophy-sub">斩4触手后献祭</span></div>
+                </div>
+              </div>
+
+              <div class="dock-right">
+                <button type="button" class="wish-dock-btn" onclick="openWishModal()">🎁 许愿池 (10)</button>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-stack" id="toast-stack"></div>
+
+  <script>
+    // =========================================================================
+    // 1. 基础配置数据
+    // =========================================================================
+    const WISH_HEROES = [
+      { id: "pure_isp", service: "独享纯净家宽", role: "🏡 家宽游侠", color: "#22c55e" },
+      { id: "claude_pro", service: "Claude成品PRO", role: "👑 皇冠法师", color: "#a855f7" },
+      { id: "kyc_pass", service: "KYC服务", role: "🪪 绿卡卫士", color: "#10b981" },
+      { id: "multi_iso", service: "多账户隔离", role: "📦 沙箱特工", color: "#14b8a6" },
+      { id: "ai_topup", service: "AI直充服务", role: "⚡ 闪电直充", color: "#06b6d4" },
+      { id: "mcp_hub", service: "MCP可视化管理", role: "🧩 魔方术士", color: "#6366f1" },
+      { id: "cheap_pay", service: "低价代充", role: "💸 羊毛刺客", color: "#f59e0b" },
+      { id: "us_gift", service: "美区礼品卡", role: "🍎 内购游侠", color: "#38bdf8" },
+      { id: "gmail_acc", service: "Gmail账户", role: "✉️ 谷歌信使", color: "#ef4444" },
+      { id: "team_duo", service: "Team组队", role: "🤝 车队队长", color: "#ec4899" },
+    ];
+
+    const SHIELD_TYPES = [
+      { key: "rule", label: "策略组", color: "#3b93fa" },
+      { key: "tun", label: "TUN 接管", color: "#38bdf8" },
+      { key: "dns", label: "DNS 防泄露", color: "#34d399" },
+    ];
+
+    // 图 1 建议优化小怪池
+    const OPT_MOB_POOL = [
+      { id: "webrtc", label: "WebRTC 泄露", color: "#a855f7" },
+      { id: "timezone", label: "时区偏差", color: "#f59e0b" },
+      { id: "proxy_ext", label: "代理插件冲突", color: "#ec4899" },
+      { id: "boot_order", label: "开机抢跑", color: "#06b6d4" },
+      { id: "geo_drift", label: "出口属地漂移", color: "#fb7185" },
+    ];
+
+    // 第二幕路面随机探测禁区
+    const ROAD_HAZARD_LABELS = ["🤖 人机节律异常", "🔌 断连遥测泄露", "📡 异常心跳频段"];
+
+    // 第二幕守护 Claude 果实的 4 条触手
+    const TENTACLE_DEFS = [
+      { id: "t1", label: "污染连坐", baseAngle: -Math.PI * 0.75, color: "#ec4899" },
+      { id: "t2", label: "第三方反代", baseAngle: -Math.PI * 0.25, color: "#a855f7" },
+      { id: "t3", label: "多号接替", baseAngle: Math.PI * 0.25, color: "#f43f5e" },
+      { id: "t4", label: "充值渠道", baseAngle: Math.PI * 0.75, color: "#f59e0b" },
+    ];
+
+    // =========================================================================
+    // 2. Web Audio API 轻量合成音效
+    // =========================================================================
+    let audioCtx = null;
+    let soundEnabled = true;
+    function playSfx(type) {
+      if (!soundEnabled) return;
+      if (!audioCtx) {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (Ctx) audioCtx = new Ctx();
+      }
+      if (!audioCtx) return;
+      if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+      const now = audioCtx.currentTime;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain); gain.connect(audioCtx.destination);
+
+      if (type === "pickup" || type === "heal") {
+        osc.type = "sine"; osc.frequency.setValueAtTime(520, now); osc.frequency.exponentialRampToValueAtTime(880, now + 0.14);
+        gain.gain.setValueAtTime(0.09, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+        osc.start(now); osc.stop(now + 0.17);
+      } else if (type === "bless" || type === "win") {
+        osc.type = "triangle"; osc.frequency.setValueAtTime(440, now); osc.frequency.setValueAtTime(554, now + 0.08); osc.frequency.setValueAtTime(659, now + 0.16); osc.frequency.setValueAtTime(880, now + 0.24);
+        gain.gain.setValueAtTime(0.12, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+        osc.start(now); osc.stop(now + 0.42);
+      } else if (type === "slash") {
+        osc.type = "sawtooth"; osc.frequency.setValueAtTime(420, now); osc.frequency.exponentialRampToValueAtTime(140, now + 0.08);
+        gain.gain.setValueAtTime(0.08, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+        osc.start(now); osc.stop(now + 0.1);
+      } else if (type === "block" || type === "auto_pulse") {
+        osc.type = "triangle"; osc.frequency.setValueAtTime(320, now); osc.frequency.exponentialRampToValueAtTime(580, now + 0.11);
+        gain.gain.setValueAtTime(0.09, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+        osc.start(now); osc.stop(now + 0.13);
+      } else if (type === "split") {
+        osc.type = "square"; osc.frequency.setValueAtTime(620, now); osc.frequency.exponentialRampToValueAtTime(340, now + 0.08);
+        gain.gain.setValueAtTime(0.06, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+        osc.start(now); osc.stop(now + 0.1);
+      } else if (type === "warn403" || type === "hurt") {
+        osc.type = "sawtooth"; osc.frequency.setValueAtTime(210, now); osc.frequency.exponentialRampToValueAtTime(68, now + 0.22);
+        gain.gain.setValueAtTime(0.14, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.24);
+        osc.start(now); osc.stop(now + 0.25);
+      } else if (type === "sacrifice") {
+        osc.type = "sine"; osc.frequency.setValueAtTime(280, now); osc.frequency.exponentialRampToValueAtTime(140, now + 0.25); osc.frequency.exponentialRampToValueAtTime(660, now + 0.5);
+        gain.gain.setValueAtTime(0.13, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
+        osc.start(now); osc.stop(now + 0.57);
+      }
+    }
+
+    // =========================================================================
+    // 3. 全局状态（第一幕优化 + 第二幕初级版）
+    // =========================================================================
+    const canvas = document.getElementById("arena-canvas");
+    const ctx = canvas.getContext("2d");
+    const arenaFrame = document.getElementById("arena-frame");
+
+    let theme = "dark";
+    let cw = 960, ch = 520, dpr = 1;
+    const votedServices = new Set();
+    let customQuotaUsed = 0;
+    let activeHero = WISH_HEROES[0];
+    let hasPickedOnce = false;
+    let claudeObtainedCount = 0;
+
+    const SHIELD_TTL = 14.0;
+
+    const g = {
+      running: false,
+      paused: true,
+      over: false,
+      act: 1,      // 1: 第一幕筑盾清障 | 2: 第二幕夺取 Claude 果实
+      stage: 1,    // Act1: 1集3盾 2领FD套装 3砍红光树 4清优化小怪 | Act2: 1斩4触手 2停火献祭拿Claude 3拿果狂暴通关
+      t: 0,
+      shake: 0,
+      treesCut: 0,
+      mobsCleared: 0,
+      tentaclesCut: 0,
+      player: {
+        x: 180, y: 280, facing: 1, walkPhase: 0,
+        hp: 100, maxHp: 100,
+        invuln: 0, hurtFlash: 0,
+        shields: { rule: 0, tun: 0, dns: 0 },
+        shieldRegen: { rule: 0, tun: 0, dns: 0 },
+        blessed: false,       // FD Claude Guard 加护套装（盾+橘色圣剑+自动触发护体反震）
+        autoPulseCd: 4.5,     // FD 加护自动触发的防护脉冲技能
+        slashCd: 0, slashAnim: 0,
+        // 泄露标记 & 身份验证 Debuff（2 次泄露触发，需捡 KYC 钥匙解围回血 50%）
+        leakMarks: 0,
+        kycDebuffTimer: 0,
+        kycDrainAcc: 0,
+        // 第二幕主动技能 & 触手标记 & 申诉
+        stealthTimer: 0,
+        vpnShieldTimer: 0,
+        tentacleMarks: 0,
+        appealUsed: false,
+        appealPending: false,
+        hasClaude: false,
+      },
+      cds: { stealth: 0, shield: 0, dash: 0 },
+      maxCds: { stealth: 5.5, shield: 6.0, dash: 4.0 },
+      dario: {
+        x: 840, y: 112,
+        probeCd: 1.4,
+        aimingPlayer: true,   // 第一幕砍完小怪后变为 false（随机方向发球）；第二幕踩路面禁区重新变为 true 且加速涨怒！
+        aggroTimer: 0,        // 第二幕踩禁区触发的紧盯快射持续时间
+        rage: 0,              // 第二幕怒气值 (0~100)
+        pausedForSacrifice: false, // 4触手全断后 Dario 停止攻击等待献祭血液
+        watchAlert: 0,
+        lookAngle: Math.PI,
+      },
+      pickups: [],       // Clash 盾碎片
+      shrine: null,      // FD 加护套装圣坛
+      kycKey: null,      // 身份验证 Debuff 刷出的 🔑 KYC 钥匙
+      probes: [],        // 探测球 { x, y, vx, vy, r, bounces, maxBounces, splitCd, isChild }
+      trees: [],         // 第一幕固定红光树
+      mobs: [],          // 第一幕建议优化游荡小怪（带红色禁区）
+      roadHazards: [],   // 第二幕路面随机冒出的探测禁区（人机节律/断连遥测）
+      claudeFruit: null, // 第二幕中央 Claude 果实 { x, y, r, sacrificeProg }
+      tentacles: [],     // 第二幕 4 条守护触手
+      bolts403: [],
+      slashes: [],
+      particles: [],
+      floats: [],
+      ripples: [],
+    };
+
+    const input = {
+      mouseX: 300, mouseY: 260, inside: false, leftDown: false,
+      keys: { w: false, a: false, s: false, d: false, up: false, down: false, left: false, right: false },
+    };
+
+    function resizeCanvas() {
+      const rect = arenaFrame.getBoundingClientRect();
+      if (rect.width < 10 || rect.height < 10) return;
+      cw = rect.width; ch = rect.height;
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.round(cw * dpr);
+      canvas.height = Math.round(ch * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      g.dario.x = cw - 86;
+      g.dario.y = 110;
+      if (g.claudeFruit) {
+        g.claudeFruit.x = cw * 0.5;
+        g.claudeFruit.y = ch * 0.54;
+      }
+    }
+    window.addEventListener("resize", resizeCanvas);
+
+    // =========================================================================
+    // 4. 许愿唤灵台
+    // =========================================================================
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[m]));
+    }
+    function renderWishGrid() {
+      const grid = document.getElementById("wish-grid");
+      grid.innerHTML = "";
+      WISH_HEROES.forEach((h) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "wish-hero-card"
+          + (activeHero.id === h.id && hasPickedOnce ? " is-active" : "")
+          + (votedServices.has(h.id) ? " is-voted" : "");
+        btn.onclick = () => selectWishHero(h);
+        btn.innerHTML = `
+          <div class="wish-hero-top">
+            <span class="wish-hero-service">${escapeHtml(h.service)}</span>
+            <span class="wish-voted-dot"></span>
+          </div>
+          <div class="wish-hero-role">${escapeHtml(h.role)}</div>
+          <div class="wish-color-bar" style="background:${h.color};"></div>
+        `;
+        grid.appendChild(btn);
+      });
+      document.getElementById("voted-count").textContent = String(votedServices.size);
+    }
+    function sanitizeCustomWish(raw) {
+      return raw.replace(/[^\u4e00-\u9fa5a-zA-Z0-9\s\-\+\.\/]/g, "").slice(0, 10);
+    }
+    function onCustomInput() {
+      const el = document.getElementById("custom-wish-input");
+      const clean = sanitizeCustomWish(el.value);
+      if (el.value !== clean) el.value = clean;
+      document.getElementById("custom-wish-count").textContent = `${clean.length}/10`;
+    }
+    function summonCustomWish() {
+      const el = document.getElementById("custom-wish-input");
+      const text = sanitizeCustomWish(el.value).trim();
+      if (!text) return showToast("请输入想要的服务", "支持最多 10 字。");
+      if (customQuotaUsed >= 3) return showToast("今日自定义名额已满 (3/3)", "可直接选择上方 10 个核心 AI 服务。");
+      customQuotaUsed += 1;
+      const col = ["#06b6d4", "#f472b6", "#fbbf24"][(customQuotaUsed - 1) % 3];
+      el.value = ""; document.getElementById("custom-wish-count").textContent = "0/10";
+      selectWishHero({ id: "custom_" + text, service: text, role: `✨ ${text.slice(0, 5)}唤灵`, color: col });
+    }
+    function selectWishHero(hero) {
+      const firstVote = !votedServices.has(hero.id);
+      votedServices.add(hero.id);
+      activeHero = hero;
+      const firstPick = !hasPickedOnce;
+      hasPickedOnce = true;
+      document.getElementById("hero-corner-dot").style.background = hero.color;
+      document.getElementById("hero-corner-name").textContent = hero.role;
+      document.getElementById("btn-close-wish").style.display = "inline-flex";
+      renderWishGrid();
+      closeWishModal();
+      if (firstPick || g.over) startAct1();
+      else addFloat(g.player.x, g.player.y - 30, `化身 ${hero.role}`, hero.color, true);
+      if (firstVote) showToast(`已许愿 · ${hero.service}`, "当前 0 盾被 Dario 紧盯快射，快去捡 Clash 盾减速！");
+      playSfx("pickup");
+    }
+    function openWishModal() {
+      g.paused = true; input.leftDown = false; renderWishGrid();
+      document.getElementById("wish-overlay").classList.add("show");
+    }
+    function closeWishModal() {
+      document.getElementById("wish-overlay").classList.remove("show");
+      if (hasPickedOnce && !g.over && !g.player.appealPending) g.paused = false;
+    }
+
+    // =========================================================================
+    // 5. 第一幕 & 第二幕初始化与状态迁移
+    // =========================================================================
+    function activeShieldCount() {
+      const s = g.player.shields;
+      return (s.rule > 0 ? 1 : 0) + (s.tun > 0 ? 1 : 0) + (s.dns > 0 ? 1 : 0);
+    }
+
+    function spawnShieldPickup(key) {
+      if (g.pickups.some((p) => p.key === key)) return;
+      const def = SHIELD_TYPES.find((s) => s.key === key);
+      if (!def) return;
+      const spots = {
+        rule: { x: cw * 0.25, y: ch * 0.34 },
+        tun: { x: cw * 0.46, y: ch * 0.72 },
+        dns: { x: cw * 0.62, y: ch * 0.34 },
+      };
+      const base = spots[key];
+      g.pickups.push({
+        key: def.key, label: def.label, color: def.color,
+        x: Math.max(80, Math.min(cw - 170, base.x + (Math.random() - 0.5) * 38)),
+        y: Math.max(105, Math.min(ch - 75, base.y + (Math.random() - 0.5) * 32)),
+        bob: Math.random() * Math.PI * 2,
+      });
+    }
+
+    function startAct1() {
+      resizeCanvas();
+      g.running = true; g.paused = false; g.over = false;
+      g.act = 1; g.stage = 1; g.t = 0; g.shake = 0;
+      g.treesCut = 0; g.mobsCleared = 0; g.tentaclesCut = 0;
+
+      const p = g.player;
+      p.x = cw * 0.16; p.y = ch * 0.56;
+      p.hp = 100; p.invuln = 0.6; p.hurtFlash = 0;
+      p.shields = { rule: 0, tun: 0, dns: 0 };
+      p.shieldRegen = { rule: 0, tun: 0, dns: 0 };
+      p.blessed = false; p.autoPulseCd = 4.2; p.slashCd = 0; p.slashAnim = 0;
+      p.leakMarks = 0; p.kycDebuffTimer = 0; p.kycDrainAcc = 0;
+      p.stealthTimer = 0; p.vpnShieldTimer = 0; p.tentacleMarks = 0;
+      p.appealUsed = false; p.appealPending = false; p.hasClaude = false;
+
+      g.dario.x = cw - 86; g.dario.y = 110;
+      g.dario.probeCd = 1.0; g.dario.aimingPlayer = true;
+      g.dario.aggroTimer = 0; g.dario.rage = 0; g.dario.pausedForSacrifice = false; g.dario.watchAlert = 0;
+
+      g.pickups = []; g.shrine = null; g.kycKey = null; g.probes = [];
+      g.trees = []; g.mobs = []; g.roadHazards = []; g.claudeFruit = null; g.tentacles = [];
+      g.bolts403 = []; g.slashes = []; g.particles = []; g.floats = []; g.ripples = [];
+
+      SHIELD_TYPES.forEach((s) => spawnShieldPickup(s.key));
+      document.getElementById("result-overlay").classList.remove("show");
+      syncHud();
+    }
+
+    function spawnFdShrine() {
+      g.stage = 2;
+      g.shrine = { x: cw * 0.44, y: ch * 0.52, pulse: 0 };
+      addRipple(g.shrine.x, g.shrine.y, 120, "#f97316");
+      addFloat(g.shrine.x, g.shrine.y - 44, "✨ FD Claude Guard 加护套装降临！", "#fbbf24", true);
+      playSfx("pickup");
+    }
+
+    function grantFdSet() {
+      const p = g.player;
+      p.blessed = true;
+      p.shields = { rule: 999, tun: 999, dns: 999 };
+      p.autoPulseCd = 2.5;
+      g.shrine = null; g.pickups = [];
+      g.stage = 3; g.shake = 6;
+      addRipple(p.x, p.y, 140, "#f97316");
+      spawnBurst(p.x, p.y, "#f97316", 24, 4.2);
+      addFloat(p.x, p.y - 42, "⚔️ 穿戴 FD 套装 · 橘色圣剑+自动防护脉冲！", "#fb923c", true);
+      playSfx("bless");
+
+      g.trees = [
+        { id: "loc", label: "📍 系统定位树", x: cw * 0.34, y: ch * 0.42, hp: 5, maxHp: 5, cycle: 0.4, redActive: false, redRadius: 82, warnCd: 0, hurtFlash: 0 },
+        { id: "ipv6", label: "🌐 IPv6 泄露树", x: cw * 0.62, y: ch * 0.66, hp: 5, maxHp: 5, cycle: 2.8, redActive: false, redRadius: 82, warnCd: 0, hurtFlash: 0 },
+      ];
+      syncHud();
+    }
+
+    function spawnOptMobs() {
+      g.stage = 4;
+      const picked = [...OPT_MOB_POOL].sort(() => Math.random() - 0.5).slice(0, 3);
+      const pts = [{ x: cw * 0.30, y: ch * 0.34 }, { x: cw * 0.58, y: ch * 0.36 }, { x: cw * 0.48, y: ch * 0.72 }];
+      g.mobs = picked.map((m, i) => ({
+        id: m.id, label: m.label, color: m.color,
+        x: pts[i].x, y: pts[i].y,
+        vx: (Math.random() - 0.5) * 55, vy: (Math.random() - 0.5) * 55,
+        hp: 3, maxHp: 3, r: 18, hurtFlash: 0, moveCd: 1.2 + Math.random(),
+        redRadius: 56, cycle: i * 1.4, redActive: false, warnCd: 0,
+      }));
+      addFloat(cw * 0.5, ch * 0.25, "⚡ 刷出「建议优化」游荡小怪（带红色禁区）！", "#fbbf24", true);
+      playSfx("pickup");
+      syncHud();
+    }
+
+    // 第一幕全清 -> 平滑进入第二幕！
+    function enterAct2() {
+      g.act = 2;
+      g.stage = 1; // 1:躲路面禁区+斩4触手  2:Dario停火·献祭血液拿Claude  3:拿果狂暴完成第二幕
+      g.tentaclesCut = 0;
+      g.trees = []; g.mobs = []; g.pickups = []; g.shrine = null;
+      g.player.blessed = true;
+      g.player.shields = { rule: 999, tun: 999, dns: 999 };
+      g.player.tentacleMarks = 0;
+      g.player.hasClaude = false;
+      g.cds = { stealth: 0, shield: 0, dash: 0 };
+
+      // 进入第二幕：Dario 不再紧盯你，改为随机方向发探测球！
+      g.dario.aimingPlayer = false;
+      g.dario.aggroTimer = 0;
+      g.dario.rage = 0;
+      g.dario.pausedForSacrifice = false;
+      g.dario.probeCd = 2.4;
+
+      g.roadHazards = [];
+      g.roadSpawnCd = 2.2;
+
+      const fx = cw * 0.50, fy = ch * 0.54;
+      g.claudeFruit = { x: fx, y: fy, r: 24, sacrificeProg: 0 };
+      g.tentacles = TENTACLE_DEFS.map((td, idx) => ({
+        id: td.id, label: td.label, color: td.color,
+        baseAngle: td.baseAngle,
+        angle: td.baseAngle,
+        len: 108,
+        sweepPhase: idx * 1.55,
+        hp: 4, maxHp: 4,
+        hurtFlash: 0, hitCd: 0,
+      }));
+
+      // 把玩家放在安全外侧
+      g.player.x = cw * 0.16; g.player.y = ch * 0.54;
+      addRipple(fx, fy, 150, "#fbbf24");
+      addFloat(fx, fy - 62, "🌟 第二幕开启！躲路面禁区 · 斩断 4 条触手夺 Claude", "#fbbf24", true);
+      playSfx("bless");
+      showToast("进入第二幕 · 夺取 Claude 果实", "Dario 已转为随机发球！解锁 Q 隐身 / W VPN盾 / Space 瞬移。");
+      syncHud();
+    }
+
+    // 2 次泄露 -> 触发「身份验证 Debuff」并在场上刷出 🔑 KYC 钥匙！
+    function triggerLeakAndCheckKyc(sourceLabel) {
+      const p = g.player;
+      p.leakMarks += 1;
+      g.dario.watchAlert = 1.2;
+      g.bolts403.push({ sx: g.dario.x, sy: g.dario.y, tx: p.x, ty: p.y, t: 0, dur: 0.32 });
+      playSfx("warn403");
+
+      if (p.leakMarks >= 2 && p.kycDebuffTimer <= 0) {
+        p.leakMarks = 0;
+        p.kycDebuffTimer = 8.0;
+        p.kycDrainAcc = 0;
+        spawnKycKey();
+        addFloat(p.x, p.y - 38, "🪪 2次泄露触发「身份验证」Debuff！快抢 KYC 钥匙！", "#fbbf24", true);
+        showToast("🪪 触发身份验证 Debuff！", "8 秒内拾取地图上的 🔑 KYC 钥匙可解除并回血 50%，否则持续扣血！");
+      } else {
+        hurtPlayer(16, `踩中${sourceLabel}红区 · 泄露 ${p.leakMarks}/2`, true);
+      }
+    }
+
+    function spawnKycKey() {
+      const kx = g.player.x < cw * 0.5 ? cw * 0.72 : cw * 0.24;
+      const ky = 130 + Math.random() * (ch - 210);
+      g.kycKey = { x: kx, y: ky, bob: 0 };
+      addRipple(kx, ky, 74, "#34d399");
+    }
+
+    // =========================================================================
+    // 6. 第二幕主动技能 (Q 隐身 / W VPN净化盾 / Space 熔断瞬移) & 1 血申诉(40%/60%)
+    // =========================================================================
+    function useAct2Skill(name) {
+      if (g.act !== 2 || !g.running || g.paused || g.over || g.player.appealPending) return;
+      if (g.cds[name] > 0) return;
+      const p = g.player;
+
+      if (name === "stealth") {
+        g.cds.stealth = g.maxCds.stealth;
+        p.stealthTimer = 2.8;
+        g.dario.aggroTimer = 0;
+        g.dario.aimingPlayer = false;
+        addRipple(p.x, p.y, 68, "#38bdf8");
+        addFloat(p.x, p.y - 32, "👻 隐身定位 · 无视路面禁区", "#38bdf8", true);
+        playSfx("pickup");
+      } else if (name === "shield") {
+        g.cds.shield = g.maxCds.shield;
+        p.vpnShieldTimer = 3.0;
+        // 清掉身边探测球
+        g.probes = g.probes.filter((pr) => Math.hypot(pr.x - p.x, pr.y - p.y) > 130);
+        addRipple(p.x, p.y, 128, "#3b93fa");
+        addFloat(p.x, p.y - 32, "🛡️ VPN 净化盾 · 抵挡探测与禁区", "#60a5fa", true);
+        playSfx("block");
+      } else if (name === "dash") {
+        g.cds.dash = g.maxCds.dash;
+        const dx = (input.inside ? input.mouseX : p.x + p.facing * 140) - p.x;
+        const dy = (input.inside ? input.mouseY : p.y) - p.y;
+        const len = Math.hypot(dx, dy) || 1;
+        p.x = Math.max(36, Math.min(cw - 36, p.x + (dx / len) * 165));
+        p.y = Math.max(80, Math.min(ch - 42, p.y + (dy / len) * 165));
+        p.invuln = Math.max(p.invuln, 0.45);
+        spawnBurst(p.x, p.y, "#f97316", 12, 2.8);
+        addFloat(p.x, p.y - 30, "⚡ 熔断瞬移", "#fb923c", false);
+        playSfx("slash");
+      }
+    }
+
+    // 触手打中 2 次 -> 召唤 Dario 直接身份认证/封号处决至 1 血，弹出 40% / 60% 申诉
+    function triggerExecutionTo1Hp(reason) {
+      const p = g.player;
+      p.hp = 1;
+      p.appealPending = true;
+      g.paused = true;
+      input.leftDown = false;
+      g.shake = 10;
+      g.bolts403.push({ sx: g.dario.x, sy: g.dario.y, tx: p.x, ty: p.y, t: 0, dur: 0.4 });
+      playSfx("warn403");
+
+      const card = document.getElementById("result-card");
+      card.className = "result-card is-appeal";
+      document.getElementById("result-title").textContent = "⚠️ 被触手标记 2 次 · Dario 处决至 1 点血！";
+      document.getElementById("result-badge").textContent = "仅 1 HP 触发申诉";
+      document.getElementById("result-desc").textContent =
+        `因「${reason}」惊动 Dario 发动身份认证封号处决！你可以发起账号申诉（真实概率：40% 复活回血 90% · 60% 直接拒信封号）。`;
+      document.getElementById("result-list").innerHTML = `
+        <div class="result-item"><span>申诉成功 (40%)</span><strong>立刻复活回血至 90%，继续斩触手夺 Claude</strong></div>
+        <div class="result-item"><span>申诉驳回 (60%)</span><strong>收到经典拒信，本局结束</strong></div>
+      `;
+      document.getElementById("result-actions").innerHTML = `
+        <button type="button" class="guard-btn-flat" onclick="resolveAppealRoll(true)">测试必过(调试)</button>
+        <button type="button" class="guard-btn-primary" onclick="resolveAppealRoll(false)">🎲 发起账号申诉 (40% 成功)</button>
+      `;
+      document.getElementById("result-overlay").classList.add("show");
+      syncHud();
+    }
+
+    function resolveAppealRoll(forcePass) {
+      const p = g.player;
+      p.appealPending = false;
+      p.appealUsed = true;
+      const win = forcePass ? true : (Math.random() < 0.40);
+      if (win) {
+        document.getElementById("result-overlay").classList.remove("show");
+        g.paused = false;
+        p.hp = 90;
+        p.invuln = 2.0;
+        p.vpnShieldTimer = 2.5;
+        p.tentacleMarks = 0;
+        addRipple(p.x, p.y, 130, "#34d399");
+        addFloat(p.x, p.y - 36, "🎉 40% 欧皇申诉成功 · 复活回血 90%！", "#34d399", true);
+        playSfx("win");
+        showToast("申诉翻盘成功！", "已复活回血 90%，注意躲开触手继续砍！");
+      } else {
+        p.hp = 0;
+        showDefeatCard("申诉驳回（60% 概率）：We have determined that your account violated our Terms.");
+      }
+      syncHud();
+    }
+
+    // 砍断 4 条触手 -> Dario 停止攻击 -> 献祭血液拿取 Claude -> Dario 恢复狂暴攻击
+    function enterSacrificePhase() {
+      g.stage = 2;
+      g.dario.pausedForSacrifice = true;
+      g.probes = [];
+      g.roadHazards = [];
+      addRipple(g.claudeFruit.x, g.claudeFruit.y, 160, "#ec4899");
+      addFloat(g.claudeFruit.x, g.claudeFruit.y - 54, "🩸 4 触手已断！Dario 停火 · 靠近献祭血液拿取 Claude", "#f472b6", true);
+      playSfx("pickup");
+      showToast("Dario 已停止攻击！", "走向中央 Claude 果实，献祭 35 点血液即可夺取 Claude 战利品！");
+      syncHud();
+    }
+
+    function completeBloodSacrifice() {
+      const p = g.player;
+      g.stage = 3;
+      p.hasClaude = true;
+      // 献祭 35 点血（若血量不足保底留 15 血防献祭暴毙）
+      const cost = Math.min(35, Math.max(0, p.hp - 15));
+      p.hp = Math.max(15, p.hp - cost);
+      claudeObtainedCount += 1;
+      document.getElementById("claude-count").textContent = String(claudeObtainedCount);
+
+      // 拿到 Claude 后 Dario 立刻继续攻击！
+      g.dario.pausedForSacrifice = false;
+      g.dario.aimingPlayer = true;
+      g.dario.aggroTimer = 99;
+      g.dario.rage = 100;
+      g.shake = 9;
+      addRipple(g.claudeFruit.x, g.claudeFruit.y, 200, "#fbbf24");
+      spawnBurst(g.claudeFruit.x, g.claudeFruit.y, "#fbbf24", 30, 4.8);
+      addFloat(p.x, p.y - 40, `🏆 献祭 -${cost} 血成功！获得 Claude · Dario 恢复狂暴攻击！`, "#fbbf24", true);
+      playSfx("sacrifice");
+
+      setTimeout(() => {
+        if (g.act !== 2 || g.stage !== 3) return;
+        g.over = true;
+        const card = document.getElementById("result-card");
+        card.className = "result-card is-win";
+        document.getElementById("result-title").textContent = "🏆 第二幕完成 · 已献祭夺得 Claude 战利品！";
+        document.getElementById("result-badge").textContent = "待接入第三幕 Boss 战";
+        document.getElementById("result-desc").textContent =
+          "Dario 已发现你拿走 Claude 并恢复狂暴追击！接下来将进入第三幕：手握「强化 Clash 盾 + FD 加护套装 + Claude 战利品 + 熔断时停 3 秒」反杀 Dario！";
+        document.getElementById("result-list").innerHTML = `
+          <div class="result-item"><span>第一幕达成</span><strong>3 层 Clash 盾降速 · FD 加护套装 · 清树与优化小怪</strong></div>
+          <div class="result-item"><span>第二幕达成</span><strong>躲路面禁区 · 斩断 4 条红线触手 · 献祭血液拿到 Claude</strong></div>
+          <div class="result-item"><span>剩余血量 / 已许愿服务</span><strong>${Math.round(p.hp)} HP · ${escapeHtml(activeHero.service)}</strong></div>
+        `;
+        document.getElementById("result-actions").innerHTML = `
+          <button type="button" class="guard-btn-flat" onclick="debugStartAct2()">再玩一遍第二幕</button>
+          <button type="button" class="guard-btn-primary" onclick="startAct1()">从第一幕重新体验</button>
+        `;
+        document.getElementById("result-overlay").classList.add("show");
+      }, 1500);
+      syncHud();
+    }
+
+    function showDefeatCard(reason) {
+      g.over = true; g.paused = true;
+      const card = document.getElementById("result-card");
+      card.className = "result-card";
+      document.getElementById("result-title").textContent = "📋 账号阵亡 · 防封复盘";
+      document.getElementById("result-badge").textContent = `第 ${g.act} 幕`;
+      document.getElementById("result-desc").textContent = reason || "请避开红区与触手，及时拾取护盾与 KYC 钥匙！";
+      document.getElementById("result-list").innerHTML = `
+        <div class="result-item"><span>第一幕口诀</span><strong>先捡 3 盾减速探测球 · 2 次泄露快抢 🔑 KYC 钥匙回半血</strong></div>
+        <div class="result-item"><span>第二幕口诀</span><strong>Q隐身 / W盾 / Space瞬移躲路面禁区，别被触手打中 2 次</strong></div>
+      `;
+      document.getElementById("result-actions").innerHTML = `
+        <button type="button" class="guard-btn-flat" onclick="debugStartAct2()">重开第二幕</button>
+        <button type="button" class="guard-btn-primary" onclick="startAct1()">从第一幕重开</button>
+      `;
+      document.getElementById("result-overlay").classList.add("show");
+    }
+
+    // 调试快捷按钮
+    function debugAct1Trees() {
+      if (!hasPickedOnce) selectWishHero(WISH_HEROES[0]);
+      startAct1();
+      g.player.shields = { rule: SHIELD_TTL, tun: SHIELD_TTL, dns: SHIELD_TTL };
+      grantFdSet();
+    }
+    function debugTriggerKycDebuff() {
+      if (!hasPickedOnce) selectWishHero(WISH_HEROES[0]);
+      g.player.hp = Math.min(g.player.hp, 50);
+      g.player.leakMarks = 1;
+      triggerLeakAndCheckKyc("调试测试");
+    }
+    function debugStartAct2() {
+      if (!hasPickedOnce) selectWishHero(WISH_HEROES[0]);
+      startAct1();
+      enterAct2();
+    }
+    function debugTriggerAppeal() {
+      if (!hasPickedOnce) selectWishHero(WISH_HEROES[0]);
+      if (g.act !== 2) { startAct1(); enterAct2(); }
+      triggerExecutionTo1Hp("调试体验触手 2 标处决");
+    }
+
+    // =========================================================================
+    // 7. 橘色圣剑自动斩击 & 探测球抵挡 / 碰怪分裂
+    // =========================================================================
+    function triggerSwordSlash(angle) {
+      const p = g.player;
+      if (!p.blessed || p.slashCd > 0) return;
+      p.slashCd = 0.4;
+      p.slashAnim = 0.2;
+      const range = 94;
+      g.slashes.push({ x: p.x, y: p.y, angle, r: range, t: 0, dur: 0.22 });
+      playSfx("slash");
+
+      // 第一幕砍树
+      for (let i = g.trees.length - 1; i >= 0; i--) {
+        const tr = g.trees[i];
+        if (Math.hypot(tr.x - p.x, tr.y - p.y) <= range + 24) {
+          tr.hp -= 1; tr.hurtFlash = 0.15;
+          spawnBurst(tr.x, tr.y, "#f97316", 8, 2.8);
+          addFloat(tr.x, tr.y - 30, "-1 斩!", "#fb923c", false);
+          if (tr.hp <= 0) {
+            g.trees.splice(i, 1); g.treesCut += 1; g.shake = 5;
+            addRipple(tr.x, tr.y, 88, "#34d399");
+            addFloat(tr.x, tr.y - 36, `✓ 斩除 ${tr.label}`, "#34d399", true);
+            playSfx("pickup");
+          }
+        }
+      }
+      if (g.act === 1 && g.stage === 3 && g.trees.length === 0) spawnOptMobs();
+
+      // 第一幕砍优化小怪
+      for (let i = g.mobs.length - 1; i >= 0; i--) {
+        const mb = g.mobs[i];
+        if (Math.hypot(mb.x - p.x, mb.y - p.y) <= range + mb.r) {
+          mb.hp -= 1; mb.hurtFlash = 0.15;
+          spawnBurst(mb.x, mb.y, mb.color, 8, 2.6);
+          addFloat(mb.x, mb.y - 24, "-1 斩!", "#fbbf24", false);
+          if (mb.hp <= 0) {
+            g.mobs.splice(i, 1); g.mobsCleared += 1;
+            addFloat(mb.x, mb.y - 26, `✓ 消除 ${mb.label}`, "#34d399", true);
+            playSfx("pickup");
+          }
+        }
+      }
+      if (g.act === 1 && g.stage === 4 && g.mobs.length === 0) {
+        enterAct2();
+        return;
+      }
+
+      // 第二幕砍 4 条守护触手
+      if (g.act === 2 && g.stage === 1 && g.claudeFruit) {
+        const fx = g.claudeFruit.x, fy = g.claudeFruit.y;
+        for (let i = g.tentacles.length - 1; i >= 0; i--) {
+          const tc = g.tentacles[i];
+          const tx = fx + Math.cos(tc.angle) * (tc.len * 0.68);
+          const ty = fy + Math.sin(tc.angle) * (tc.len * 0.68);
+          if (Math.hypot(tx - p.x, ty - p.y) <= range + 26) {
+            tc.hp -= 1; tc.hurtFlash = 0.16;
+            spawnBurst(tx, ty, tc.color, 9, 2.8);
+            addFloat(tx, ty - 20, "-1 斩触手!", "#fb923c", false);
+            if (tc.hp <= 0) {
+              g.tentacles.splice(i, 1);
+              g.tentaclesCut += 1;
+              g.shake = 5;
+              addRipple(tx, ty, 78, "#34d399");
+              addFloat(tx, ty - 26, `✓ 斩断「${tc.label}」触手`, "#34d399", true);
+              playSfx("pickup");
+            }
+          }
+        }
+        if (g.tentacles.length === 0) {
+          enterSacrificePhase();
+        }
+      }
+    }
+
+    function hitPlayerWithProbe(pr) {
+      const p = g.player;
+      if (p.vpnShieldTimer > 0) {
+        spawnBurst(pr.x, pr.y, "#60a5fa", 10, 3.0);
+        addFloat(p.x, p.y - 32, "🛡️ VPN盾抵消探测球", "#60a5fa", false);
+        playSfx("block");
+        return;
+      }
+      const order = ["dns", "tun", "rule"];
+      const key = order.find((k) => p.shields[k] > 0);
+      if (key) {
+        p.shields[key] = 0;
+        if (p.blessed) {
+          p.shieldRegen[key] = 4.5;
+          addFloat(p.x, p.y - 32, "🛡️ Clash盾挡球（FD套装自动修复）", "#60a5fa", false);
+        } else {
+          spawnShieldPickup(key);
+          addFloat(p.x, p.y - 34, "🛡️ 裸盾挡球后掉落 · 请重捡！", "#fbbf24", true);
+        }
+        addRipple(p.x, p.y, 58, "#38bdf8");
+        playSfx("block");
+        return;
+      }
+      hurtPlayer(18, "无盾硬吃探测球");
+    }
+
+    function hurtPlayer(dmg, msg, bypassInvuln) {
+      const p = g.player;
+      if (!bypassInvuln && p.invuln > 0) return;
+      if (g.over || p.appealPending) return;
+      p.hp = Math.max(0, p.hp - dmg);
+      p.hurtFlash = 0.24; p.invuln = 0.55; g.shake = 6;
+      addFloat(p.x, p.y - 30, `-${dmg} ${msg}`, "#f43f5e", true);
+      playSfx("hurt");
+      if (p.hp <= 0) showDefeatCard(`被「${msg}」清空血量`);
+    }
+
+    function distPointToSeg(px, py, x1, y1, x2, y2) {
+      const dx = x2 - x1, dy = y2 - y1;
+      const lenSq = dx * dx + dy * dy || 1;
+      const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / lenSq));
+      return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+    }
+
+    // =========================================================================
+    // 8. 60fps 主物理循环
+    // =========================================================================
+    function update(dt) {
+      if (!g.running || g.paused || g.over || g.player.appealPending) return;
+      g.t += dt;
+      if (g.shake > 0) g.shake = Math.max(0, g.shake - dt * 26);
+
+      const p = g.player;
+      const d = g.dario;
+
+      if (p.invuln > 0) p.invuln = Math.max(0, p.invuln - dt);
+      if (p.hurtFlash > 0) p.hurtFlash = Math.max(0, p.hurtFlash - dt);
+      if (p.slashCd > 0) p.slashCd = Math.max(0, p.slashCd - dt);
+      if (p.slashAnim > 0) p.slashAnim = Math.max(0, p.slashAnim - dt);
+      if (p.stealthTimer > 0) p.stealthTimer = Math.max(0, p.stealthTimer - dt);
+      if (p.vpnShieldTimer > 0) p.vpnShieldTimer = Math.max(0, p.vpnShieldTimer - dt);
+      if (d.watchAlert > 0) d.watchAlert = Math.max(0, d.watchAlert - dt);
+      Object.keys(g.cds).forEach((k) => { if (g.cds[k] > 0) g.cds[k] = Math.max(0, g.cds[k] - dt); });
+
+      // 1. 玩家平滑走位
+      let mx = 0, my = 0;
+      const kx = (input.keys.d || input.keys.right ? 1 : 0) - (input.keys.a || input.keys.left ? 1 : 0);
+      const ky = (input.keys.s || input.keys.down ? 1 : 0) - (input.keys.w || input.keys.up ? 1 : 0);
+      if (kx !== 0 || ky !== 0) { const l = Math.hypot(kx, ky); mx = kx / l; my = ky / l; }
+      else if (input.leftDown && input.inside) {
+        const dx = input.mouseX - p.x, dy = input.mouseY - p.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist > 8) { mx = dx / dist; my = dy / dist; }
+      }
+      const spd = p.stealthTimer > 0 ? 280 : (p.blessed ? 260 : 245);
+      p.x = Math.max(34, Math.min(cw - 34, p.x + mx * spd * dt));
+      p.y = Math.max(78, Math.min(ch - 42, p.y + my * spd * dt));
+      if (Math.abs(mx) > 0.05 || Math.abs(my) > 0.05) {
+        p.walkPhase += dt * 12;
+        if (Math.abs(mx) > 0.05) p.facing = mx > 0 ? 1 : -1;
+      }
+
+      // 2. Clash 盾衰减 & FD 套装自动修复 + 自动触发护体脉冲技能
+      SHIELD_TYPES.forEach(({ key, label }) => {
+        if (!p.blessed) {
+          if (p.shields[key] > 0) {
+            p.shields[key] -= dt;
+            if (p.shields[key] <= 0) {
+              p.shields[key] = 0;
+              spawnShieldPickup(key);
+              addFloat(p.x, p.y - 34, `⚠️ 裸${label}盾超时脱落`, "#fbbf24", false);
+              if (g.act === 1 && g.stage === 2) { g.stage = 1; g.shrine = null; }
+            }
+          }
+        } else {
+          if (p.shields[key] <= 0 && p.shieldRegen[key] > 0) {
+            p.shieldRegen[key] -= dt;
+            if (p.shieldRegen[key] <= 0) {
+              p.shields[key] = 999;
+              addFloat(p.x, p.y - 30, `✓ FD套装自动修复${label}盾`, "#60a5fa", false);
+            }
+          }
+        }
+      });
+
+      // FD 加护套装自带「自动触发防护脉冲」（每 4.8s 自动震碎身周贴脸探测球）
+      if (p.blessed) {
+        p.autoPulseCd -= dt;
+        if (p.autoPulseCd <= 0) {
+          const near = g.probes.filter((pr) => Math.hypot(pr.x - p.x, pr.y - p.y) <= 105);
+          if (near.length > 0) {
+            p.autoPulseCd = 4.8;
+            g.probes = g.probes.filter((pr) => Math.hypot(pr.x - p.x, pr.y - p.y) > 105);
+            addRipple(p.x, p.y, 110, "#fbbf24");
+            addFloat(p.x, p.y - 36, `✨ FD套装自动反震清球 ×${near.length}`, "#fbbf24", false);
+            playSfx("auto_pulse");
+          }
+        }
+      }
+
+      // 3. 身份验证 Debuff（没捡到 KYC 钥匙则持续扣血，捡到解围并回血 50%！）
+      if (p.kycDebuffTimer > 0) {
+        p.kycDebuffTimer -= dt;
+        p.kycDrainAcc += dt;
+        if (p.kycDrainAcc >= 1.1) {
+          p.kycDrainAcc = 0;
+          hurtPlayer(9, "身份验证 Debuff", true);
+        }
+        if (p.kycDebuffTimer <= 0) {
+          g.kycKey = null;
+          hurtPlayer(38, "未拿到 KYC 钥匙验证失败", true);
+        }
+      }
+      if (g.kycKey) {
+        g.kycKey.bob += dt * 5;
+        if (Math.hypot(p.x - g.kycKey.x, p.y - g.kycKey.y) <= 30) {
+          g.kycKey = null;
+          p.kycDebuffTimer = 0;
+          const heal = Math.round(p.maxHp * 0.5);
+          p.hp = Math.min(p.maxHp, p.hp + heal);
+          addRipple(p.x, p.y, 100, "#34d399");
+          spawnBurst(p.x, p.y, "#34d399", 20, 3.6);
+          addFloat(p.x, p.y - 38, `🔑 拿到 KYC 钥匙！解除验证 · 回血 +${heal}`, "#34d399", true);
+          playSfx("heal");
+        }
+      }
+
+      // 4. 拾取 Clash 盾 & 领取 FD 套装
+      for (let i = g.pickups.length - 1; i >= 0; i--) {
+        const pk = g.pickups[i];
+        pk.bob += dt * 4;
+        if (Math.hypot(p.x - pk.x, p.y - pk.y) <= 30) {
+          p.shields[pk.key] = SHIELD_TTL;
+          g.pickups.splice(i, 1);
+          addRipple(pk.x, pk.y, 56, pk.color);
+          addFloat(pk.x, pk.y - 24, `🛡️ 获得${pk.label}盾 · 探测球减速！`, pk.color, true);
+          playSfx("pickup");
+          if (g.act === 1 && g.stage === 1 && activeShieldCount() === 3) spawnFdShrine();
+        }
+      }
+      if (g.shrine) {
+        g.shrine.pulse += dt * 4;
+        if (Math.hypot(p.x - g.shrine.x, p.y - g.shrine.y) <= 38) grantFdSet();
+      }
+
+      // 5. Dario 发射探测球（无盾紧盯快射 -> 每捡 1 盾逐层降频降速；二幕默认随机方向，踩路面禁区重新紧盯加速涨怒；献祭期停火！）
+      if (!d.pausedForSacrifice) {
+        if (g.act === 2 && d.aggroTimer > 0) {
+          d.aggroTimer -= dt;
+          if (d.aggroTimer <= 0 && g.stage < 3) d.aimingPlayer = false;
+        }
+        d.lookAngle = d.aimingPlayer
+          ? Math.atan2(p.y - d.y, p.x - d.x)
+          : (Math.sin(g.t * 0.9) * 1.4 + Math.PI * 0.72);
+
+        const sCnt = activeShieldCount();
+        let interval = 3.2, ballSpeed = 82;
+        if (g.act === 1) {
+          // 0盾最快紧盯，每捡1盾逐层降速降频！
+          const cdTable = [1.35, 2.05, 2.75, 3.45];
+          const spdTable = [158, 122, 98, 80];
+          interval = cdTable[sCnt];
+          ballSpeed = spdTable[sCnt];
+        } else {
+          interval = d.aimingPlayer ? Math.max(1.2, 1.9 - d.rage * 0.006) : 2.6;
+          ballSpeed = d.aimingPlayer ? (142 + d.rage * 0.45) : 92;
+        }
+
+        d.probeCd -= dt;
+        if (d.probeCd <= 0 && g.probes.length < 7) {
+          d.probeCd = interval;
+          const ang = d.aimingPlayer
+            ? (Math.atan2(p.y - d.y, p.x - d.x) + (Math.random() - 0.5) * 0.24)
+            : (Math.random() * Math.PI * 2);
+          g.probes.push({
+            x: d.x, y: d.y,
+            vx: Math.cos(ang) * ballSpeed, vy: Math.sin(ang) * ballSpeed,
+            r: 12, bounces: 0, maxBounces: 2, splitCd: 0.4, isChild: false,
+          });
+        }
+      }
+
+      // 6. 探测球物理移动：碰壁第 2 次才消失 + 碰树/小怪分裂成 2 颗！
+      const newSplits = [];
+      for (let i = g.probes.length - 1; i >= 0; i--) {
+        const pr = g.probes[i];
+        pr.x += pr.vx * dt; pr.y += pr.vy * dt;
+        if (pr.splitCd > 0) pr.splitCd -= dt;
+
+        let bounced = false;
+        if (pr.x < 18) { pr.x = 18; pr.vx = Math.abs(pr.vx); bounced = true; }
+        else if (pr.x > cw - 18) { pr.x = cw - 18; pr.vx = -Math.abs(pr.vx); bounced = true; }
+        if (pr.y < 64) { pr.y = 64; pr.vy = Math.abs(pr.vy); bounced = true; }
+        else if (pr.y > ch - 18) { pr.y = ch - 18; pr.vy = -Math.abs(pr.vy); bounced = true; }
+
+        if (bounced) {
+          pr.bounces += 1;
+          if (pr.bounces >= pr.maxBounces) {
+            spawnBurst(pr.x, pr.y, "#f43f5e", 5, 1.5);
+            g.probes.splice(i, 1);
+            continue;
+          }
+        }
+
+        // 碰固定树或游荡小怪 -> 分裂！
+        if (!pr.isChild && pr.splitCd <= 0 && g.probes.length + newSplits.length < 9) {
+          const obstacles = [...g.trees, ...g.mobs];
+          const hitObs = obstacles.find((o) => Math.hypot(o.x - pr.x, o.y - pr.y) <= (o.r || 22) + pr.r);
+          if (hitObs) {
+            pr.splitCd = 1.4;
+            const baseAng = Math.atan2(pr.vy, pr.vx);
+            const sp = Math.hypot(pr.vx, pr.vy) * 0.92;
+            [-0.55, 0.55].forEach((off) => {
+              newSplits.push({
+                x: pr.x, y: pr.y,
+                vx: Math.cos(baseAng + off) * sp, vy: Math.sin(baseAng + off) * sp,
+                r: 9, bounces: 1, maxBounces: 2, splitCd: 2.0, isChild: true,
+              });
+            });
+            addFloat(pr.x, pr.y - 16, "探测球遇障分裂!", "#fb7185", false);
+            playSfx("split");
+            g.probes.splice(i, 1);
+            continue;
+          }
+        }
+
+        // 碰玩家判定
+        if (p.stealthTimer <= 0 && Math.hypot(pr.x - p.x, pr.y - p.y) <= pr.r + 15) {
+          g.probes.splice(i, 1);
+          hitPlayerWithProbe(pr);
+        }
+      }
+      g.probes.push(...newSplits);
+
+      // 7. 第一幕：固定红光树 + 游荡小怪（均有红色禁区，踩中触发泄露计数）
+      if (g.act === 1) {
+        g.trees.forEach((tr) => {
+          tr.cycle = (tr.cycle + dt) % 5.8;
+          if (tr.warnCd > 0) tr.warnCd -= dt;
+          if (tr.hurtFlash > 0) tr.hurtFlash -= dt;
+          tr.redActive = tr.cycle >= 3.7;
+          if (tr.redActive && tr.warnCd <= 0 && Math.hypot(p.x - tr.x, p.y - tr.y) <= tr.redRadius + 6) {
+            tr.warnCd = 2.0;
+            triggerLeakAndCheckKyc(tr.label);
+          }
+        });
+
+        g.mobs.forEach((mb) => {
+          mb.cycle = (mb.cycle + dt) % 4.6;
+          if (mb.warnCd > 0) mb.warnCd -= dt;
+          if (mb.hurtFlash > 0) mb.hurtFlash -= dt;
+          mb.redActive = mb.cycle >= 2.7;
+          mb.moveCd -= dt;
+          if (mb.moveCd <= 0) {
+            mb.moveCd = 1.4 + Math.random();
+            const a = Math.random() * Math.PI * 2;
+            mb.vx = Math.cos(a) * 54; mb.vy = Math.sin(a) * 54;
+          }
+          mb.x = Math.max(75, Math.min(cw - 140, mb.x + mb.vx * dt));
+          mb.y = Math.max(96, Math.min(ch - 65, mb.y + mb.vy * dt));
+          if (mb.redActive && mb.warnCd <= 0 && Math.hypot(p.x - mb.x, p.y - mb.y) <= mb.redRadius + 4) {
+            mb.warnCd = 2.0;
+            triggerLeakAndCheckKyc(mb.label);
+          }
+        });
+      }
+
+      // 8. 第二幕：路面随机探测禁区 + 4 条触手 + 献祭血液拿取 Claude
+      if (g.act === 2) {
+        if (g.stage === 1) {
+          g.roadSpawnCd -= dt;
+          if (g.roadSpawnCd <= 0 && g.roadHazards.length < 2) {
+            g.roadSpawnCd = 3.2;
+            g.roadHazards.push({
+              x: Math.max(90, Math.min(cw - 120, p.x + (Math.random() - 0.5) * 140)),
+              y: Math.max(105, Math.min(ch - 70, p.y + (Math.random() - 0.5) * 110)),
+              r: 56, t: 0, warnDur: 1.15, activeDur: 1.6, hit: false,
+              label: ROAD_HAZARD_LABELS[Math.floor(Math.random() * ROAD_HAZARD_LABELS.length)],
+            });
+          }
+
+          for (let i = g.roadHazards.length - 1; i >= 0; i--) {
+            const rh = g.roadHazards[i];
+            rh.t += dt;
+            if (rh.t >= rh.warnDur && !rh.hit) {
+              if (Math.hypot(p.x - rh.x, p.y - rh.y) <= rh.r + 6) {
+                rh.hit = true;
+                if (p.stealthTimer > 0) {
+                  addFloat(p.x, p.y - 32, "👻 隐身躲过路面禁区", "#38bdf8", false);
+                } else if (p.vpnShieldTimer > 0) {
+                  addFloat(p.x, p.y - 32, "🛡️ VPN盾挡住路面禁区", "#60a5fa", false);
+                } else {
+                  // 没躲过去 -> Dario 立刻重新紧盯快射 + 涨怒气！
+                  d.aimingPlayer = true;
+                  d.aggroTimer = 5.5;
+                  d.rage = Math.min(100, d.rage + 28);
+                  addFloat(d.x, d.y - 40, "👁️ 踩中路面禁区！Dario 紧盯加速 +怒气！", "#f43f5e", true);
+                  hurtPlayer(14, rh.label);
+                }
+              }
+            }
+            if (rh.t >= rh.warnDur + rh.activeDur) g.roadHazards.splice(i, 1);
+          }
+
+          // 4 条守护触手慢速挥动 + 2 次标记处决至 1 血
+          const fx = g.claudeFruit.x, fy = g.claudeFruit.y;
+          g.tentacles.forEach((tc) => {
+            tc.sweepPhase += dt * 1.25; // 慢速挥动
+            tc.angle = tc.baseAngle + Math.sin(tc.sweepPhase) * 0.42;
+            if (tc.hurtFlash > 0) tc.hurtFlash -= dt;
+            if (tc.hitCd > 0) tc.hitCd -= dt;
+            const ex = fx + Math.cos(tc.angle) * tc.len;
+            const ey = fy + Math.sin(tc.angle) * tc.len;
+            if (tc.hitCd <= 0 && p.invuln <= 0 && p.stealthTimer <= 0) {
+              if (distPointToSeg(p.x, p.y, fx, fy, ex, ey) < 18) {
+                tc.hitCd = 1.6;
+                if (p.vpnShieldTimer > 0) {
+                  addFloat(p.x, p.y - 30, "🛡️ VPN盾挡住触手", "#60a5fa", false);
+                  playSfx("block");
+                } else {
+                  p.tentacleMarks += 1;
+                  if (p.tentacleMarks >= 2 && !p.appealUsed) {
+                    triggerExecutionTo1Hp(`触手「${tc.label}」2 次标记`);
+                  } else {
+                    hurtPlayer(20, `触手「${tc.label}」标记 ${p.tentacleMarks}/2`);
+                  }
+                }
+              }
+            }
+          });
+        } else if (g.stage === 2 && g.claudeFruit) {
+          // Dario 已停火，靠近 Claude 果实站稳 0.9s 献祭血液拿到 Claude！
+          const dist = Math.hypot(p.x - g.claudeFruit.x, p.y - g.claudeFruit.y);
+          if (dist <= 52) {
+            g.claudeFruit.sacrificeProg += dt / 0.9;
+            if (g.claudeFruit.sacrificeProg >= 1) completeBloodSacrifice();
+          } else {
+            g.claudeFruit.sacrificeProg = Math.max(0, g.claudeFruit.sacrificeProg - dt * 0.6);
+          }
+        }
+      }
+
+      // 9. FD 套装橘色圣剑自动斩击（砍树 / 砍小怪 / 砍 4 触手）
+      if (p.blessed && p.slashCd <= 0) {
+        const targets = [];
+        g.trees.forEach((t) => targets.push({ x: t.x, y: t.y }));
+        g.mobs.forEach((m) => targets.push({ x: m.x, y: m.y }));
+        if (g.act === 2 && g.stage === 1 && g.claudeFruit) {
+          g.tentacles.forEach((tc) => {
+            targets.push({
+              x: g.claudeFruit.x + Math.cos(tc.angle) * tc.len * 0.68,
+              y: g.claudeFruit.y + Math.sin(tc.angle) * tc.len * 0.68,
+            });
+          });
+        }
+        let nearest = null, bestD = 98;
+        targets.forEach((t) => {
+          const dd = Math.hypot(t.x - p.x, t.y - p.y);
+          if (dd < bestD) { bestD = dd; nearest = t; }
+        });
+        if (nearest) triggerSwordSlash(Math.atan2(nearest.y - p.y, nearest.x - p.x));
+      }
+
+      // 10. 特效更新
+      g.bolts403.forEach((b) => { b.t += dt; }); g.bolts403 = g.bolts403.filter((b) => b.t < b.dur);
+      g.slashes.forEach((s) => { s.t += dt; }); g.slashes = g.slashes.filter((s) => s.t < s.dur);
+      g.particles.forEach((pt) => { pt.x += pt.vx * dt; pt.y += pt.vy * dt; pt.vx *= 0.94; pt.vy *= 0.94; pt.life -= dt; pt.alpha = Math.max(0, pt.life * 1.8); });
+      g.particles = g.particles.filter((pt) => pt.life > 0);
+      g.ripples.forEach((rp) => { rp.r += (rp.maxR - rp.r) * Math.min(1, dt * 10); rp.alpha -= dt * 2.2; });
+      g.ripples = g.ripples.filter((rp) => rp.alpha > 0);
+      g.floats.forEach((fl) => { fl.y -= dt * 34; fl.life -= dt; });
+      g.floats = g.floats.filter((fl) => fl.life > 0);
+
+      syncHud();
+    }
+
+    // =========================================================================
+    // 9. 渲染循环
+    // =========================================================================
+    function addRipple(x, y, maxR, color) { g.ripples.push({ x, y, r: 10, maxR, color, alpha: 0.95 }); }
+    function spawnBurst(x, y, color, count, speed) {
+      for (let i = 0; i < count; i++) {
+        const a = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.4;
+        const sp = speed * (0.45 + Math.random() * 0.85);
+        g.particles.push({ x, y, vx: Math.cos(a) * sp * 60, vy: Math.sin(a) * sp * 60, r: 2 + Math.random() * 2.5, color, alpha: 1, life: 0.45 + Math.random() * 0.25 });
+      }
+    }
+    function addFloat(x, y, text, color, big) {
+      let adjY = y;
+      while (g.floats.some((f) => Math.abs(f.x - x) < 70 && Math.abs(f.y - adjY) < 17)) {
+        adjY -= 18;
+      }
+      g.floats.push({ x, y: adjY, text, color, big: !!big, life: 1.05, maxLife: 1.05 });
+    }
+
+    function render() {
+      const isDark = theme === "dark";
+      const p = g.player, d = g.dario;
+
+      ctx.save();
+      if (g.shake > 0.2) ctx.translate((Math.random() - 0.5) * g.shake, (Math.random() - 0.5) * g.shake);
+
+      // 1. 干净战术网格
+      ctx.fillStyle = isDark ? "#101218" : "#f6f8fc";
+      ctx.fillRect(0, 0, cw, ch);
+      ctx.strokeStyle = isDark ? "rgba(255,255,255,0.03)" : "rgba(15,23,42,0.045)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let x = 44; x < cw; x += 44) { ctx.moveTo(x, 0); ctx.lineTo(x, ch); }
+      for (let y = 44; y < ch; y += 44) { ctx.moveTo(0, y); ctx.lineTo(cw, y); }
+      ctx.stroke();
+
+      // 2. 第一幕元素：Clash 盾碎片 & FD 套装圣坛 & 红光树 & 游荡小怪
+      g.pickups.forEach((pk) => {
+        const dy = Math.sin(pk.bob) * 4;
+        ctx.save(); ctx.translate(pk.x, pk.y + dy);
+        ctx.shadowColor = pk.color; ctx.shadowBlur = isDark ? 12 : 5;
+        ctx.fillStyle = isDark ? "#151923" : "#ffffff";
+        ctx.strokeStyle = pk.color; ctx.lineWidth = 2;
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const a = (i * Math.PI) / 3 - Math.PI / 6;
+          if (i === 0) ctx.moveTo(Math.cos(a) * 17, Math.sin(a) * 17); else ctx.lineTo(Math.cos(a) * 17, Math.sin(a) * 17);
+        }
+        ctx.closePath(); ctx.fill(); ctx.stroke();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = isDark ? "#e2e8f0" : "#1e293b"; ctx.font = "500 10.5px sans-serif"; ctx.textAlign = "center";
+        ctx.fillText("🛡", 0, 4); ctx.fillText(pk.label, 0, 30);
+        ctx.restore();
+      });
+
+      if (g.shrine) {
+        const s = g.shrine, gr = 38 + Math.sin(s.pulse) * 5;
+        ctx.save(); ctx.translate(s.x, s.y);
+        ctx.strokeStyle = "#fb923c"; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+        ctx.beginPath(); ctx.arc(0, 0, gr, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+        ctx.shadowColor = "#f97316"; ctx.shadowBlur = 12;
+        ctx.strokeStyle = "#fb923c"; ctx.lineWidth = 4; ctx.lineCap = "round";
+        ctx.beginPath(); ctx.moveTo(0, -16); ctx.lineTo(0, 12); ctx.stroke();
+        ctx.strokeStyle = "#fde047"; ctx.lineWidth = 2.4;
+        ctx.beginPath(); ctx.moveTo(-8, 4); ctx.lineTo(8, 4); ctx.stroke();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = isDark ? "#fed7aa" : "#c2410c"; ctx.font = "600 11px sans-serif"; ctx.textAlign = "center";
+        ctx.fillText("✨ FD Claude Guard 加护套装", 0, -26);
+        ctx.restore();
+      }
+
+      g.trees.forEach((tr) => {
+        const warn = tr.cycle >= 2.9 && tr.cycle < 3.7;
+        ctx.save(); ctx.translate(tr.x, tr.y);
+        if (tr.redActive) {
+          ctx.beginPath(); ctx.arc(0, 0, tr.redRadius, 0, Math.PI * 2);
+          ctx.fillStyle = isDark ? "rgba(239,68,68,0.22)" : "rgba(225,29,72,0.14)"; ctx.fill();
+          ctx.strokeStyle = "rgba(244,63,94,0.85)"; ctx.lineWidth = 2; ctx.stroke();
+        } else if (warn) {
+          ctx.beginPath(); ctx.arc(0, 0, tr.redRadius, 0, Math.PI * 2);
+          ctx.strokeStyle = "rgba(245,158,11,0.72)"; ctx.setLineDash([5, 5]); ctx.lineWidth = 1.5; ctx.stroke(); ctx.setLineDash([]);
+        }
+        ctx.fillStyle = tr.hurtFlash > 0 ? "#fed7aa" : "#4b382f";
+        ctx.beginPath(); ctx.roundRect(-7, 2, 14, 21, 4); ctx.fill();
+        ctx.fillStyle = tr.hurtFlash > 0 ? "#fb923c" : (tr.redActive ? "#be123c" : "#3f2e3a");
+        ctx.beginPath(); ctx.arc(0, -10, 19, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = "#f43f5e"; ctx.lineWidth = 1.7; ctx.stroke();
+        ctx.fillStyle = "#f97316"; ctx.fillRect(-20, -36, 40 * (tr.hp / tr.maxHp), 4.5);
+        ctx.fillStyle = isDark ? "#e2e8f0" : "#1e293b"; ctx.font = "500 10.5px sans-serif"; ctx.textAlign = "center";
+        ctx.fillText(tr.label, 0, 36);
+        ctx.restore();
+      });
+
+      g.mobs.forEach((mb) => {
+        ctx.save(); ctx.translate(mb.x, mb.y);
+        if (mb.redActive) {
+          ctx.beginPath(); ctx.arc(0, 0, mb.redRadius, 0, Math.PI * 2);
+          ctx.fillStyle = isDark ? "rgba(239,68,68,0.18)" : "rgba(225,29,72,0.12)"; ctx.fill();
+          ctx.strokeStyle = "rgba(244,63,94,0.72)"; ctx.lineWidth = 1.5; ctx.stroke();
+        }
+        ctx.fillStyle = mb.hurtFlash > 0 ? "#ffffff" : mb.color;
+        ctx.beginPath(); ctx.arc(0, 0, mb.r, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = "#0f172a"; ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.fillStyle = "#ffffff"; ctx.beginPath(); ctx.arc(-5, -3, 3, 0, Math.PI * 2); ctx.arc(5, -3, 3, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = "#0f172a"; ctx.beginPath(); ctx.arc(-5, -3, 1.4, 0, Math.PI * 2); ctx.arc(5, -3, 1.4, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = "#f97316"; ctx.fillRect(-15, -27, 30 * (mb.hp / mb.maxHp), 4);
+        ctx.fillStyle = isDark ? "#e2e8f0" : "#1e293b"; ctx.font = "500 10.5px sans-serif"; ctx.textAlign = "center";
+        ctx.fillText(mb.label, 0, 30);
+        ctx.restore();
+      });
+
+      // 3. 🔑 KYC 钥匙（身份验证 Debuff 出现时）
+      if (g.kycKey) {
+        const k = g.kycKey;
+        ctx.save(); ctx.translate(k.x, k.y + Math.sin(k.bob) * 5);
+        ctx.shadowColor = "#34d399"; ctx.shadowBlur = 16;
+        ctx.fillStyle = "rgba(16, 185, 129, 0.22)";
+        ctx.strokeStyle = "#34d399"; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(0, 0, 22, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.shadowBlur = 0;
+        ctx.font = "600 16px sans-serif"; ctx.textAlign = "center";
+        ctx.fillText("🔑", 0, 6);
+        ctx.fillStyle = isDark ? "#a7f3d0" : "#047857"; ctx.font = "600 10.5px sans-serif";
+        ctx.fillText("KYC 钥匙 (+50%血)", 0, 34);
+        ctx.restore();
+      }
+
+      // 4. 第二幕：路面随机探测禁区 + Claude 果实 + 4 条守护触手
+      g.roadHazards.forEach((rh) => {
+        const active = rh.t >= rh.warnDur;
+        ctx.save(); ctx.translate(rh.x, rh.y);
+        ctx.beginPath(); ctx.arc(0, 0, rh.r, 0, Math.PI * 2);
+        if (active) {
+          ctx.fillStyle = isDark ? "rgba(239,68,68,0.26)" : "rgba(225,29,72,0.16)"; ctx.fill();
+          ctx.strokeStyle = "#f43f5e"; ctx.lineWidth = 2; ctx.stroke();
+        } else {
+          ctx.fillStyle = "rgba(245,158,11,0.09)"; ctx.fill();
+          ctx.strokeStyle = "rgba(245,158,11,0.75)"; ctx.setLineDash([5, 5]); ctx.lineWidth = 1.5; ctx.stroke(); ctx.setLineDash([]);
+          ctx.beginPath(); ctx.arc(0, 0, rh.r * (rh.t / rh.warnDur), 0, Math.PI * 2);
+          ctx.fillStyle = "rgba(245,158,11,0.16)"; ctx.fill();
+        }
+        ctx.fillStyle = isDark ? "#fecdd3" : "#be123c"; ctx.font = "500 10.5px sans-serif"; ctx.textAlign = "center";
+        ctx.fillText(rh.label, 0, 4);
+        ctx.restore();
+      });
+
+      if (g.act === 2 && g.claudeFruit) {
+        const cf = g.claudeFruit;
+        // 4 条守护触手
+        g.tentacles.forEach((tc) => {
+          const ex = cf.x + Math.cos(tc.angle) * tc.len;
+          const ey = cf.y + Math.sin(tc.angle) * tc.len;
+          const mx = cf.x + Math.cos(tc.angle + 0.22) * (tc.len * 0.55);
+          const my = cf.y + Math.sin(tc.angle + 0.22) * (tc.len * 0.55);
+          ctx.save();
+          ctx.strokeStyle = tc.hurtFlash > 0 ? "#ffffff" : tc.color;
+          ctx.lineWidth = 10; ctx.lineCap = "round";
+          ctx.beginPath(); ctx.moveTo(cf.x, cf.y); ctx.quadraticCurveTo(mx, my, ex, ey); ctx.stroke();
+          ctx.fillStyle = tc.color; ctx.beginPath(); ctx.arc(ex, ey, 8, 0, Math.PI * 2); ctx.fill();
+          // 触手血条与名称
+          ctx.fillStyle = "#f97316"; ctx.fillRect(ex - 16, ey - 20, 32 * (tc.hp / tc.maxHp), 4);
+          ctx.fillStyle = isDark ? "#f1f5f9" : "#1e293b"; ctx.font = "500 10.5px sans-serif"; ctx.textAlign = "center";
+          ctx.fillText(tc.label, ex, ey + 20);
+          ctx.restore();
+        });
+
+        // 中央 Claude 果实
+        ctx.save(); ctx.translate(cf.x, cf.y);
+        const readySac = g.stage === 2;
+        if (readySac) {
+          ctx.beginPath(); ctx.arc(0, 0, 52, 0, Math.PI * 2);
+          ctx.fillStyle = "rgba(236, 72, 153, 0.14)"; ctx.fill();
+          ctx.strokeStyle = "#f472b6"; ctx.lineWidth = 2; ctx.setLineDash([6, 4]); ctx.stroke(); ctx.setLineDash([]);
+          if (cf.sacrificeProg > 0) {
+            ctx.beginPath(); ctx.arc(0, 0, 56, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * cf.sacrificeProg);
+            ctx.strokeStyle = "#ef4444"; ctx.lineWidth = 4; ctx.stroke();
+          }
+        }
+        ctx.shadowColor = "#fbbf24"; ctx.shadowBlur = g.player.hasClaude ? 4 : 18;
+        ctx.fillStyle = g.player.hasClaude ? "rgba(251,191,36,0.2)" : "#f59e0b";
+        ctx.beginPath(); ctx.arc(0, 0, cf.r, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = "#fde68a"; ctx.lineWidth = 2; ctx.stroke();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "#ffffff"; ctx.font = "600 10.5px sans-serif"; ctx.textAlign = "center";
+        ctx.fillText(g.player.hasClaude ? "已获取" : "Claude", 0, 4);
+        if (readySac) {
+          ctx.fillStyle = isDark ? "#fbcfe8" : "#be185d"; ctx.font = "600 11px sans-serif";
+          ctx.fillText("🩸 靠近献祭血液拿取 Claude", 0, -34);
+        }
+        ctx.restore();
+      }
+
+      // 5. 涟漪 / 圣剑挥砍弧光 / 403 闪电
+      g.ripples.forEach((rp) => {
+        ctx.save(); ctx.globalAlpha = Math.max(0, rp.alpha);
+        ctx.strokeStyle = rp.color; ctx.lineWidth = 2.2;
+        ctx.beginPath(); ctx.arc(rp.x, rp.y, rp.r, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+      });
+      g.slashes.forEach((s) => {
+        const u = s.t / s.dur;
+        ctx.save(); ctx.translate(s.x, s.y); ctx.globalAlpha = Math.max(0, 1 - u);
+        ctx.strokeStyle = "#fb923c"; ctx.shadowColor = "#f97316"; ctx.shadowBlur = 12;
+        ctx.lineWidth = 9 * (1 - u * 0.5); ctx.lineCap = "round";
+        ctx.beginPath(); ctx.arc(0, 0, s.r * (0.72 + u * 0.22), s.angle - 0.85, s.angle + 0.85); ctx.stroke();
+        ctx.restore();
+      });
+      g.bolts403.forEach((b) => {
+        ctx.save(); ctx.globalAlpha = Math.max(0, 1 - b.t / b.dur);
+        ctx.strokeStyle = "#f43f5e"; ctx.lineWidth = 3.5;
+        ctx.beginPath(); ctx.moveTo(b.sx, b.sy); ctx.lineTo(b.tx, b.ty); ctx.stroke(); ctx.restore();
+      });
+
+      // 6. 主角 + Dario + 探测球 + 粒子/飘字
+      drawHero(isDark);
+      drawDario(isDark);
+
+      g.probes.forEach((pr) => {
+        ctx.save(); ctx.translate(pr.x, pr.y);
+        ctx.shadowColor = "rgba(239,68,68,0.55)"; ctx.shadowBlur = 9;
+        ctx.fillStyle = pr.isChild ? "#fb7185" : (isDark ? "#be123c" : "#e11d48");
+        ctx.beginPath(); ctx.arc(0, 0, pr.r, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = "#fecdd3"; ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "#ffffff"; ctx.font = "600 7.5px sans-serif"; ctx.textAlign = "center";
+        ctx.fillText(pr.isChild ? "分裂" : `探${2 - pr.bounces}`, 0, 3);
+        ctx.restore();
+      });
+
+      g.particles.forEach((pt) => {
+        ctx.save(); ctx.globalAlpha = pt.alpha; ctx.fillStyle = pt.color;
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+      });
+      g.floats.forEach((fl) => {
+        ctx.save(); ctx.globalAlpha = Math.min(1, (fl.life / fl.maxLife) * 1.6);
+        ctx.font = fl.big ? "600 12.5px sans-serif" : "500 11px sans-serif"; ctx.textAlign = "center";
+        ctx.fillStyle = fl.color; ctx.fillText(fl.text, fl.x, fl.y); ctx.restore();
+      });
+
+      ctx.restore();
+    }
+
+    function drawHero(isDark) {
+      const p = g.player;
+      const bob = Math.abs(Math.sin(p.walkPhase)) * 3;
+      ctx.save(); ctx.translate(p.x, p.y - bob);
+      if (p.stealthTimer > 0) ctx.globalAlpha = 0.42;
+
+      if (p.blessed) {
+        ctx.save(); ctx.strokeStyle = "rgba(249,115,22,0.4)"; ctx.lineWidth = 1.5; ctx.setLineDash([7, 6]);
+        ctx.rotate(g.t * 0.9); ctx.beginPath(); ctx.arc(0, 4, 86, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+      }
+      if (p.vpnShieldTimer > 0) {
+        ctx.save(); ctx.fillStyle = "rgba(59,147,250,0.16)"; ctx.strokeStyle = "#60a5fa"; ctx.lineWidth = 2.4;
+        ctx.beginPath(); ctx.arc(0, 0, 31, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); ctx.restore();
+      }
+
+      SHIELD_TYPES.forEach((s, idx) => {
+        if (p.shields[s.key] <= 0) return;
+        const rr = 23 + idx * 5;
+        const frac = p.blessed ? 1 : Math.max(0.12, p.shields[s.key] / SHIELD_TTL);
+        ctx.save();
+        ctx.strokeStyle = p.blessed ? "#fbbf24" : s.color;
+        ctx.lineWidth = p.blessed ? 2.1 : 1.8;
+        const st = g.t * (1.2 + idx * 0.35) + idx * 2;
+        ctx.beginPath(); ctx.arc(0, 2, rr, st, st + Math.PI * 1.65 * frac); ctx.stroke();
+        ctx.restore();
+      });
+
+      ctx.fillStyle = p.hurtFlash > 0 ? "#ef4444" : activeHero.color;
+      ctx.beginPath(); ctx.roundRect(-11, 1, 22, 17, 6); ctx.fill();
+      ctx.strokeStyle = "#0f172a"; ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.fillStyle = "#f8d8c0"; ctx.beginPath(); ctx.arc(0, -8, 12, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = "#2b2f3c"; ctx.beginPath(); ctx.arc(0, -11, 12, Math.PI, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#0f172a";
+      ctx.beginPath(); ctx.arc(p.facing * 2 - 4, -7.5, 1.7, 0, Math.PI * 2); ctx.arc(p.facing * 2 + 4, -7.5, 1.7, 0, Math.PI * 2); ctx.fill();
+
+      if (p.blessed) {
+        ctx.save(); ctx.translate(p.facing * 14, 4);
+        const sw = p.slashAnim > 0 ? Math.sin((p.slashAnim / 0.2) * Math.PI) * 1.4 : 0;
+        ctx.rotate((p.facing > 0 ? -0.45 : 0.45) + p.facing * sw);
+        ctx.strokeStyle = "#fb923c"; ctx.lineWidth = 3.5; ctx.lineCap = "round";
+        ctx.beginPath(); ctx.moveTo(0, 4); ctx.lineTo(0, -20); ctx.stroke();
+        ctx.strokeStyle = "#fde047"; ctx.lineWidth = 2.3;
+        ctx.beginPath(); ctx.moveTo(-6, -2); ctx.lineTo(6, -2); ctx.stroke();
+        ctx.restore();
+      }
+      ctx.restore();
+    }
+
+    function drawDario(isDark) {
+      const d = g.dario;
+      ctx.save(); ctx.translate(d.x, d.y);
+      ctx.fillStyle = "#334155"; ctx.beginPath(); ctx.roundRect(-18, 4, 36, 25, 8); ctx.fill();
+      ctx.strokeStyle = "#0f172a"; ctx.lineWidth = 1.6; ctx.stroke();
+      ctx.fillStyle = "#f8fafc"; ctx.beginPath(); ctx.moveTo(-6, 4); ctx.lineTo(0, 17); ctx.lineTo(6, 4); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = "#3b82f6"; ctx.beginPath(); ctx.moveTo(-2, 7); ctx.lineTo(0, 19); ctx.lineTo(2, 7); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = "#5a4235";
+      [[-13, -21, 9.5], [-3, -27, 10.5], [8, -26, 10.5], [16, -18, 8.5], [-17, -12, 7.5], [18, -10, 7.5]].forEach(([cx, cy, rr]) => {
+        ctx.beginPath(); ctx.arc(cx, cy, rr, 0, Math.PI * 2); ctx.fill();
+      });
+      ctx.fillStyle = "#f6d2b8"; ctx.beginPath(); ctx.arc(0, -10, 18, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = "#5a4235"; ctx.lineWidth = 1.5; ctx.stroke();
+      const ex = Math.cos(d.lookAngle) * 3.2, ey = Math.sin(d.lookAngle) * 2.2;
+      ctx.fillStyle = d.aimingPlayer ? "#e11d48" : "#1e293b";
+      ctx.beginPath(); ctx.arc(-6 + ex, -10 + ey, 2.3, 0, Math.PI * 2); ctx.arc(6 + ex, -10 + ey, 2.3, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = isDark ? "#cbd5e1" : "#334155"; ctx.font = "500 10px sans-serif"; ctx.textAlign = "center";
+      const lbl = d.pausedForSacrifice ? "Dario (已停火·待献祭)" : (d.aimingPlayer ? "Dario (紧盯发射)" : "Dario (随机方向发球)");
+      ctx.fillText(lbl, 0, 44);
+      ctx.restore();
+    }
+
+    // =========================================================================
+    // 10. HUD 实时同步
+    // =========================================================================
+    function syncHud() {
+      const p = g.player, d = g.dario;
+      document.getElementById("player-hp-txt").textContent = `${Math.round(p.hp)} / 100`;
+      const fill = document.getElementById("player-hp-fill");
+      fill.style.width = `${Math.round(p.hp)}%`;
+      fill.classList.toggle("is-low", p.hp <= 35);
+
+      arenaFrame.classList.toggle("is-kyc-debuff", p.kycDebuffTimer > 0);
+      arenaFrame.classList.toggle("is-danger", d.aimingPlayer && g.act === 2 && !d.pausedForSacrifice);
+      arenaFrame.classList.toggle("is-sacrifice", g.act === 2 && g.stage === 2);
+
+      // 顶部步骤条渲染
+      const stepper = document.getElementById("act-stepper");
+      if (g.act === 1) {
+        stepper.innerHTML = `
+          <span class="act-badge">第一幕</span>
+          <div class="act-step ${g.stage > 1 ? "is-done" : "is-now"}"><span class="act-step-dot">1</span><span>集3盾(${activeShieldCount()}/3)</span></div>
+          <span class="act-sep"></span>
+          <div class="act-step ${g.stage > 2 ? "is-done" : (g.stage === 2 ? "is-now" : "")}"><span class="act-step-dot">2</span><span>领FD套装</span></div>
+          <span class="act-sep"></span>
+          <div class="act-step ${g.stage > 3 ? "is-done" : (g.stage === 3 ? "is-now" : "")}"><span class="act-step-dot">3</span><span>斩红光树(${g.treesCut}/2)</span></div>
+          <span class="act-sep"></span>
+          <div class="act-step ${g.stage > 4 ? "is-done" : (g.stage === 4 ? "is-now" : "")}"><span class="act-step-dot">4</span><span>清优化小怪(${g.mobsCleared}/3)</span></div>
+        `;
+      } else {
+        stepper.innerHTML = `
+          <span class="act-badge">第二幕</span>
+          <div class="act-step ${g.stage > 1 ? "is-done" : "is-now"}"><span class="act-step-dot">1</span><span>躲路面禁区 & 斩4触手(${g.tentaclesCut}/4)</span></div>
+          <span class="act-sep"></span>
+          <div class="act-step ${g.stage > 2 ? "is-done" : (g.stage === 2 ? "is-now" : "")}"><span class="act-step-dot">2</span><span>献祭血液拿取 Claude</span></div>
+        `;
+      }
+
+      // 副条：身份验证 Debuff 倒计时 OR 第二幕怒气条
+      const subHud = document.getElementById("sub-hud-pill");
+      if (p.kycDebuffTimer > 0) {
+        subHud.className = "sub-hud-pill show is-kyc tabular";
+        subHud.innerHTML = `<span>🪪 身份验证 Debuff · 快抢 🔑 KYC 钥匙 (+50%血)</span><strong>${p.kycDebuffTimer.toFixed(1)}s</strong>`;
+      } else if (g.act === 2) {
+        subHud.className = "sub-hud-pill show tabular";
+        subHud.innerHTML = `<span>Dario 怒气</span><div class="rage-mini-track"><div class="rage-mini-fill" style="width:${Math.round(d.rage)}%"></div></div><span>${Math.round(d.rage)}%</span><span>· 触手标记 ${p.tentacleMarks}/2</span>`;
+      } else {
+        subHud.className = "sub-hud-pill";
+      }
+
+      // 左侧小字状态
+      const sCnt = activeShieldCount();
+      const subTxt = document.getElementById("player-status-sub");
+      if (p.kycDebuffTimer > 0) subTxt.textContent = `🪪 身份验证中 ${p.kycDebuffTimer.toFixed(1)}s · 快捡 KYC 钥匙`;
+      else if (g.act === 1) subTxt.textContent = `泄露标记 ${p.leakMarks}/2 · ${sCnt} 盾（${sCnt === 0 ? "无盾被快射" : "已降速"}）`;
+      else subTxt.textContent = `触手标记 ${p.tentacleMarks}/2 · ${d.pausedForSacrifice ? "Dario 已停火" : (d.aimingPlayer ? "被紧盯追射!" : "随机发球")}`;
+
+      // 底部切换第一幕装备栏 vs 第二幕主动技能栏
+      document.getElementById("dock-act1").style.display = g.act === 1 ? "flex" : "none";
+      document.getElementById("dock-act2").style.display = g.act === 2 ? "flex" : "none";
+
+      if (g.act === 1) {
+        SHIELD_TYPES.forEach(({ key }) => {
+          const el = document.getElementById(`gear-${key}`);
+          const sub = document.getElementById(`gear-${key}-sub`);
+          const dec = document.getElementById(`decay-${key}`);
+          const val = p.shields[key];
+          el.classList.toggle("is-on", val > 0 && !p.blessed);
+          el.classList.toggle("is-blessed", val > 0 && p.blessed);
+          if (val > 0) {
+            sub.textContent = p.blessed ? "FD 锁稳" : `${val.toFixed(0)}s`;
+            dec.style.width = p.blessed ? "100%" : `${Math.max(0, (val / SHIELD_TTL) * 100)}%`;
+          } else {
+            sub.textContent = p.blessed && p.shieldRegen[key] > 0 ? `修复 ${p.shieldRegen[key].toFixed(1)}s` : "待拾取";
+            dec.style.width = "0%";
+          }
+        });
+        document.getElementById("gear-fdset").classList.toggle("is-blessed", p.blessed);
+        document.getElementById("gear-fdset-sub").textContent = p.blessed ? "圣剑+自动反震" : "集齐 3 盾觉醒";
+      } else {
+        ["stealth", "shield", "dash"].forEach((k) => {
+          const btn = document.getElementById(`sk-${k}`);
+          const cd = document.getElementById(`cd-${k}`);
+          btn.classList.toggle("is-cooling", g.cds[k] > 0.05);
+          cd.textContent = `${g.cds[k].toFixed(1)}s`;
+        });
+        document.getElementById("sk-stealth").classList.toggle("is-buff", p.stealthTimer > 0);
+        document.getElementById("sk-shield").classList.toggle("is-buff", p.vpnShieldTimer > 0);
+        document.getElementById("gear-claude-trophy").style.opacity = p.hasClaude ? "1" : "0.45";
+        document.getElementById("claude-trophy-sub").textContent = p.hasClaude ? "已入手！" : (g.stage === 2 ? "快去献祭拿取" : `斩触手 ${g.tentaclesCut}/4`);
+      }
+
+      // 副标题与右下角提示
+      document.getElementById("page-sub-txt").textContent = g.act === 1
+        ? "第一幕 · 集 3 层 Clash 盾降速探测球 → 领 FD 加护套装 → 斩红光树与优化小怪"
+        : "第二幕 · 躲路面禁区（踩中涨怒）→ 斩断 4 触手 → 献祭血液拿取 Claude";
+      const hint = document.getElementById("arena-mini-hint");
+      if (g.act === 1) {
+        if (g.stage === 1) hint.innerHTML = `0 盾时探测球最快！快拾取 <strong>3 枚 Clash 盾</strong> 逐层减速`;
+        else if (g.stage === 2) hint.innerHTML = `✨ 触碰场中 <strong>FD 加护套装</strong> 锁稳护盾 + 获圣剑与自动反震`;
+        else hint.innerHTML = `躲开红区靠近自动挥剑 · <strong>2 次泄露</strong>触发身份验证需抢 KYC 钥匙`;
+      } else {
+        hint.innerHTML = g.stage === 2
+          ? `🩸 Dario 已停火 · 走进中央 <strong>Claude 果实</strong> 献祭血液夺取战利品！`
+          : `<kbd>Q</kbd>隐身 <kbd>W</kbd>VPN盾 <kbd>Space</kbd>瞬移 · 斩断 4 触手（被标记2次处决至1血）`;
+      }
+    }
+
+    // 输入监听
+    function updateMouse(e) {
+      const r = canvas.getBoundingClientRect();
+      input.mouseX = e.clientX - r.left; input.mouseY = e.clientY - r.top;
+    }
+    canvas.addEventListener("mouseenter", (e) => { input.inside = true; updateMouse(e); });
+    canvas.addEventListener("mouseleave", () => { input.inside = false; input.leftDown = false; });
+    canvas.addEventListener("mousemove", updateMouse);
+    canvas.addEventListener("mousedown", (e) => {
+      updateMouse(e);
+      if (e.button === 0) input.leftDown = true;
+      else if (e.button === 2) {
+        e.preventDefault();
+        triggerSwordSlash(Math.atan2(input.mouseY - g.player.y, input.mouseX - g.player.x));
+      }
+    });
+    window.addEventListener("mouseup", (e) => { if (e.button === 0) input.leftDown = false; });
+    canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+
+    window.addEventListener("keydown", (e) => {
+      const tag = document.activeElement && document.activeElement.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (document.getElementById("wish-overlay").classList.contains("show")) {
+        if (e.key === "Escape" && hasPickedOnce) closeWishModal();
+        return;
+      }
+      const k = e.key.toLowerCase();
+      if (k === "a" || k === "arrowleft") input.keys.a = true;
+      if (k === "d" || k === "arrowright") input.keys.d = true;
+      if (k === "s" || k === "arrowdown") input.keys.s = true;
+      if (k === "arrowup") input.keys.up = true;
+      if (g.act === 1 && k === "w") input.keys.w = true;
+
+      if (g.act === 2) {
+        if (k === "q") { e.preventDefault(); useAct2Skill("stealth"); }
+        else if (k === "w") { e.preventDefault(); useAct2Skill("shield"); }
+        else if (k === " " || e.code === "Space") { e.preventDefault(); useAct2Skill("dash"); }
+      } else if (k === " " || e.code === "Space") {
+        e.preventDefault();
+        triggerSwordSlash(Math.atan2(input.mouseY - g.player.y, input.mouseX - g.player.x));
+      }
+    });
+    window.addEventListener("keyup", (e) => {
+      const k = e.key.toLowerCase();
+      if (k === "w" || k === "arrowup") input.keys.w = false;
+      if (k === "a" || k === "arrowleft") input.keys.a = false;
+      if (k === "s" || k === "arrowdown") input.keys.s = false;
+      if (k === "d" || k === "arrowright") input.keys.d = false;
+      if (k === "arrowup") input.keys.up = false;
+    });
+
+    function setTheme(next) {
+      theme = next;
+      document.documentElement.setAttribute("data-theme", next);
+      document.getElementById("btn-theme-dark").classList.toggle("active", next === "dark");
+      document.getElementById("btn-theme-light").classList.toggle("active", next === "light");
+    }
+    function toggleTheme() { setTheme(theme === "dark" ? "light" : "dark"); }
+    function toggleSound() {
+      soundEnabled = !soundEnabled;
+      document.getElementById("btn-sound").classList.toggle("is-muted", !soundEnabled);
+    }
+    function showToast(title, sub) {
+      const st = document.getElementById("toast-stack");
+      const el = document.createElement("div");
+      el.className = "toast-item";
+      el.innerHTML = `<div>${escapeHtml(title)}</div><div class="toast-sub">${escapeHtml(sub)}</div>`;
+      st.appendChild(el);
+      setTimeout(() => el.remove(), 2700);
+    }
+
+    let lastTs = performance.now();
+    function loop(now) {
+      const dt = Math.min(0.05, (now - lastTs) / 1000);
+      lastTs = now;
+      update(dt);
+      render();
+      requestAnimationFrame(loop);
+    }
+    resizeCanvas();
+    renderWishGrid();
+    syncHud();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>

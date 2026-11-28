@@ -18,10 +18,10 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 static UPDATE_INSTALL_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
-/// 全局持久化自动检查节流周期（4 小时）：未满 4h 时自动检查直接复用本地持久化状态，不重复请求 GitHub
+/// 全局常驻期间自动检查节流周期（4 小时）：进程常驻期间每 4h 静默巡检一次（冷启动首检结束后不受旧会话 4h 磁盘死锁限制）
 pub const UPDATE_CHECK_INTERVAL_MS: i64 = 4 * 3_600_000;
-/// 启动后延迟首次静默自检时间（3 分钟）：避开启动首秒抢跑，确保 Clash 代理与 19 项探针已就绪
-pub const UPDATE_STARTUP_DELAY_SECS: u64 = 180;
+/// 冷启动等待首检（19 项真实探针）完成的最长兜底等待秒数（正常约 5~10s 首检完成即立刻触发首次更新检查）
+pub const UPDATE_STARTUP_PREFLIGHT_WAIT_CAP_SECS: u64 = 30;
 /// 休眠唤醒 / 代理恢复在线后延迟补偿自检时间（60 秒，仍严格受 4h 节流约束）
 pub const UPDATE_WAKE_RECOVERY_DELAY_SECS: u64 = 60;
 /// 手动点击「检查更新」防连点短时单飞保护（15 秒）
