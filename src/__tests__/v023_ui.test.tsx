@@ -1,9 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HudCard } from "@/components/HudCard";
+import { SettingsModal } from "@/components/SettingsModal";
 import { DEFAULT_CONFIG, FALLBACK_PREFLIGHT, FALLBACK_SNAPSHOT, ipc } from "@/lib/ipc";
 import { LogAnalysisPage } from "@/pages/LogAnalysisPage";
-import { MaintenancePage } from "@/pages/MaintenancePage";
 import { useGuardStore } from "@/stores/guardStore";
 import type { LogAnalysisReport } from "@/types/guard";
 
@@ -241,8 +241,17 @@ describe("v0.2.3 UI 核心回归门禁", () => {
     });
   });
 
-  describe("环境维护页：Claude 双数据根目录识别摘要", () => {
+  describe("系统设置 → 清理恢复：Claude 双数据根目录识别摘要", () => {
     it("正确展示经典目录与微软商店 MSIX 实例识别结果", async () => {
+      vi.spyOn(ipc, "inspectRollbackStatus").mockResolvedValue({
+        baselineExists: true,
+        baselinePath: "~/.fd-claude-guard/system-baseline.json",
+        isElevated: true,
+        loopbackDnsAdapters: [],
+        activeFirewallRules: false,
+        touchedCount: 0,
+        items: [],
+      });
       vi.spyOn(ipc, "listBackups").mockResolvedValue([]);
       const rootsSpy = vi.spyOn(ipc, "inspectClaudeDataRoots").mockResolvedValue({
         classicDetected: true,
@@ -250,14 +259,14 @@ describe("v0.2.3 UI 核心回归门禁", () => {
         telemetryExists: true,
       });
 
-      render(<MaintenancePage />);
+      useGuardStore.setState({ settingsModalOpen: true, settingsModalTab: "recovery" });
+      render(<SettingsModal />);
 
       await waitFor(() => expect(rootsSpy).toHaveBeenCalledTimes(1));
 
-      const rootsSummary = await screen.findByTestId("maintenance-roots-summary");
-      expect(rootsSummary).toBeInTheDocument();
-      expect(rootsSummary).toHaveTextContent("经典目录（已识别）");
-      expect(rootsSummary).toHaveTextContent("微软商店 MSIX（已识别 1 个实例）");
+      fireEvent.click(screen.getByLabelText("查看「退出登录并清理本地污染目录」详细说明"));
+      expect(await screen.findByText(/经典安装目录（已识别）/)).toBeInTheDocument();
+      expect(screen.getByText(/微软商店 MSIX（已识别 1 个实例）/)).toBeInTheDocument();
     });
   });
 });

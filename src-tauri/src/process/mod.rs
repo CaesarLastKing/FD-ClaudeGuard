@@ -235,8 +235,18 @@ pub fn find_clash_kernel_pids() -> Vec<(u32, String)> {
     }
 }
 
-/// 零轮询内核级等待指定 PID 退出（Win32 OpenProcess + WaitForSingleObject，0% CPU，<10ms 毫秒级唤醒）
-pub fn wait_for_process_exit_blocking(pid: u32) -> bool {
+/// 内核进程退出监听结果（区分“真正退出”与“无权限打开句柄/已提前消失”，防止非管理员态死循环刷屏）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcessExitWatchOutcome {
+    Exited,
+    CannotAttach,
+}
+
+/// 零轮询内核级等待指定 PID 退出（仅在 OpenProcess 成功拿到有效句柄后才触发 on_attached 回调）
+pub fn watch_process_exit_blocking<F: FnOnce()>(
+    pid: u32,
+    on_attached: F,
+) -> ProcessExitWatchOutcome {
     #[cfg(windows)]
     {
         use windows_sys::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
@@ -246,18 +256,29 @@ pub fn wait_for_process_exit_blocking(pid: u32) -> bool {
         unsafe {
             let handle = OpenProcess(PROCESS_SYNCHRONIZE, 0, pid);
             if handle.is_null() {
-                return false;
+                return ProcessExitWatchOutcome::CannotAttach;
             }
+            on_attached();
             let wait_res = WaitForSingleObject(handle, INFINITE);
             CloseHandle(handle);
-            wait_res == WAIT_OBJECT_0
+            if wait_res == WAIT_OBJECT_0 {
+                ProcessExitWatchOutcome::Exited
+            } else {
+                ProcessExitWatchOutcome::CannotAttach
+            }
         }
     }
     #[cfg(not(windows))]
     {
-        let _ = pid;
-        false
+        let _ = (pid, on_attached);
+        ProcessExitWatchOutcome::CannotAttach
     }
+}
+
+/// 零轮询内核级等待指定 PID 退出（兼容旧调用方）
+#[allow(dead_code)]
+pub fn wait_for_process_exit_blocking(pid: u32) -> bool {
+    watch_process_exit_blocking(pid, || {}) == ProcessExitWatchOutcome::Exited
 }
 
 /// 注册 Windows 原生 IP 网卡变动事件监听（NotifyIpInterfaceChange），Wintun 虚拟网卡下线或切网 <10ms 零轮询回调

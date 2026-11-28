@@ -11,6 +11,7 @@ export interface WindowPos {
 }
 
 export interface AppConfig {
+  configSchemaVersion?: number;
   theme: ThemeMode;
   showHud: boolean;
   notifyEnabled: boolean;

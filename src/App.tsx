@@ -20,6 +20,7 @@ export function App() {
   const setSnapshot = useGuardStore((s) => s.setSnapshot);
   const setPreflightFromEvent = useGuardStore((s) => s.setPreflightFromEvent);
   const setConfigFromEvent = useGuardStore((s) => s.setConfigFromEvent);
+  const setStartupAudit = useGuardStore((s) => s.setStartupAudit);
   const setDeepAuditFromEvent = useGuardStore((s) => s.setDeepAuditFromEvent);
   const setActiveTab = useGuardStore((s) => s.setActiveTab);
   const setAuditSubTab = useGuardStore((s) => s.setAuditSubTab);
@@ -110,6 +111,19 @@ export function App() {
     register(ipc.listenSnapshot((snap) => setSnapshot(snap)));
     register(ipc.listenPreflightUpdated((rep) => setPreflightFromEvent(rep)));
     register(ipc.listenConfigChanged((cfg) => setConfigFromEvent(cfg)));
+    register(ipc.listenStartupAuditUpdated((rep) => setStartupAudit(rep)));
+    register(
+      ipc.listenKillswitch((ks) => {
+        if (ks.active) {
+          pushToast(
+            "已触发 4 层紧急热熔断",
+            ks.reason || `已强制掐断 ${ks.claudeConnectionsClosed} 条连接并封死出站防回传`,
+            "danger",
+            { durationMs: 8000 }
+          );
+        }
+      })
+    );
     register(ipc.listenNodeAuditProgress((prog) => setDeepAuditFromEvent(prog)));
     register(
       ipc.listenNavigate((nav) => {

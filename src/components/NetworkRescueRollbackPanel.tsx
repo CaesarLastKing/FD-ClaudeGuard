@@ -26,8 +26,10 @@ interface NetworkRescueRollbackPanelProps {
  * - 严格遵守 Design Tokens，深浅双主题高对比、单行按钮不折行。
  */
 export function NetworkRescueRollbackPanel({ compact = false }: NetworkRescueRollbackPanelProps) {
-  const [overview, setOverview] = useState<RollbackOverview | null>(null);
-  const [loading, setLoading] = useState(true);
+  const cachedOverview = useGuardStore((s) => s.rollbackOverview);
+  const setCachedOverview = useGuardStore((s) => s.setRollbackOverview);
+  const [overview, setOverview] = useState<RollbackOverview | null>(() => cachedOverview);
+  const [loading, setLoading] = useState(() => !cachedOverview);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [rescueReport, setRescueReport] = useState<NetworkRescueReport | null>(null);
@@ -37,21 +39,24 @@ export function NetworkRescueRollbackPanel({ compact = false }: NetworkRescueRol
   const openRiskModal = useGuardStore((s) => s.openRiskModal);
   const refreshPreflight = useGuardStore((s) => s.refreshPreflight);
 
-  const loadOverview = useCallback(async () => {
-    setLoading(true);
+  const loadOverview = useCallback(async (force = false) => {
+    if (force || !useGuardStore.getState().rollbackOverview) {
+      setLoading(true);
+    }
     setLoadError(null);
     try {
-      const data = await ipc.inspectRollbackStatus();
+      const data = await ipc.inspectRollbackStatus(force);
       setOverview(data);
+      setCachedOverview(data);
     } catch (err) {
       setLoadError(String(err));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [setCachedOverview]);
 
   useEffect(() => {
-    void loadOverview();
+    void loadOverview(false);
   }, [loadOverview, snapshot.killSwitchActive]);
 
   const busy = busyKey !== null;
@@ -65,7 +70,7 @@ export function NetworkRescueRollbackPanel({ compact = false }: NetworkRescueRol
     try {
       const report = await ipc.runNetworkEmergencyRescue();
       setRescueReport(report);
-      await loadOverview();
+      await loadOverview(true);
       pushToast(
         report.ok ? "网络急救完成" : "网络急救已执行（请查看明细）",
         report.summary,
@@ -349,7 +354,7 @@ export function NetworkRescueRollbackPanel({ compact = false }: NetworkRescueRol
               type="button"
               className="guard-btn guard-btn-flat guard-btn-sm"
               disabled={busy || loading}
-              onClick={() => void loadOverview()}
+              onClick={() => void loadOverview(true)}
               style={{ whiteSpace: "nowrap" }}
             >
               <RefreshCw size={13} className={loading ? "guard-spin" : ""} />
@@ -392,7 +397,7 @@ export function NetworkRescueRollbackPanel({ compact = false }: NetworkRescueRol
               padding: "12px 14px",
               borderRadius: 10,
               background: "var(--danger-soft)",
-              border: "1px solid var(--danger-border)",
+              border: "1px solid var(--bad-border)",
               color: "var(--danger-bright)",
               fontSize: 12.5,
             }}
@@ -402,7 +407,7 @@ export function NetworkRescueRollbackPanel({ compact = false }: NetworkRescueRol
               type="button"
               data-testid="btn-retry-rollback-overview"
               className="guard-btn guard-btn-flat guard-btn-sm"
-              onClick={() => void loadOverview()}
+              onClick={() => void loadOverview(true)}
               style={{ whiteSpace: "nowrap" }}
             >
               重新读取

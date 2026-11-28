@@ -3,7 +3,12 @@ import { Check, Loader2, Radar, RefreshCw } from "lucide-react";
 import { HoverTooltip, useHoverTooltip } from "@/components/HoverTooltip";
 import { ThinScrollArea } from "@/components/ThinScrollArea";
 import { ipc } from "@/lib/ipc";
-import { DROP_RATE_REDLINE, extractRegionCode, isSameRegionSwitch } from "@/lib/protocol";
+import {
+  DROP_RATE_REDLINE,
+  extractRegionCode,
+  formatCleanNodeName,
+  isSameRegionSwitch,
+} from "@/lib/protocol";
 import { useGuardStore } from "@/stores/guardStore";
 import type { ClaudeConn, NodeItem } from "@/types/guard";
 
@@ -218,7 +223,9 @@ export function NodesTrafficPage() {
           setNowMs(Date.now());
         }
       })
-      .catch(() => {});
+      .catch((err) => {
+        void ipc.logFrontendEvent("WARN", "NodesTrafficPage", `拉取实时连接失败: ${String(err)}`);
+      });
     const timer = window.setInterval(() => {
       setNowMs(Date.now());
     }, 1000);
@@ -316,7 +323,7 @@ export function NodesTrafficPage() {
         },
       ],
       footTip: calmLocked
-        ? "如需关闭冷静保护，可前往「守卫配置」关闭 24h 冷静保护模式"
+        ? "如需关闭冷静保护，可前往「系统设置 → 安全策略」关闭 24h 冷静保护模式"
         : hasProcs
         ? undefined
         : "切换后自动重跑出口归属地实测",
@@ -519,7 +526,26 @@ export function NodesTrafficPage() {
       : scoreWarn
       ? "var(--warning-dot)"
       : "var(--ok-dot)";
-    const subRegion = n.regionLabel ?? `${n.regionCode} · ${n.nodeType}`;
+    const nameRegionCode = extractRegionCode(n.name);
+    const regionMismatch =
+      n.regionCode &&
+      n.regionCode !== "GL" &&
+      nameRegionCode !== "GL" &&
+      n.regionCode !== nameRegionCode;
+    const baseSubRegion = n.regionLabel ?? `${n.regionCode} · ${n.nodeType}`;
+    const regionOnly = baseSubRegion.split("·")[0]?.trim() || n.regionCode;
+    const protoOnly = baseSubRegion.split("·")[1]?.trim() || n.nodeType;
+    const subRegion = regionMismatch
+      ? isQ
+        ? `实测${regionOnly}（名标 ${nameRegionCode}）· ${protoOnly}`
+        : `实测${regionOnly}（名标 ${nameRegionCode}）· ${protoOnly}`
+      : baseSubRegion;
+    const subRegionTip = regionMismatch
+      ? isQ
+        ? `实测落地 ${baseSubRegion}（节点名标 ${nameRegionCode} · 已归入禁区隔离）`
+        : `实测出口 ${baseSubRegion}（节点名标 ${nameRegionCode}）`
+      : baseSubRegion;
+    const displayNodeName = formatCleanNodeName(n.name);
 
     return (
       <div key={n.name} className={`node-row-grid tabular ${n.isCurrent ? "is-cur" : ""}`}>
@@ -545,13 +571,14 @@ export function NodesTrafficPage() {
                   fontWeight: n.isCurrent ? 500 : 400,
                 }}
               >
-                {n.name}
+                {displayNodeName}
               </span>
               {n.isCurrent && <span className="node-inline-tag is-current">当前</span>}
               {isSame && <span className="node-inline-tag is-same">同区</span>}
             </div>
             <div
               className="row-sub"
+              title={subRegionTip}
               style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
             >
               {subRegion}
@@ -921,7 +948,7 @@ export function NodesTrafficPage() {
                         whiteSpace: "nowrap",
                       }}
                     >
-                      {nodeReport.currentNode}
+                      {formatCleanNodeName(nodeReport.currentNode)}
                     </span>
                   </div>
                   <div
@@ -1171,7 +1198,7 @@ export function NodesTrafficPage() {
                     <span style={metricValStyle}>{conns.length}</span>
                     <span style={{ fontSize: 11, color: "var(--text-3)" }}>条</span>
                   </div>
-                  <div style={metricSubStyle}>桌面端 / CLI / 网页端</div>
+                  <div style={metricSubStyle}>含网页端 · 左下角仅计桌面进程</div>
                 </div>
 
                 <div className="metric-cell">
@@ -1250,7 +1277,7 @@ export function NodesTrafficPage() {
                 </div>
 
                 <span style={{ fontSize: 11, color: "var(--text-3)" }}>
-                  默认省略 :443 与 {nodeReport.groupName} · 悬停查看原始明细
+                  监控桌面端、CLI 与浏览器网页端全部 Claude 流量（仅桌面端/CLI 计入左下角进程数）· 默认省略 :443 与 {nodeReport.groupName}
                 </span>
               </div>
 

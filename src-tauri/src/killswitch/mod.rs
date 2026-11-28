@@ -311,8 +311,199 @@ impl Default for KillSwitchState {
     }
 }
 
+fn is_browser_process_name(proc_name: &str) -> bool {
+    let lower = proc_name.trim().to_ascii_lowercase();
+    matches!(
+        lower.as_str(),
+        "chrome.exe"
+            | "msedge.exe"
+            | "firefox.exe"
+            | "brave.exe"
+            | "opera.exe"
+            | "arc.exe"
+            | "vivaldi.exe"
+            | "chromium.exe"
+            | "chrome"
+            | "msedge"
+            | "firefox"
+    )
+}
+
+fn is_self_guard_process_name(proc_name: &str) -> bool {
+    let lower = proc_name.trim().to_ascii_lowercase();
+    lower.contains("fd-claude-guard")
+        || lower.contains("fd claude guard")
+        || lower.contains("fd_claude_guard")
+}
+
+/// 格式化并规范化实时连接展示的来源进程（严禁在进程为空时假冒为 "Claude"）
+/// 返回 None 表示属于本安全启动器自身进程应予以剔除
+pub fn format_resolved_connection_process(
+    raw_proc: &str,
+    resolved_proc: Option<&str>,
+) -> Option<String> {
+    let chosen = raw_proc
+        .trim()
+        .is_empty()
+        .then_some(resolved_proc.unwrap_or("").trim())
+        .unwrap_or(raw_proc.trim());
+
+    if is_self_guard_process_name(chosen) {
+        return None;
+    }
+    if chosen.is_empty() {
+        return Some("网页端 / 系统连接".into());
+    }
+    if is_browser_process_name(chosen) && !chosen.contains("网页端") {
+        return Some(format!("{chosen} (网页端)"));
+    }
+    Some(chosen.to_string())
+}
+
+/// Windows 原生零子进程端口反查 PID/进程名映射（仅读 GetExtendedTcpTable / GetExtendedUdpTable + Toolhelp32）
+#[cfg(windows)]
+pub fn build_local_port_process_map(
+) -> (std::collections::HashMap<u16, String>, std::collections::HashMap<u16, String>) {
+    use std::collections::HashMap;
+    use windows_sys::Win32::Foundation::{CloseHandle, ERROR_INSUFFICIENT_BUFFER, INVALID_HANDLE_VALUE, NO_ERROR};
+    use windows_sys::Win32::NetworkManagement::IpHelper::{
+        GetExtendedTcpTable, GetExtendedUdpTable, MIB_TCPROW_OWNER_PID, MIB_UDPROW_OWNER_PID,
+        TCP_TABLE_OWNER_PID_ALL, UDP_TABLE_OWNER_PID,
+    };
+    use windows_sys::Win32::Networking::WinSock::AF_INET;
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        TH32CS_SNAPPROCESS,
+    };
+
+    let mut pid_names: HashMap<u32, String> = HashMap::new();
+    unsafe {
+        let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if snap != INVALID_HANDLE_VALUE && !snap.is_null() {
+            let mut entry: PROCESSENTRY32W = std::mem::zeroed();
+            entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+            if Process32FirstW(snap, &mut entry) != 0 {
+                loop {
+                    let len = entry
+                        .szExeFile
+                        .iter()
+                        .position(|&c| c == 0)
+                        .unwrap_or(entry.szExeFile.len());
+                    let exe = String::from_utf16_lossy(&entry.szExeFile[..len]);
+                    if !exe.is_empty() {
+                        pid_names.insert(entry.th32ProcessID, exe);
+                    }
+                    if Process32NextW(snap, &mut entry) == 0 {
+                        break;
+                    }
+                }
+            }
+            CloseHandle(snap);
+        }
+    }
+
+    let mut tcp_map: HashMap<u16, String> = HashMap::new();
+    unsafe {
+        let mut size: u32 = 0;
+        let rc0 = GetExtendedTcpTable(
+            std::ptr::null_mut(),
+            &mut size,
+            0,
+            AF_INET as u32,
+            TCP_TABLE_OWNER_PID_ALL,
+            0,
+        );
+        if (rc0 == ERROR_INSUFFICIENT_BUFFER || size > 0) && size >= 4 {
+            let mut buf = vec![0u8; size as usize];
+            let rc1 = GetExtendedTcpTable(
+                buf.as_mut_ptr() as *mut core::ffi::c_void,
+                &mut size,
+                0,
+                AF_INET as u32,
+                TCP_TABLE_OWNER_PID_ALL,
+                0,
+            );
+            if rc1 == NO_ERROR {
+                let count = u32::from_ne_bytes([buf[0], buf[1], buf[2], buf[3]]) as usize;
+                let row_size = std::mem::size_of::<MIB_TCPROW_OWNER_PID>();
+                let rows_ptr = buf.as_ptr().add(4) as *const MIB_TCPROW_OWNER_PID;
+                let max_fit = buf.len().saturating_sub(4) / row_size;
+                for i in 0..count.min(max_fit) {
+                    let row = std::ptr::read_unaligned(rows_ptr.add(i));
+                    let port = u16::from_be((row.dwLocalPort & 0xFFFF) as u16);
+                    if port > 0 {
+                        if let Some(name) = pid_names.get(&row.dwOwningPid) {
+                            tcp_map.entry(port).or_insert_with(|| name.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut udp_map: HashMap<u16, String> = HashMap::new();
+    unsafe {
+        let mut size: u32 = 0;
+        let rc0 = GetExtendedUdpTable(
+            std::ptr::null_mut(),
+            &mut size,
+            0,
+            AF_INET as u32,
+            UDP_TABLE_OWNER_PID,
+            0,
+        );
+        if (rc0 == ERROR_INSUFFICIENT_BUFFER || size > 0) && size >= 4 {
+            let mut buf = vec![0u8; size as usize];
+            let rc1 = GetExtendedUdpTable(
+                buf.as_mut_ptr() as *mut core::ffi::c_void,
+                &mut size,
+                0,
+                AF_INET as u32,
+                UDP_TABLE_OWNER_PID,
+                0,
+            );
+            if rc1 == NO_ERROR {
+                let count = u32::from_ne_bytes([buf[0], buf[1], buf[2], buf[3]]) as usize;
+                let row_size = std::mem::size_of::<MIB_UDPROW_OWNER_PID>();
+                let rows_ptr = buf.as_ptr().add(4) as *const MIB_UDPROW_OWNER_PID;
+                let max_fit = buf.len().saturating_sub(4) / row_size;
+                for i in 0..count.min(max_fit) {
+                    let row = std::ptr::read_unaligned(rows_ptr.add(i));
+                    let port = u16::from_be((row.dwLocalPort & 0xFFFF) as u16);
+                    if port > 0 {
+                        if let Some(name) = pid_names.get(&row.dwOwningPid) {
+                            udp_map.entry(port).or_insert_with(|| name.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    (tcp_map, udp_map)
+}
+
+#[cfg(not(windows))]
+pub fn build_local_port_process_map(
+) -> (std::collections::HashMap<u16, String>, std::collections::HashMap<u16, String>) {
+    (
+        std::collections::HashMap::new(),
+        std::collections::HashMap::new(),
+    )
+}
+
 /// 解析 Mihomo /connections JSON，筛选所有 Claude 相关或 Anthropic 域名连接并标记异常流量
 pub fn parse_claude_connections(raw_json: &str) -> Vec<ClaudeConn> {
+    let empty = std::collections::HashMap::new();
+    parse_claude_connections_with_port_lookup(raw_json, &empty, &empty)
+}
+
+/// 带本机 TCP/UDP 源端口反查表的 Mihomo 连接解析器（解决 TUN 模式下 metadata.process 为空问题）
+pub fn parse_claude_connections_with_port_lookup(
+    raw_json: &str,
+    tcp_port_procs: &std::collections::HashMap<u16, String>,
+    udp_port_procs: &std::collections::HashMap<u16, String>,
+) -> Vec<ClaudeConn> {
     let Ok(val) = serde_json::from_str::<Value>(raw_json) else {
         return Vec::new();
     };
@@ -328,11 +519,39 @@ pub fn parse_claude_connections(raw_json: &str) -> Vec<ClaudeConn> {
             .unwrap_or("")
             .to_string();
         let meta = item.get("metadata").unwrap_or(&Value::Null);
-        let process = meta
+        let raw_process = meta
             .get("process")
             .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
+            .unwrap_or("");
+        let network = meta
+            .get("network")
+            .and_then(|v| v.as_str())
+            .unwrap_or("tcp");
+        let src_port = meta
+            .get("sourcePort")
+            .and_then(|v| {
+                v.as_str()
+                    .and_then(|s| s.parse::<u16>().ok())
+                    .or_else(|| v.as_u64().and_then(|n| u16::try_from(n).ok()))
+            });
+        let resolved_proc = if raw_process.trim().is_empty() {
+            src_port.and_then(|p| {
+                if network.eq_ignore_ascii_case("udp") {
+                    udp_port_procs.get(&p).or_else(|| tcp_port_procs.get(&p))
+                } else {
+                    tcp_port_procs.get(&p).or_else(|| udp_port_procs.get(&p))
+                }
+            })
+            .map(String::as_str)
+        } else {
+            None
+        };
+        let Some(process_display) = format_resolved_connection_process(raw_process, resolved_proc)
+        else {
+            // 排除本安全启动器自身进程发起的 NTP/自检/更新探测
+            continue;
+        };
+
         let host_raw = meta
             .get("host")
             .and_then(|v| v.as_str())
@@ -349,14 +568,8 @@ pub fn parse_claude_connections(raw_json: &str) -> Vec<ClaudeConn> {
             format!("{host_raw}:{port}")
         };
 
-        let lower_proc = process.to_lowercase();
-        // 修复 E8（真机实测发现）：排除本安全启动器自身进程（fd-claude-guard.exe 等）发起的 NTP/自检/更新探测，避免把自己报成「风险连接/未收录新域」
-        let is_self_guard_proc = lower_proc.contains("fd-claude-guard")
-            || lower_proc.contains("fd claude guard")
-            || lower_proc.contains("fd_claude_guard");
-        if is_self_guard_proc {
-            continue;
-        }
+        let effective_proc_for_match = resolved_proc.unwrap_or(raw_process);
+        let lower_proc = effective_proc_for_match.to_lowercase();
         let lower_host = host.to_lowercase();
         let host_only = lower_host.split(':').next().unwrap_or(&lower_host);
         let is_claude_exclusive_domain = host_only == "anthropic.com"
@@ -431,11 +644,7 @@ pub fn parse_claude_connections(raw_json: &str) -> Vec<ClaudeConn> {
         out.push(ClaudeConn {
             id,
             anomaly,
-            process: if process.is_empty() {
-                "Claude".into()
-            } else {
-                process
-            },
+            process: process_display,
             host,
             rule,
             chain: if chain_str.is_empty() {
@@ -487,12 +696,13 @@ fn format_bytes(bytes: u64) -> String {
     }
 }
 
-/// 在已发现的 Mihomo 端点上实时拉取 Claude 相关连接（避免哨兵循环重复 discover_endpoint）
+/// 在已发现的 Mihomo 端点上实时拉取 Claude 相关连接（避免哨兵循环重复 discover_endpoint，并在 TUN 下反查真实来源进程）
 pub async fn get_live_claude_connections_on(ep: &MihomoEndpoint) -> Vec<ClaudeConn> {
     let Ok((200, body)) = mihomo_request(ep, "GET", "/connections", None).await else {
         return Vec::new();
     };
-    parse_claude_connections(&body)
+    let (tcp_map, udp_map) = build_local_port_process_map();
+    parse_claude_connections_with_port_lookup(&body, &tcp_map, &udp_map)
 }
 
 /// 实时拉取 Mihomo 中的 Claude 相关连接
@@ -570,6 +780,7 @@ pub async fn trigger_four_layer_killswitch(
         format!("{reason}（提示：当前未获取到防火墙写入权限 fw=false，请以管理员身份运行；已先执行掐流与强杀盯防）")
     };
 
+    crate::rollback::invalidate_rollback_overview_cache();
     crate::logger::log_event(
         "WARN",
         "killswitch",
@@ -622,6 +833,7 @@ pub fn release_killswitch(confirmed: bool, bg_procs: u32) -> Result<KillSwitchSt
         format!("已解除防火墙熔断规则 {FIREWALL_RULE_PREFIX}*。")
     };
 
+    crate::rollback::invalidate_rollback_overview_cache();
     crate::logger::log_event(
         "INFO",
         "killswitch",
@@ -777,9 +989,15 @@ fn check_firewall_helper_ready_uncached() -> (bool, bool, String) {
             let _ = remove_defender_rule_by_name(FIREWALL_PROBE_RULE_NAME);
         }
 
+        let helper_status = if task_installed {
+            "Active"
+        } else if probe_add {
+            "管理员直写就绪（无需额外任务）"
+        } else {
+            "Not Installed"
+        };
         let detail = format!(
-            "Elevated Helper Task: {}\nRule Probe ({FIREWALL_RULE_PREFIX}*): {}",
-            if task_installed { "Active" } else { "Not Installed" },
+            "Elevated Helper Task: {helper_status}\nRule Probe ({FIREWALL_RULE_PREFIX}*): {}",
             if probe_add { "Writable" } else { "Requires Admin / Helper" }
         );
         (task_installed, probe_add, detail)
@@ -1185,5 +1403,53 @@ mod tests {
             assert!(!c.purpose_label.is_empty(), "每条真实连接必须产出明确用途标签");
             assert!(!c.purpose_detail.is_empty(), "每条真实连接必须产出中文用途说明");
         }
+    }
+
+    #[test]
+    fn v041_b6_resolves_empty_tun_process_via_port_lookup_and_never_fakes_claude() {
+        let mut tcp = std::collections::HashMap::new();
+        tcp.insert(51989u16, "chrome.exe".to_string());
+        tcp.insert(52001u16, "fd-claude-guard.exe".to_string());
+        let udp = std::collections::HashMap::new();
+
+        let sample = r#"{
+            "connections": [
+                {
+                    "id": "c-browser",
+                    "upload": 5332,
+                    "download": 2873,
+                    "start": "2026-11-27T08:42:42.7916916-07:00",
+                    "rule": "DomainSuffix",
+                    "chains": ["🇺🇸美国1|流媒体AI", "Claude-Fixed"],
+                    "metadata": { "network": "tcp", "sourcePort": "51989", "process": "", "host": "claude.ai", "destinationPort": "443" }
+                },
+                {
+                    "id": "c-closed",
+                    "upload": 100,
+                    "download": 200,
+                    "start": "2026-11-27T08:42:45Z",
+                    "rule": "DomainSuffix",
+                    "chains": ["🇺🇸美国1|流媒体AI", "Claude-Fixed"],
+                    "metadata": { "network": "tcp", "sourcePort": "59999", "process": "", "host": "claude.ai", "destinationPort": "443" }
+                },
+                {
+                    "id": "c-self",
+                    "upload": 10,
+                    "download": 10,
+                    "start": "2026-11-27T08:42:46Z",
+                    "rule": "DomainSuffix",
+                    "chains": ["🇺🇸美国1|流媒体AI", "Claude-Fixed"],
+                    "metadata": { "network": "tcp", "sourcePort": "52001", "process": "", "host": "api.anthropic.com", "destinationPort": "443" }
+                }
+            ]
+        }"#;
+
+        let conns = parse_claude_connections_with_port_lookup(sample, &tcp, &udp);
+        assert_eq!(conns.len(), 2, "本工具自身端口连接应被剔除");
+        let browser = conns.iter().find(|c| c.id == "c-browser").unwrap();
+        assert_eq!(browser.process, "chrome.exe (网页端)");
+        let closed = conns.iter().find(|c| c.id == "c-closed").unwrap();
+        assert_eq!(closed.process, "网页端 / 系统连接");
+        assert_ne!(closed.process, "Claude");
     }
 }

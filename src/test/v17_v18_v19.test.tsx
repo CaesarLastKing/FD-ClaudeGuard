@@ -35,7 +35,7 @@ describe("免费开源无锁门禁与核心交互回归（T-057 + 增量 17/18/1
     expect(screen.getAllByText("策略组与全家桶规则锁死").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("Windows 系统定位服务关闭")).toBeInTheDocument();
     expect(screen.getByText("本地封号污染残留审查")).toBeInTheDocument();
-    expect(screen.getByText("单号卫生锁（防混号与跨 orgId）")).toBeInTheDocument();
+    expect(screen.getByText("单号卫生锁（防多号混登）")).toBeInTheDocument();
     expect(screen.queryByTestId("nav-lock-nodes")).not.toBeInTheDocument();
     expect(screen.queryByTestId("nav-lock-logs")).not.toBeInTheDocument();
     expect(screen.queryByTestId("nav-lock-maintain")).not.toBeInTheDocument();

@@ -1,14 +1,14 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CleanConfirmModal } from "@/components/CleanConfirmModal";
 import { NetworkRescueRollbackPanel } from "@/components/NetworkRescueRollbackPanel";
+import { SettingsModal } from "@/components/SettingsModal";
 import { Sidebar } from "@/components/Sidebar";
 import { WindowChrome } from "@/components/WindowChrome";
 import { buildMockAccountAuditReport, DEFAULT_CONFIG, FALLBACK_PREFLIGHT, FALLBACK_SNAPSHOT, ipc } from "@/lib/ipc";
 import { AccountAuditPage } from "@/pages/AccountAuditPage";
 import { ConsolePage } from "@/pages/ConsolePage";
 import { NodesTrafficPage } from "@/pages/NodesTrafficPage";
-import { SettingsPage } from "@/pages/SettingsPage";
 import { useGuardStore } from "@/stores/guardStore";
 
 describe("v0.2.9 真机回归：开机启动项徽章语义校验（T-054）", () => {
@@ -40,12 +40,18 @@ describe("v0.2.9 真机回归：开机启动项徽章语义校验（T-054）", (
     });
   });
 
-  it("Clash Verge 未开启自启且风险为 warn 时应显示「未开启（建议开启）」，Claude 已开启且 warn 时显示「已开启（有风险）」", async () => {
-    render(<SettingsPage />);
+  it("Clash Verge 未开启自启且风险为 warn 时应正确显示状态徽章与建议开启提示", async () => {
+    vi.spyOn(ipc, "auditStartupItems").mockResolvedValue(useGuardStore.getState().startupAudit);
+    useGuardStore.setState({ settingsModalOpen: true, settingsModalTab: "general" });
+    render(<SettingsModal />);
 
-    expect(screen.getByTestId("startup-chip-FD Claude Guard").textContent).toBe("已开启自启");
-    expect(screen.getByTestId("startup-chip-Clash Verge Rev").textContent).toBe("未开启（建议开启）");
-    expect(screen.getByTestId("startup-chip-Claude Desktop").textContent).toBe("已开启（有风险）");
+    expect(screen.getByTestId("settings-startup-chip-FD Claude Guard")).toHaveTextContent("已开启");
+    expect(screen.getByTestId("settings-startup-chip-FD Claude Guard")).toHaveClass("guard-chip-pass");
+    expect(screen.getByTestId("settings-startup-chip-Clash Verge Rev")).toHaveTextContent("未开启");
+    expect(screen.getByTestId("settings-startup-chip-Clash Verge Rev")).toHaveClass("guard-chip-warn");
+    expect(screen.getByText(/建议开启 · 未检测到 Clash Verge 开机自启/)).toBeInTheDocument();
+    expect(screen.getByTestId("settings-startup-chip-Claude Desktop")).toHaveTextContent("已开启");
+    expect(screen.getByTestId("settings-startup-chip-Claude Desktop")).toHaveClass("guard-chip-warn");
     await waitFor(() => {
       expect(useGuardStore.getState().updateChecking).toBe(false);
     });
@@ -229,11 +235,11 @@ describe("v0.2.9 真机回归：熔断与盯防联动、无锁文案清理与出
     expect(screen.getByTestId("nodes-blocked-count")).toHaveTextContent("1");
     expect(screen.getByTestId("nodes-blocked-breakdown")).toHaveTextContent("落地禁区 1 · 拉黑/超时 0");
     // 可用节点列表中不包含落地禁区节点
-    expect(screen.getByTestId("nodes-eval-table")).not.toHaveTextContent("🇨🇳台湾1|流媒体AI");
+    expect(screen.getByTestId("nodes-eval-table")).not.toHaveTextContent("台湾1|流媒体AI");
 
     // 切换到「隔离区」分类胶囊后展示落地禁区节点与「禁区不可用」副文案，不误写「拉黑不可用」
     fireEvent.click(screen.getByTestId("tab-nodes-quarantine"));
-    expect(screen.getByTestId("nodes-eval-table")).toHaveTextContent("🇨🇳台湾1|流媒体AI");
+    expect(screen.getByTestId("nodes-eval-table")).toHaveTextContent("台湾1|流媒体AI");
     expect(screen.getByTestId("nodes-eval-table")).toHaveTextContent("禁区不可用");
     expect(screen.queryByText("拉黑不可用")).not.toBeInTheDocument();
   });
@@ -328,13 +334,18 @@ describe("v0.2.9 真机回归：熔断与盯防联动、无锁文案清理与出
     expect(screen.queryByTestId("brand-subtitle-tooltip")).not.toBeInTheDocument();
     unmount();
 
-    const { unmount: unmountSettings } = render(<SettingsPage />);
-    expect(screen.getByTestId("btn-install-app-update")).toHaveTextContent("立即更新 v0.3.1");
-    expect(screen.getByTestId("btn-open-github-official")).toHaveTextContent("GitHub 官网");
+    useGuardStore.setState({ settingsModalOpen: true, settingsModalTab: "update" });
+    const { unmount: unmountSettings } = render(<SettingsModal />);
+    expect(screen.getByRole("button", { name: /立即更新 v0\.3\.1/ })).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("settings-updater-card")).getByRole("button", { name: /GitHub 官网/ })
+    ).toBeInTheDocument();
     unmountSettings();
 
-    // 无新版本时：配置页标题行显示只读「已是最新版本」徽章，右侧为单一「检查更新」操作按钮（消灭双按钮并发转圈）
+    // 无新版本时：设置弹窗显示只读「已是最新」徽章与单一「检查更新」按钮
     useGuardStore.setState({
+      settingsModalOpen: true,
+      settingsModalTab: "update",
       updateInfo: {
         currentVersion: "0.3.1",
         available: false,
@@ -345,10 +356,12 @@ describe("v0.2.9 真机回归：熔断与盯防联动、无锁文案清理与出
         message: "当前已是最新版本 v0.3.1",
       },
     });
-    render(<SettingsPage />);
-    expect(screen.getByTestId("updater-status-badge")).toHaveTextContent("已是最新版本");
-    expect(screen.getByTestId("btn-check-app-update")).toHaveTextContent("检查更新");
-    expect(screen.getByTestId("btn-open-github-official")).toHaveTextContent("GitHub 官网");
+    render(<SettingsModal />);
+    expect(screen.getByTestId("settings-updater-card")).toHaveTextContent("已是最新");
+    expect(screen.getByTestId("btn-settings-check-update")).toHaveTextContent("检查更新");
+    expect(
+      within(screen.getByTestId("settings-updater-card")).getByRole("button", { name: /GitHub 官网/ })
+    ).toBeInTheDocument();
   });
 
   it("桌面端清空但 CLI 残留失效凭据/跨号缓存时：绝不报「纯净无混」，且清理 CLI 按钮保持可点击", () => {

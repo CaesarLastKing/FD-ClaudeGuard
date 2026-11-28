@@ -261,12 +261,12 @@ export const FALLBACK_PREFLIGHT: PreflightReport = {
       cat: "3. Claude 本机卫生（改 Claude）",
       icon: "userLock",
       mode: "引导确认",
-      title: "单号卫生锁（防混号与跨 orgId）",
+      title: "单号卫生锁（防多号混登）",
       status: "fail",
-      summary: "尚未核对本机登录 orgId 与跨账号竞态记录",
-      evidence: "Bound Primary orgId & Cross-orgId Scan: 待审计",
-      guide: "绝不擅自乱删：检出混号或 OAuth 403 异常时引导二选一确认（备份重置目录 或 二次确认更换主号）。",
-      fixLabel: "引导处理单号冲突（二选一确认）",
+      summary: "尚未扫描本机登录态与多号混登记录",
+      evidence: "当前状态: 待扫描",
+      guide: "仅支持单账户登录：检出单号待确认时引导确认继续使用或清理；检出多账号遗留时只能清理登录状态。",
+      fixLabel: "清理登录状态（先备份）",
       isKillItem: false,
       isFailover: false,
     },
@@ -1156,6 +1156,44 @@ export const ipc = {
     return invoke<PreflightReport>("confirm_primary_org_binding", { orgId });
   },
 
+  async confirmCurrentAccount(): Promise<PreflightReport> {
+    if (!isTauriRuntime()) {
+      return {
+        ...FALLBACK_PREFLIGHT,
+        items: FALLBACK_PREFLIGHT.items.map((it) =>
+          it.id === "claude_acct"
+            ? {
+                ...it,
+                status: "ok",
+                summary: "已确认继续使用当前号，单号环境纯净",
+                fixLabel: null,
+              }
+            : it
+        ),
+      };
+    }
+    return invoke<PreflightReport>("confirm_current_account");
+  },
+
+  async acknowledgeBanWarnSession(): Promise<PreflightReport> {
+    if (!isTauriRuntime()) {
+      return {
+        ...FALLBACK_PREFLIGHT,
+        items: FALLBACK_PREFLIGHT.items.map((it) =>
+          it.id === "claude_ban"
+            ? {
+                ...it,
+                status: "ok",
+                summary: "已核实并在当前会话放行",
+                fixLabel: null,
+              }
+            : it
+        ),
+      };
+    }
+    return invoke<PreflightReport>("acknowledge_ban_warn_session");
+  },
+
   async listBackups(): Promise<BackupInfo[]> {
     if (!isTauriRuntime()) return [...MOCK_BACKUPS];
     return invoke<BackupInfo[]>("list_backups");
@@ -1402,6 +1440,16 @@ export const ipc = {
     return listen<AppConfig>("guard://config-changed", (e) => cb(e.payload));
   },
 
+  async listenStartupAuditUpdated(cb: (rep: StartupAuditReport) => void): Promise<UnlistenFn> {
+    if (!isTauriRuntime()) return () => {};
+    return listen<StartupAuditReport>("guard://startup-audit-updated", (e) => cb(e.payload));
+  },
+
+  async listenKillswitch(cb: (ks: KillSwitchState) => void): Promise<UnlistenFn> {
+    if (!isTauriRuntime()) return () => {};
+    return listen<KillSwitchState>("guard://killswitch", (e) => cb(e.payload));
+  },
+
   async listenNavigate(cb: (nav: NavigatePayload) => void): Promise<UnlistenFn> {
     if (!isTauriRuntime()) return () => {};
     return listen<NavigatePayload>("guard://navigate", (e) => cb(e.payload));
@@ -1524,7 +1572,7 @@ export const ipc = {
     return listen<DeepAuditProgress>("guard://node-audit-progress", (e) => cb(e.payload));
   },
 
-  async inspectRollbackStatus(): Promise<RollbackOverview> {
+  async inspectRollbackStatus(force = false): Promise<RollbackOverview> {
     if (!isTauriRuntime()) {
       const items = mockRollbackItems.map((it) => ({ ...it }));
       return {
@@ -1537,7 +1585,7 @@ export const ipc = {
         items,
       };
     }
-    return invoke<RollbackOverview>("inspect_rollback_status_cmd");
+    return invoke<RollbackOverview>("inspect_rollback_status_cmd", { force });
   },
 
   async rollbackSingleItem(itemId: string): Promise<RollbackActionReport> {

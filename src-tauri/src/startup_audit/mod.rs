@@ -92,10 +92,11 @@ pub fn is_windows_autostart_task_enabled() -> bool {
     false
 }
 
-/// 100% 只读扫描 Windows 开机启动项（Run 注册表含 StartupApproved 禁用位、用户与公共 Startup 目录、MSIX StartupTask、Clash verge.yaml）
+/// 100% 只读扫描 Windows 开机启动项（Run 注册表含 StartupApproved 禁用位、用户与公共 Startup 目录、计划任务、MSIX StartupTask、Clash verge.yaml）
 /// 铁律：绝不修改、禁用或删除用户的任何启动项，仅如实汇报顺序竞争风险
 pub fn audit_windows_startup_items(guard_boot_enabled: bool) -> StartupAuditReport {
-    let clash_enabled = detect_clash_autostart();
+    let clash_source = detect_clash_autostart_source();
+    let clash_enabled = clash_source.is_some();
     let claude_enabled = detect_claude_autostart();
 
     let entries = vec![
@@ -121,10 +122,12 @@ pub fn audit_windows_startup_items(guard_boot_enabled: bool) -> StartupAuditRepo
             } else {
                 "warn".into()
             },
-            detail: if clash_enabled {
-                "已开启开机自启，有助于确保代理早于应用就绪".into()
-            } else {
-                "未检测到 Clash Verge 开机自启，开机后请先启动代理再打开 Claude".into()
+            detail: match clash_source {
+                Some("scheduled_task") => {
+                    "已通过 Windows 计划任务开启开机自启，有助于确保代理早于应用就绪".into()
+                }
+                Some(_) => "已开启开机自启，有助于确保代理早于应用就绪".into(),
+                None => "未检测到 Clash Verge 开机自启，开机后请先启动代理再打开 Claude".into(),
             },
         },
         StartupEntry {
@@ -149,7 +152,7 @@ pub fn audit_windows_startup_items(guard_boot_enabled: bool) -> StartupAuditRepo
     }
 }
 
-fn detect_clash_autostart() -> bool {
+fn detect_clash_autostart_source() -> Option<&'static str> {
     // 1. 读取 Clash Verge verge.yaml 的 enable_auto_launch
     if let Some(dir) = clash_verge_config_dir() {
         let verge_yaml = dir.join("verge.yaml");
@@ -158,7 +161,7 @@ fn detect_clash_autostart() -> bool {
                 let trimmed = line.trim();
                 if let Some(val) = trimmed.strip_prefix("enable_auto_launch:") {
                     if val.trim().eq_ignore_ascii_case("true") {
-                        return true;
+                        return Some("verge_yaml");
                     }
                 }
             }
@@ -166,14 +169,130 @@ fn detect_clash_autostart() -> bool {
     }
 
     // 2. 只读扫描 Run 注册表与用户 Startup 目录
-    has_startup_match(&["clash-verge", "clash verge"])
+    if has_startup_match(&["clash-verge", "clash verge"]) {
+        return Some("registry_or_folder");
+    }
+
+    // 3. 只读扫描 Windows 任务计划程序（覆盖 Clash Verge "管理员模式/服务自启" 创建的 "Clash Verge (Admin)" 等计划任务）
+    if detect_scheduled_task_match(
+        &["Clash Verge (Admin)", "Clash Verge"],
+        &["clash-verge", "clash verge"],
+    ) {
+        return Some("scheduled_task");
+    }
+
+    None
 }
 
 fn detect_claude_autostart() -> bool {
     if has_startup_match(&["claude"]) {
         return true;
     }
-    detect_msix_claude_startup_task()
+    if detect_msix_claude_startup_task() {
+        return true;
+    }
+    detect_scheduled_task_match(&[], &["claude"])
+}
+
+/// 解析 Windows 计划任务导出的 XML：确认任务存在登录/开机触发器且未处于禁用状态
+pub fn parse_schtasks_xml_autostart_enabled(xml: &str) -> bool {
+    let compact: String = xml
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>()
+        .to_ascii_lowercase();
+    if !compact.contains("<logontrigger") && !compact.contains("<boottrigger") {
+        return false;
+    }
+    // `<Settings>` 中 `<Enabled>false</Enabled>` 表示整个任务已禁用
+    if let Some(settings_start) = compact.find("<settings>") {
+        if let Some(settings_end) = compact[settings_start..].find("</settings>") {
+            let settings_blk = &compact[settings_start..settings_start + settings_end];
+            if settings_blk.contains("<enabled>false</enabled>") {
+                return false;
+            }
+        }
+    }
+    // 若存在触发器，至少有一个 LogonTrigger/BootTrigger 未显式 `<Enabled>false</Enabled>`
+    for tag in ["<logontrigger", "<boottrigger"] {
+        let mut search_from = 0usize;
+        while let Some(rel) = compact[search_from..].find(tag) {
+            let start = search_from + rel;
+            let close_tag = if tag == "<logontrigger" {
+                "</logontrigger>"
+            } else {
+                "</boottrigger>"
+            };
+            let end = compact[start..]
+                .find(close_tag)
+                .map(|e| start + e)
+                .unwrap_or(compact.len());
+            let trig_blk = &compact[start..end];
+            if !trig_blk.contains("<enabled>false</enabled>") {
+                return true;
+            }
+            search_from = end;
+        }
+    }
+    false
+}
+
+#[cfg(windows)]
+fn detect_scheduled_task_match(exact_names: &[&str], keywords: &[&str]) -> bool {
+    use std::os::windows::process::CommandExt;
+    use std::process::Command;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+    // 1. 优先快速精确查询已知任务名（<20ms，无需启动 PowerShell）
+    for task_name in exact_names {
+        if let Ok(out) = Command::new("schtasks")
+            .creation_flags(CREATE_NO_WINDOW)
+            .args(["/Query", "/TN", task_name, "/XML"])
+            .output()
+        {
+            if out.status.success() {
+                let xml = String::from_utf8_lossy(&out.stdout);
+                if parse_schtasks_xml_autostart_enabled(&xml) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    // 2. 通用只读枚举所有非禁用计划任务（显式设置 UTF-8 编码防止中文任务名或路径乱码）
+    let ps_script = "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; \
+        Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object { $_.State -ne 'Disabled' } | ForEach-Object { \
+            $hasBoot = ($_.Triggers | Where-Object { $_.CimClass.CimClassName -match 'LogonTrigger|BootTrigger' -and $_.Enabled -ne $false }).Count -gt 0; \
+            if ($hasBoot) { \
+                $acts = ($_.Actions | ForEach-Object { \"$($_.Execute) $($_.Arguments)\" }) -join ' '; \
+                Write-Output (\"$($_.TaskName) | $acts\").ToLowerInvariant() \
+            } \
+        }";
+    if let Ok(out) = Command::new("powershell")
+        .creation_flags(CREATE_NO_WINDOW)
+        .args(["-NoProfile", "-NonInteractive", "-Command", ps_script])
+        .output()
+    {
+        if out.status.success() {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            for line in stdout.lines() {
+                let lower = line.trim().to_lowercase();
+                if lower.is_empty() || is_self_guard_startup_entry(&lower) {
+                    continue;
+                }
+                if keywords.iter().any(|k| lower.contains(k)) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
+}
+
+#[cfg(not(windows))]
+fn detect_scheduled_task_match(_exact_names: &[&str], _keywords: &[&str]) -> bool {
+    false
 }
 
 /// 判断启动项名称/命令是否属于本工具自身（防止开启 FD Claude Guard 自启后被误报为 Claude Desktop 自启）
@@ -351,5 +470,27 @@ mod tests {
         assert!(is_self_guard_startup_entry("fd-claude-guard"));
         assert!(is_self_guard_startup_entry(r"c:\program files\fd claude guard\fd-claude-guard.exe --autostart"));
         assert!(!is_self_guard_startup_entry(r"c:\users\u\appdata\local\anthropicclaude\claude.exe"));
+    }
+
+    #[test]
+    fn v041_schtasks_xml_parser_detects_enabled_logon_task_and_rejects_disabled() {
+        let enabled_xml = r#"<?xml version="1.0" encoding="UTF-16"?>
+        <Task version="1.2">
+          <Triggers>
+            <LogonTrigger><Enabled>true</Enabled></LogonTrigger>
+          </Triggers>
+          <Settings><Enabled>true</Enabled></Settings>
+          <Actions><Exec><Command>C:\Program Files\Clash Verge\clash-verge.exe</Command></Exec></Actions>
+        </Task>"#;
+        assert!(parse_schtasks_xml_autostart_enabled(enabled_xml));
+
+        let disabled_task_xml = r#"<Task><Triggers><LogonTrigger><Enabled>true</Enabled></LogonTrigger></Triggers><Settings><Enabled>false</Enabled></Settings></Task>"#;
+        assert!(!parse_schtasks_xml_autostart_enabled(disabled_task_xml));
+
+        let disabled_trig_xml = r#"<Task><Triggers><LogonTrigger><Enabled>false</Enabled></LogonTrigger></Triggers><Settings><Enabled>true</Enabled></Settings></Task>"#;
+        assert!(!parse_schtasks_xml_autostart_enabled(disabled_trig_xml));
+
+        let no_boot_trig_xml = r#"<Task><Triggers><TimeTrigger><Enabled>true</Enabled></TimeTrigger></Triggers><Settings><Enabled>true</Enabled></Settings></Task>"#;
+        assert!(!parse_schtasks_xml_autostart_enabled(no_boot_trig_xml));
     }
 }

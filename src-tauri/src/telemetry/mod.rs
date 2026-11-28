@@ -319,10 +319,17 @@ pub fn build_anonymized_feedback_payload(
         .map(|l| sanitize_for_telemetry(&l))
         .collect();
 
+    let normalized_install_id = if install_id_short.is_empty() {
+        "anonymous"
+    } else {
+        install_id_short
+    };
     let raw_payload = json!({
         "schemaVersion": 2,
         "appVersion": env!("CARGO_PKG_VERSION"),
-        "installIdHash": if install_id_short.is_empty() { "anonymous" } else { install_id_short },
+        "app_version": env!("CARGO_PKG_VERSION"),
+        "installIdHash": normalized_install_id,
+        "install_id_hash": normalized_install_id,
         "toolDiagnostics": {
             "clashVersion": sanitize_for_telemetry(&snapshot.clash_version),
             "clashPort": snapshot.clash_port,
@@ -642,5 +649,26 @@ mod tests {
         // 跨日后（20261126）：当日配额清零，但 7 天内已报过的 10 条仍被去重，仅剩 5 条新指纹
         let next_day = filter_events_with_quota(&mut reloaded, cands, "20261126", now + 86_400);
         assert_eq!(next_day.len(), 5);
+    }
+
+    #[test]
+    fn v041_b08_feedback_payload_includes_snake_and_camel_install_and_version_fields() {
+        let snap = crate::state::build_initial_snapshot(&AppConfig::default());
+        let report = PreflightReport {
+            checked_at: "2026-11-27 18:00:00".into(),
+            stage: "ready".into(),
+            items: Vec::new(),
+        };
+        let payload = build_anonymized_feedback_payload("9f2a8c1d", &snap, &report, &[], None);
+        assert_eq!(payload.get("install_id_hash").and_then(|v| v.as_str()), Some("9f2a8c1d"));
+        assert_eq!(payload.get("installIdHash").and_then(|v| v.as_str()), Some("9f2a8c1d"));
+        assert_eq!(
+            payload.get("app_version").and_then(|v| v.as_str()),
+            Some(env!("CARGO_PKG_VERSION"))
+        );
+        assert_eq!(
+            payload.get("appVersion").and_then(|v| v.as_str()),
+            Some(env!("CARGO_PKG_VERSION"))
+        );
     }
 }

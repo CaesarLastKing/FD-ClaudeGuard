@@ -115,8 +115,13 @@ export default {
       const nowUnix = Math.floor(now.getTime() / 1000);
       const createdAtIso = now.toISOString();
       const ticketId = generateTicketId(now);
-      const installHash = String(body.parsed?.install_id_hash || "anonymous").slice(0, 32);
-      const appVersion = String(body.parsed?.app_version || "unknown").slice(0, 32);
+      const parsed = body.parsed || {};
+      const installHash = String(
+        parsed.install_id_hash || parsed.installIdHash || "anonymous"
+      ).slice(0, 32);
+      const appVersion = String(
+        parsed.app_version || parsed.appVersion || "unknown"
+      ).slice(0, 32);
 
       await env.DB.prepare(
         `INSERT INTO feedback_reports
@@ -160,8 +165,13 @@ export default {
         return jsonResp({ ok: false, message: "事件数组为空或超过单批上限" }, 400);
       }
 
-      const installHash = String(body.parsed?.install_id_hash || "anonymous").slice(0, 32);
-      const appVersion = String(body.parsed?.app_version || "unknown").slice(0, 32);
+      const parsed = body.parsed || {};
+      const installHash = String(
+        parsed.install_id_hash || parsed.installIdHash || "anonymous"
+      ).slice(0, 32);
+      const appVersion = String(
+        parsed.app_version || parsed.appVersion || "unknown"
+      ).slice(0, 32);
       const nowUnix = Math.floor(Date.now() / 1000);
 
       const stmts = events.map((ev) =>
@@ -209,6 +219,14 @@ export default {
           ok: true,
           report: { ...row, payload: JSON.parse(row.payload_json), payload_json: undefined },
         });
+      }
+
+      const kind = (url.searchParams.get("kind") || "").trim();
+      if (kind === "events") {
+        const evList = await env.DB.prepare(
+          "SELECT id, client_event_id, install_id_hash, app_version, category, event_type, level, tag, signature, created_at_unix FROM telemetry_events ORDER BY created_at_unix DESC LIMIT 30"
+        ).all();
+        return jsonResp({ ok: true, items: evList.results || [] });
       }
 
       const list = await env.DB.prepare(

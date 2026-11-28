@@ -158,12 +158,15 @@
 - [ ] 列出本次改动涉及的**全部写操作**（文件、注册表、网卡、服务、进程、第三方配置）；
 - [ ] 确认**零新增不可撤回的系统级改动**（每新增 1 个写操作必须同步定义其基线字段与撤回函数）；
 - [ ] 确认**零强杀第三方客户端进程**（禁止 `taskkill /F` 杀 Clash 等会修改系统网络的工具）；
+- [ ] 确认**敏感凭据禁止裸连代理**：涉及 `sessionKey` 等外网探测的真域请求必须强制走本机代理，无代理直接拒绝；
+- [ ] 确认**关键 JSON 配置强制带 `pid/seq` 唯一临时文件原子写盘**，严禁原地裸 `fs::write`；
 - [ ] 复杂改动或涉及宿主网络/交互取舍的方案，先向用户明示并获确认后再施工。
 
-### Gate 1：静态质量 + 回归单测门禁（0 警告、0 跳过）
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml`：全量通过且 **0 compiler warnings**；
+### Gate 1：1 秒静态契约 + 回归单测门禁（0 警告、0 跳过）
+- [ ] `npm run check:contracts`：**9 维跨界静态门禁全绿**（Command/Event/Worker SQL/CSS 变量/版本与协议/废弃页清理/防 `sk` 裸连/禁强杀 Clash/原子写与 UTF-8 编码）；
+- [ ] `cargo test --manifest-path src-tauri/Cargo.toml`：发版收敛阶段全量通过且 **0 compiler warnings**（日常迭代优先 `cargo check` + 定向单测）；
 - [ ] `npx tsc --noEmit`：**0 TypeScript errors**；
-- [ ] `npm test`：Vitest 全量通过；
+- [ ] `npm test`：发版收敛阶段 Vitest 全量通过（日常 UI/局部修改只跑改动相关定向单测）；
 - [ ] **Bug-to-Test 铁律**：本轮修复的每一个真机 Bug，必须新增至少 1 个精准复现该故障条件的自动化单测（例如：服务模式沙箱目录排除测试、中文网卡名 UTF-8 解析测试、脱组直连禁止污染节点缓存测试、基线 First-Write-Wins 不被二次覆盖测试、Clash 精准去痕不删用户新订阅测试）。
 
 ### Gate 2：双向闭环真机实测门禁（正向修 + 反向撤，禁止“只测读不测修”）

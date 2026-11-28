@@ -1,11 +1,10 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HudCard } from "@/components/HudCard";
+import { SettingsModal } from "@/components/SettingsModal";
 import { Sidebar } from "@/components/Sidebar";
 import { DEFAULT_CONFIG, FALLBACK_SNAPSHOT, ipc } from "@/lib/ipc";
 import { LogAnalysisPage } from "@/pages/LogAnalysisPage";
-import { MaintenancePage } from "@/pages/MaintenancePage";
-import { SettingsPage } from "@/pages/SettingsPage";
 import { useGuardStore } from "@/stores/guardStore";
 import type { GuardSnapshot } from "@/types/guard";
 
@@ -193,32 +192,34 @@ describe("v0.2.7 日志风险/异常分开统计、OAuth v2 拆分折叠与匿�
     expect(useGuardStore.getState().snapshot.unreadLogCritical).toBe(0);
   });
 
-  it("开源默认版不暴露无后端必报错的「一键匿名上报排障」按钮与空转遥测开关", async () => {
-    vi.spyOn(ipc, "listBackups").mockResolvedValue([]);
-    vi.spyOn(ipc, "inspectClaudeDataRoots").mockResolvedValue({
-      classicDetected: true,
-      msixPackages: [],
-      telemetryExists: false,
+  it("现役系统设置不暴露已废弃的旧上报测试按钮，且仅保留单一「检查更新」按钮", async () => {
+    vi.spyOn(ipc, "auditStartupItems").mockResolvedValue({
+      claudeAutostartRisk: false,
+      entries: [],
     });
-    vi.spyOn(ipc, "getCachedAppUpdate").mockResolvedValue({
-      currentVersion: "0.3.3",
-      available: false,
-      latestVersion: "0.3.3",
-      viaProxy: true,
-      message: "当前已是最新版本 v0.3.3。",
+    useGuardStore.setState({
+      settingsModalOpen: true,
+      settingsModalTab: "general",
+      updateInfo: {
+        currentVersion: "0.3.3",
+        available: false,
+        latestVersion: "0.3.3",
+        viaProxy: true,
+        message: "当前已是最新版本 v0.3.3。",
+      },
     });
 
-    const { unmount } = render(<MaintenancePage />);
+    const { unmount } = render(<SettingsModal />);
     await waitFor(() => {
-      expect(screen.getByText("导出脱敏 AI 诊断包")).toBeInTheDocument();
+      expect(screen.getByTestId("btn-settings-export-diag")).toHaveTextContent("导出 AI 诊断包");
     });
     expect(screen.queryByTestId("btn-anonymous-report")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("btn-preview-telemetry-sample")).not.toBeInTheDocument();
     unmount();
 
-    render(<SettingsPage />);
-    expect(await screen.findByTestId("updater-status-badge")).toHaveTextContent("已是最新版本");
-    expect(screen.queryByTestId("btn-preview-telemetry-sample")).not.toBeInTheDocument();
-    // 确保守卫配置页仅保留单一「检查更新」按钮，彻底消灭页头/卡片双按钮双转圈
-    expect(screen.getAllByTestId("btn-check-app-update")).toHaveLength(1);
+    useGuardStore.setState({ settingsModalOpen: true, settingsModalTab: "update" });
+    render(<SettingsModal />);
+    expect(await screen.findByTestId("settings-updater-card")).toHaveTextContent("已是最新");
+    expect(screen.getAllByTestId("btn-settings-check-update")).toHaveLength(1);
   });
 });

@@ -34,6 +34,12 @@
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
+  ; 全新安装时默认注册 Windows 管理员高权限登录开机自启任务（卸载钩子已包含完整清理；覆盖升级交由应用按用户配置幂等对齐）
+  ${If} $UpdateMode <> 1
+    nsExec::ExecToStack 'schtasks /Create /F /SC ONLOGON /RL HIGHEST /TN "FDClaudeGuard_AutoStart" /TR "\"$INSTDIR\fd-claude-guard.exe\" --autostart"'
+    Pop $0
+    Pop $1
+  ${EndIf}
   ; 安装进度条完成后自动跳到「安装完成」页，不再停留在 Completed 界面多点一次 Next
   SetAutoClose true
   ; 安装或覆盖升级完成后主动通知 Windows Shell 刷新桌面/任务栏图标缓存

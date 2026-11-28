@@ -18,15 +18,29 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const BASELINE_VERSION: u32 = 1;
+const ROLLBACK_INSPECT_CACHE_TTL: Duration = Duration::from_secs(15);
 
 static BASELINE_IO_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static BASELINE_TMP_SEQ: AtomicU64 = AtomicU64::new(0);
+static ROLLBACK_OVERVIEW_CACHE: OnceLock<Mutex<Option<(Instant, RollbackOverview)>>> =
+    OnceLock::new();
 
 fn baseline_io_lock() -> &'static Mutex<()> {
     BASELINE_IO_LOCK.get_or_init(|| Mutex::new(()))
+}
+
+fn rollback_overview_cache() -> &'static Mutex<Option<(Instant, RollbackOverview)>> {
+    ROLLBACK_OVERVIEW_CACHE.get_or_init(|| Mutex::new(None))
+}
+
+/// 写操作（基线变更、撤回、网络急救、熔断开关）后立即失效 15s 状态查询缓存
+pub fn invalidate_rollback_overview_cache() {
+    if let Ok(mut guard) = rollback_overview_cache().lock() {
+        *guard = None;
+    }
 }
 
 #[cfg(windows)]
@@ -279,6 +293,7 @@ where
     let mut bl = load_baseline_from(&path);
     if updater(&mut bl) {
         let _ = save_baseline_to(&path, &bl);
+        invalidate_rollback_overview_cache();
     }
 }
 
@@ -354,23 +369,21 @@ pub fn notify_windows_env_and_inet_refresh() {
     }
 }
 
-/// 检测当前进程是否拥有 Windows 管理员权限
+/// 检测当前进程是否拥有 Windows 管理员权限（结果按进程生命周期缓存在 OnceLock 中，避免每次切入清理恢复重复启动子进程卡顿）
 pub fn is_current_process_elevated() -> bool {
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
-        let out = Command::new("powershell")
-            .creation_flags(CREATE_NO_WINDOW)
-            .args([
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                "([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)",
-            ])
-            .output();
-        out.ok()
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim().eq_ignore_ascii_case("true"))
-            .unwrap_or(false)
+        static ELEVATED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *ELEVATED.get_or_init(|| {
+            use std::os::windows::process::CommandExt;
+            // net.exe session 无需拉起重型 PowerShell 运行时，非管理员返回退出码 2（~10ms 返回）
+            Command::new("net")
+                .creation_flags(CREATE_NO_WINDOW)
+                .arg("session")
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+        })
     }
     #[cfg(not(windows))]
     {
@@ -436,9 +449,9 @@ pub fn run_ps_elevated_checked(script: &str, action_label: &str) -> Result<Strin
         ));
     }
 
-    // 非管理员态：通过 -EncodedCommand 传递内层脚本，并在外层捕获 UAC 取消强制返回非 0 退出码
+    // 非管理员态：通过 -EncodedCommand 传递内层脚本，强制 UTF-8 输出并在外层捕获 UAC 取消强制返回非 0 退出码
     let runner = format!(
-        "$ErrorActionPreference = 'Stop'; try {{ $p = Start-Process powershell -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ArgumentList @('-NoProfile','-NonInteractive','-EncodedCommand','{encoded}'); if (-not $p) {{ exit 1 }}; exit $p.ExitCode }} catch {{ [Console]::Error.WriteLine($_.Exception.Message); exit 1 }}"
+        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $ErrorActionPreference = 'Stop'; try {{ $p = Start-Process powershell -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ArgumentList @('-NoProfile','-NonInteractive','-EncodedCommand','{encoded}'); if (-not $p) {{ exit 1 }}; exit $p.ExitCode }} catch {{ [Console]::Error.WriteLine($_.Exception.Message); exit 1 }}"
     );
     let out = Command::new("powershell")
         .creation_flags(CREATE_NO_WINDOW)
@@ -976,7 +989,25 @@ pub fn strip_claude_from_clash_yaml(raw: &str) -> Result<(String, bool), String>
 
 // ==================== 状态总览查询 ====================
 
-/// 扫描系统基线与当前真实状态，供前端「撤回中心」与「一键网络急救」展示
+/// 扫描系统基线与当前真实状态（带 15s 轻量内存 TTL 缓存），供前端「撤回中心」与「一键网络急救」秒开展示
+pub async fn inspect_rollback_status_cached(force: bool) -> RollbackOverview {
+    if !force {
+        if let Ok(guard) = rollback_overview_cache().lock() {
+            if let Some((cached_at, cached)) = guard.as_ref() {
+                if cached_at.elapsed() < ROLLBACK_INSPECT_CACHE_TTL {
+                    return cached.clone();
+                }
+            }
+        }
+    }
+    let fresh = inspect_rollback_status().await;
+    if let Ok(mut guard) = rollback_overview_cache().lock() {
+        *guard = Some((Instant::now(), fresh.clone()));
+    }
+    fresh
+}
+
+/// 强制实时扫描系统基线与当前真实状态，供撤回后复核与单测直接调用
 pub async fn inspect_rollback_status() -> RollbackOverview {
     let path = baseline_file_path();
     let baseline_exists = path.exists();
@@ -1682,7 +1713,8 @@ pub async fn rollback_single_item(item_id: &str) -> RollbackActionReport {
         Some(serde_json::json!({ "itemId": item_id, "ok": ok })),
     );
 
-    let overview = inspect_rollback_status().await;
+    invalidate_rollback_overview_cache();
+    let overview = inspect_rollback_status_cached(true).await;
     RollbackActionReport {
         item_id: item_id.to_string(),
         ok,
@@ -1726,7 +1758,8 @@ pub async fn rollback_all_changes() -> RollbackBatchReport {
         }
     }
 
-    let overview = inspect_rollback_status().await;
+    invalidate_rollback_overview_cache();
+    let overview = inspect_rollback_status_cached(true).await;
     let all_ok = failed.is_empty();
     let summary = if reverted_ids.is_empty() && failed.is_empty() {
         "当前未检测到需要撤回的系统或 Clash 改动，你的电脑已处于干净状态。".into()
@@ -1755,6 +1788,7 @@ pub async fn rollback_all_changes() -> RollbackBatchReport {
 
 /// 4 步网络急救：专治“关 TUN / 卸载 Clash 后国内外全部断网、订阅无法导入”
 pub async fn run_network_emergency_rescue() -> NetworkRescueReport {
+    invalidate_rollback_overview_cache();
     let is_elevated = tokio::task::spawn_blocking(is_current_process_elevated)
         .await
         .unwrap_or(false);

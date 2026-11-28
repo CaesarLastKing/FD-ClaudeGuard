@@ -306,7 +306,7 @@ export function LogAnalysisPage({ embedded = false }: { embedded?: boolean } = {
         <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           {!embedded && (
             <h1 style={{ fontSize: 16.5, fontWeight: 500, letterSpacing: "-0.015em", margin: 0, color: "var(--text-strong)" }}>
-              日志分析
+              完整取证日志台
             </h1>
           )}
           <span
@@ -939,7 +939,7 @@ export function LogAnalysisPage({ embedded = false }: { embedded?: boolean } = {
                             onClick={(e) => {
                               e.stopPropagation();
                               openCleanModal({
-                                sourceLabel: `来自日志分析 · ${ev.tag}`,
+                                sourceLabel: `来自完整取证日志台 · ${ev.tag}`,
                                 onCompleted: async () => {
                                   await loadLogs();
                                 },

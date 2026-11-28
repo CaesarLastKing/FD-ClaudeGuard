@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { NetworkRescueRollbackPanel } from "@/components/NetworkRescueRollbackPanel";
 import { DEFAULT_CONFIG, FALLBACK_SNAPSHOT, ipc } from "@/lib/ipc";
-import { MaintenancePage } from "@/pages/MaintenancePage";
 import { useGuardStore } from "@/stores/guardStore";
 import type { NetworkRescueReport, RollbackOverview } from "@/types/guard";
 
@@ -76,7 +76,7 @@ describe("v0.2.8 无门槛网络急救与 6 项精准撤回中心回归", () => 
       .mockResolvedValue(rescuePayload);
     vi.spyOn(useGuardStore.getState(), "refreshPreflight").mockResolvedValue();
 
-    render(<MaintenancePage />);
+    render(<NetworkRescueRollbackPanel />);
 
     // 开源无锁态不存在付费墙门禁
     expect(screen.queryByTestId("locked-gate-maintain")).toBeNull();
@@ -113,7 +113,7 @@ describe("v0.2.8 无门槛网络急救与 6 项精准撤回中心回归", () => 
     });
     vi.spyOn(useGuardStore.getState(), "refreshPreflight").mockResolvedValue();
 
-    render(<MaintenancePage />);
+    render(<NetworkRescueRollbackPanel />);
 
     const btn = await screen.findByTestId("btn-rollback-clash_rules");
     fireEvent.click(btn);

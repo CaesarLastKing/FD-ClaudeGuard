@@ -333,7 +333,7 @@ pub fn parse_log_line_with_fallback_ts(
             file: file_ref,
             line: line_no,
             title: "检测到跨账号 Org 异步竞态请求（多号连坐高危）".into(),
-            cause: "触发归因：同一客户端切换多个账号时，新号 Cookie 误请求了旧号 orgId。处理建议：停止同机切号，前往控制台「单号卫生锁」二选一确认或退出登录并备份清理目录。".into(),
+            cause: "触发归因：同一客户端切换多个账号时，新号 Cookie 误请求了旧号会话。处理建议：停止同机切号，前往控制台「单号卫生锁」清理登录状态后再单号登录。".into(),
             context: sanitize_sensitive_text(trimmed),
         });
     }
@@ -660,7 +660,7 @@ pub fn parse_log_line_with_fallback_ts(
             file: file_ref,
             line: line_no,
             title: "检测到订阅套餐变更，进入 24 小时支付复审高敏窗口".into(),
-            cause: "触发归因：建议在「守卫配置」开启 24h 冷静保护模式，期间严禁切节点与高并发。".into(),
+            cause: "触发归因：建议在「系统设置 → 安全策略」开启 24h 冷静保护模式，期间严禁切节点与高并发。".into(),
             context: sanitize_sensitive_text(trimmed),
         });
     }

@@ -254,17 +254,17 @@ describe("v0.2.4 UI 核心回归门禁", () => {
     });
   });
 
-  describe("T-032 / T-045 控制台单号卫生锁多账号弹窗解析与透明分项清理闭环", () => {
-    it("正确解析 Observed Unique orgIds (2) 并切入分项透明清理弹窗", async () => {
+  describe("T-032 / T-045 控制台单号卫生锁多账号清理与透明分项清理闭环", () => {
+    it("检测到多账号遗留（Fail）时仅引导清理登录状态，直接呼出分项透明清理弹窗（零组织号、无换绑主号）", async () => {
       const items = buildPreflightWithMustPassed(11).items.map((it) =>
         it.id === "claude_acct"
           ? {
               ...it,
               status: "fail" as const,
-              summary: "最高危连坐预警：本机混登 2 个账号且包含已受限/待验证号（bce33885）",
-              evidence:
-                "Scanned Claude Log Files: 2\nObserved Unique orgIds (2): bce33885, ce65bc28\nCross-orgId Race Hits: 0",
-              fixLabel: "引导处理单号冲突（二选一确认）",
+              title: "单号卫生锁（防多号混登）",
+              summary: "检测到多账号遗留且含受限/待验证账号（star***at@outlook.com / jaso***11@gmail.com），请立即清理登录状态",
+              evidence: "当前状态: 检出多账号遗留（需清理）\n检测到账号数: 2\n跨号异常记录: 0 项",
+              fixLabel: "清理登录状态（先备份）",
             }
           : it
       );
@@ -297,16 +297,10 @@ describe("v0.2.4 UI 核心回归门禁", () => {
         </>
       );
 
-      fireEvent.click(screen.getByText("单号卫生锁（防混号与跨 orgId）"));
-      fireEvent.click(screen.getByRole("button", { name: "引导处理单号冲突（二选一确认）" }));
+      fireEvent.click(screen.getByText("单号卫生锁（防多号混登）"));
+      fireEvent.click(screen.getByTestId("btn-acct-clean-state"));
 
-      const modal = await screen.findByTestId("risk-modal");
-      expect(modal).toHaveTextContent("多账号混登 / 跨 orgId 冲突处理确认");
-      expect(modal).toHaveTextContent("ce65bc28...");
-
-      fireEvent.click(
-        screen.getByRole("button", { name: "分项清理并备份" })
-      );
+      expect(screen.queryByTestId("risk-modal")).not.toBeInTheDocument();
       expect(await screen.findByTestId("clean-confirm-modal")).toBeInTheDocument();
       fireEvent.click(await screen.findByTestId("btn-clean-modal-confirm"));
       await waitFor(() => expect(backupCleanSpy).toHaveBeenCalledTimes(1));
@@ -319,7 +313,7 @@ describe("v0.2.4 UI 核心回归门禁", () => {
               ...it,
               status: "fail" as const,
               summary: "检测到本地存在确认封号或地区封锁残留记录",
-              fixLabel: "预览并分项清理（备份）本地目录",
+              fixLabel: "清理账户记录（备份）",
             }
           : it
       );
@@ -345,7 +339,7 @@ describe("v0.2.4 UI 核心回归门禁", () => {
       );
 
       fireEvent.click(screen.getByText("本地封号污染残留审查"));
-      fireEvent.click(screen.getByRole("button", { name: "预览并分项清理（备份）本地目录" }));
+      fireEvent.click(screen.getByTestId("btn-ban-clean-records"));
 
       expect(await screen.findByTestId("clean-confirm-modal")).toBeInTheDocument();
       // 未点确认前绝不自动删除

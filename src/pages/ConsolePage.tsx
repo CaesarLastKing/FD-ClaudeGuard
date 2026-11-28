@@ -2,59 +2,86 @@ import { useEffect, useState } from "react";
 import { Check, ChevronRight, Copy, ExternalLink, Loader2, Lock, Play, Power, RefreshCw } from "lucide-react";
 import { CheckIcon } from "@/components/CheckIcon";
 import { ThinScrollArea } from "@/components/ThinScrollArea";
-import { ipc } from "@/lib/ipc";
-import { FULL_AUDIT_INTERVAL_MS } from "@/lib/protocol";
+import { ipc, isTauriRuntime } from "@/lib/ipc";
+import { FULL_AUDIT_INTERVAL_MS, formatCleanNodeName } from "@/lib/protocol";
 import { useGuardStore } from "@/stores/guardStore";
 import type { PreflightItem } from "@/types/guard";
 
-interface EvidenceKvRow {
+export interface EvidenceKvRow {
   k: string;
   v: string;
   tone?: "bad" | "warn" | "ok";
 }
 
+/** 剥离 Windows WebView2 下退化为灰色小字母 us/cn 的国旗 Emoji，保持控制台摘要整洁可读 */
+function stripFlagEmoji(text: string): string {
+  return (text || "").replace(/[\u{1F1E6}-\u{1F1FF}]{2}\s*/gu, "");
+}
+
 /** 将底层探针全部英文键名 100% 映射为自然易读的中文标签（覆盖 19 项预检与 Rust 真实探针） */
-function formatEvidenceKeyZh(rawKey: string): string {
-  const k = rawKey.trim();
+export function formatEvidenceKeyZh(rawKey: string): string {
+  const k = rawKey.trim().replace(/^\d+\.\s+/, "");
   const exactMap: Record<string, string> = {
     Endpoint: "通信管道",
     Kernel: "代理内核",
     "Mihomo GET /proxies": "代理组接口",
-    "Mihomo tun.enable": "TUN 接管开关",
+    "Mihomo tun.enable": "虚拟网卡开关",
+    "Mihomo dns.enhanced-mode": "内核 DNS 解析模式",
+    "TUN 接管开关": "虚拟网卡接管",
     "Wintun Adapter": "虚拟网卡状态",
     "Wintun / Mihomo Adapter": "虚拟网卡状态",
-    "Clash Verge Service": "Clash 系统服务",
-    "Real DNS Probe (claude.ai)": "Claude 真实 DNS",
-    "Proxy Exit GeoIP & Anthropic Stateless Probe": "出口属地与 API 连通",
-    "Windows ms_tcpip6 & External IPv6 Probe": "网卡 IPv6 与外网探针",
+    "Clash Verge Service": "代理系统服务",
+    "Clash 系统服务": "代理系统服务",
+    "Real DNS Probe (claude.ai)": "主站 DNS 解析",
+    "Claude 真实 DNS": "主站 DNS 解析",
+    "Fake-IP (198.18.0.0/15)": "虚拟 DNS 网段",
+    "Proxy Exit GeoIP & Anthropic Stateless Probe": "出口属地与连通",
+    "Windows ms_tcpip6 & External IPv6 Probe": "网卡 IPv6 探针",
     "Windows IPv6": "网卡 IPv6 绑定",
+    "物理网卡 ms_tcpip6": "物理网卡 IPv6",
+    "注册表 Tcpip6 DisabledComponents": "系统 IPv6 注册表",
     "CLI Proxy ENV & WinINET ProxyServer": "环境变量与系统代理",
     "Windows Location ConsentStore & lfsvc Service": "定位权限与服务状态",
     "Windows Location": "Windows 定位服务",
     "Local Contamination Scan": "本地污染残留扫描",
     "Bound Primary orgId & Cross-orgId Scan": "绑定主号与跨号扫描",
-    "ANTHROPIC_BASE_URL / API_URL": "官方 API 地址校验",
-    ANTHROPIC_BASE_URL: "官方 API 地址校验",
-    "CLI Env (HTTP/HTTPS/ALL_PROXY & NO_PROXY)": "CLI 代理环境变量",
-    WinINET: "系统代理 (WinINET)",
+    "ANTHROPIC_BASE_URL / API_URL": "官方接口校验",
+    ANTHROPIC_BASE_URL: "官方接口校验",
+    "官方 API 地址校验": "官方接口校验",
+    "settings.json ANTHROPIC_BASE_URL / API_URL": "配置文件接口",
+    "System ENV (HKCU/HKLM) API Endpoints": "系统环境变量接口",
+    "CLI Env (HTTP/HTTPS/ALL_PROXY & NO_PROXY)": "终端代理变量",
+    "CLI 代理环境变量": "终端代理变量",
+    WinINET: "系统代理设置",
+    "系统代理 (WinINET)": "系统代理设置",
     File: "配置文件",
-    "Claude Code CLI Installed": "Claude Code CLI",
+    "Claude Code CLI Installed": "命令行客户端",
+    "Claude Code CLI": "命令行客户端",
     "Telemetry Cache (~/.claude/telemetry)": "遥测待传缓存",
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "关闭非必要后台流量",
     DISABLE_TELEMETRY: "关闭遥测统计",
     DISABLE_ERROR_REPORTING: "关闭错误堆栈上报",
-    DISABLE_BUG_COMMAND: "关闭 /bug 上报",
+    DISABLE_BUG_COMMAND: "关闭诊断反馈",
+    "关闭 /bug 上报": "关闭诊断反馈",
     "Read-only Startup Audit": "开机自启项审计",
-    "NTP Drift Probe": "NTP 时钟同步探针",
-    "NTP Server": "NTP 对时服务器",
-    "UTC Drift": "UTC 时钟偏差",
-    "SNTP Probe Error": "NTP 探测错误",
-    "Elevated Helper Task": "免 UAC 守护任务",
+    "FD Claude Guard": "本守护启动器",
+    "Clash Verge Rev": "代理客户端自启",
+    "Claude Desktop": "桌面端自启",
+    "NTP Drift Probe": "时钟同步探针",
+    "NTP Server": "对时服务器",
+    "NTP 对时服务器": "对时服务器",
+    "UTC Drift": "时钟偏差",
+    "UTC 时钟偏差": "时钟偏差",
+    "SNTP Probe Error": "对时探测错误",
+    "Elevated Helper Task": "免弹窗守护任务",
     "Rule Prefix": "防火墙规则前缀",
-    "Browser WebRtcIPHandling Policy": "浏览器 WebRTC 策略",
-    "WebRTC Policy": "浏览器 WebRTC 策略",
+    "Rule Probe (FDClaudeGuard_KillSwitch_*)": "防火墙读写实测",
+    "Browser WebRtcIPHandling Policy": "浏览器防泄露策略",
+    "WebRTC Policy": "浏览器防泄露策略",
+    "Google Chrome (已安装)": "谷歌浏览器策略",
+    "Microsoft Edge (已安装)": "微软浏览器策略",
     "System Timezone vs Exit Region": "系统时区与出口比对",
-    "Exit Geo Compliance & 24h Drift": "出口合规与 24h 漂移",
+    "Exit Geo Compliance & 24h Drift": "出口合规与稳定性",
     "Browser Proxy Extensions Audit": "浏览器代理插件审计",
     "Scanned Browser Profiles": "已扫描浏览器配置",
     "Proxy / VPN Extensions Found": "检出代理插件数",
@@ -62,61 +89,76 @@ function formatEvidenceKeyZh(rawKey: string): string {
     "Scanned Log Files": "已扫描日志文件",
     "Scanned Claude Log Files": "已扫描日志文件",
     "Confirmed Ban / Region Contamination Hits": "封号/禁区污染命中",
-    "KYC / Permission-Pending (len=164) Notice": "KYC / 权限受限提示",
+    "KYC / Permission-Pending (len=164) Notice": "实名与权限提示",
     "Topology Hygiene State": "多端拓扑卫生状态",
-    "Desktop Accounts": "桌面端账号数",
+    "Desktop Accounts": "桌面端账号",
+    "CLI (~/.claude.json)": "终端登录态",
     "Bound Primary Account": "已绑定主号",
     "Primary Candidate Label": "主号候选标识",
     "Observed Unique orgIds": "观测到账号组织",
+    "Observed Unique accountIds": "关联账户数",
     "Cross-orgId Race Hits": "跨号并发冲突数",
-    "CLI Stale / Cross-Polluted Reasons": "CLI 失效/跨号原因",
+    "CLI Stale / Cross-Polluted Reasons": "终端失效/跨号原因",
     "Claude-Data Session Dir Orphans": "残留会话目录",
     "Restricted / Portal-Verify Accounts": "受限/待核验账号",
     "Latest Cross-Account Sample": "最近跨号样本",
     "Clash Mode": "代理路由模式",
-    "Claude-Fixed": "Claude-Fixed 策略组",
+    "Claude-Fixed": "固定策略组",
     Group: "锁定策略组",
     "Node Safe": "节点安全基线",
-    "Claude Rules": "Claude 命中规则",
-    "Matched Claude Rules": "Claude 命中规则",
-    "Core/KYC": "核心与 KYC 分流",
+    "Claude Rules": "核心分流规则",
+    "Matched Claude Rules": "核心分流规则",
+    "Claude 命中规则": "核心分流规则",
+    "Core/KYC": "认证与服务分流",
+    "核心与 KYC 分流": "认证与服务分流",
     "Exit Probe": "出口实时探针",
     "Telemetry REJECT": "遥测拦截规则",
-    "CF Shield & Stripe": "CF 盾与 Stripe 分流",
+    "CF Shield & Stripe": "人机盾与支付分流",
+    "CF 盾与 Stripe 分流": "人机盾与支付分流",
     "Cross-Group": "跨组冲突检查",
     "Cross-Group CF/Stripe Advisory": "跨组冲突提示",
     Processes: "进程兜底规则",
     "find-process-mode": "进程识别模式",
-    ipv6: "内核 IPv6 开关",
-    "Mihomo ipv6": "内核 IPv6 开关",
-    "dns.ipv6": "DNS IPv6 开关",
+    ipv6: "内核网络 IPv6",
+    "Mihomo ipv6": "内核网络 IPv6",
+    "内核 IPv6 开关": "内核网络 IPv6",
+    "dns.ipv6": "域名解析 IPv6",
+    "DNS IPv6 开关": "域名解析 IPv6",
     "Reference Active Node": "当前活跃参考节点",
     "Probe Status": "探针状态",
     Proxy: "本地代理地址",
     Source: "探测来源",
     Latency: "实测延迟",
-    "Exit IP": "真实出口 IP",
-    "ASN / Org": "归属运营商 / ASN",
-    "Anthropic API (api.anthropic.com)": "Anthropic API 连通",
+    "Exit IP": "真实出口地址",
+    "ASN / Org": "归属运营商",
+    "归属运营商 / ASN": "归属运营商",
+    "Anthropic API (api.anthropic.com)": "官方接口连通",
+    "Anthropic API 连通": "官方接口连通",
     "Target Locked Node": "目标锁定节点",
     "Deep Audit Running": "后台核验进度",
     "Current Probing": "当前探测节点",
     "Local Logs": "本地日志审计",
     Timezone: "系统时区",
-    "24h Landing IP Drift": "24h 落地 IP 漂移",
-    "Bound Account Geo vs Exit": "账号属地与出口比对",
+    "24h Landing IP Drift": "24h 落地稳定性",
+    "24h 落地 IP 漂移": "24h 落地稳定性",
+    "Bound Account Geo vs Exit": "属地与出口比对",
+    "账号属地与出口比对": "属地与出口比对",
+    "Claude Web (claude.ai/login)": "网页端登录入口",
     Error: "错误详情",
   };
   if (exactMap[k]) return exactMap[k];
   if (/^Port\s+\d+/i.test(k)) return k.replace(/^Port\s+/i, "代理端口 ");
   if (/^Conflict Ports/i.test(k)) return "冲突端口";
-  if (/^Observed(?: Unique)? orgIds/i.test(k)) return k.replace(/^Observed(?: Unique)? orgIds/i, "观测到组织数");
+  if (/^Observed(?: Unique)? orgIds/i.test(k)) return k.replace(/^Observed(?: Unique)? orgIds/i, "关联组织数");
+  if (/^Observed(?: Unique)? accountIds/i.test(k)) return k.replace(/^Observed(?: Unique)? accountIds/i, "关联账户数");
+  if (/^Single-Account KYC\/Auth Notice/i.test(k)) return "单号认证说明";
+  if (/^外网 IPv6 连通探针/.test(k)) return "外网 IPv6 连通";
   if (/^Mihomo GET /i.test(k)) return "代理组接口";
   return k;
 }
 
-/** 将常见底层英文探针值转为温和易读中文（查看原始探针代码时仍保留 100% 原文） */
-function formatEvidenceValueZh(rawVal: string): string {
+/** 将常见底层英文探针值转为温和简洁中文（查看原始探针代码时仍保留 100% 原文） */
+export function formatEvidenceValueZh(rawVal: string): string {
   const v = rawVal.trim();
   const exactValMap: Record<string, string> = {
     "Not Installed": "未安装",
@@ -129,17 +171,57 @@ function formatEvidenceValueZh(rawVal: string): string {
     "Blocked / Unreachable (OK)": "已阻断 / 不可达（安全）",
     "REACHABLE (LEAK!)": "可直连（存在泄漏）",
     "All Physical Adapters Disabled (OK)": "全部物理网卡已禁用",
+    SingleSurfaceClean: "单端纯净（安全）",
+    "未登录 [status=empty]": "未登录",
+    "Running (clash_verge_service)": "运行中（系统服务）",
+    "MATCHED (OK)": "已命中（安全）",
+    "Safe (合规范围)": "合规安全",
+    Writable: "可读写（就绪）",
+    Online: "在线",
+    normal: "标准模式",
+    "0 (Clean)": "0 命中（安全）",
+    "0 files (0 B)": "无待传缓存",
+    "WebRtcIPHandling = disable_non_proxied_udp": "已禁用非代理直连",
+    "HKLM / HKCU\\Software\\Policies\\{Google\\Chrome, Microsoft\\Edge}": "系统 / 用户策略注册表",
     true: "已开启",
     false: "已关闭",
     None: "无",
   };
   if (exactValMap[v]) return exactValMap[v];
+  if (/^\\\\\.\\pipe\\verge-mihomo/i.test(v)) return "Mihomo 命名管道（在线）";
   if (/^Named Pipe\s+/i.test(v)) return v.replace(/^Named Pipe\s+/i, "命名管道 ");
   if (/^Online\s*\((.+)\)$/i.test(v)) return v.replace(/^Online\s*\((.+)\)$/i, "在线 ($1)");
   if (/^Offline\b/i.test(v)) return v.replace(/^Offline\b/i, "离线");
   if (/^Exempt\s*\((.+)\)$/i.test(v)) return v.replace(/^Exempt\s*\((.+)\)$/i, "已豁免 ($1)");
   if (/^Enabled on:\s*/i.test(v)) return v.replace(/^Enabled on:\s*/i, "仍启用：");
-  return v;
+  if (/^Stable \(24h 内未漂移\) \(count=0\)$/i.test(v)) return "稳定未漂移（0 次）";
+  if (/^"?1"?\s*\(已开启降噪\)$/.test(v)) return "已开启降噪";
+  if (/^\d+\/\d+\s+OK$/i.test(v)) return v.replace(/\s+OK$/i, " 已覆盖（安全）");
+  if (/^\d+\/\d+\s+同源\s+OK$/i.test(v)) return v.replace(/\s+OK$/i, "（安全）");
+  if (/REJECT 已拦截 \(OK\)$/i.test(v)) return v.replace(/REJECT 已拦截 \(OK\)$/, "已拦截（安全）");
+  return formatCleanNodeName(v)
+    .replace(/\s*\(手动固定单节点=true\)/g, "（手动固定）")
+    .replace(/\s*\[status=[^\]]+\]/gi, "")
+    .replace(/\s*\(count=(\d+)\)/gi, "（$1 次）")
+    .replace(/→\s*(?:[\u{1F1E6}-\u{1F1FF}]{2}\s*)+/gu, "→ ");
+}
+
+function splitEvidencePair(part: string): [string, string] | null {
+  // 1. 优先按 ": " 或 "：" 拆分，防止将 IPv6 (2606:4700::1111) 或 len=164 拆断
+  const colonSpace = part.match(/^([^：]{1,72}?)(?::\s+|：\s*)(.+)$/);
+  if (colonSpace) {
+    return [colonSpace[1].trim(), colonSpace[2].trim()];
+  }
+  // 2. 次选不包含括号内参数的 Key=Value 或紧凑 Key:Value
+  const eqMatch = part.match(/^([^:=：\s()]{1,64})\s*=\s*(.+)$/);
+  if (eqMatch) {
+    return [eqMatch[1].trim(), eqMatch[2].trim()];
+  }
+  const fallback = part.match(/^([^:=：]{1,64}?)\s*[:=：]\s*(.+)$/);
+  if (fallback) {
+    return [fallback[1].trim(), fallback[2].trim()];
+  }
+  return null;
 }
 
 /**
@@ -147,7 +229,31 @@ function formatEvidenceValueZh(rawVal: string): string {
  * 支持单行及多行 Key: Value / Key=Value 解析，直接以中文结构化指标行清晰展示；
  * 仅对无法解析的纯堆栈/长代码串降级由折叠代码框承载。
  */
-function parseEvidenceKv(evidence: string): EvidenceKvRow[] | null {
+export function isAutoFixableByOneClick(item: PreflightItem): boolean {
+  switch (item.id) {
+    case "node_group":
+    case "node_dns":
+    case "sys_env":
+    case "claude_endpoint":
+    case "claude_tel":
+      return true;
+    case "node_proxy":
+      return !item.summary.includes("占用");
+    case "node_tun":
+      return !item.summary.includes("未安装") && !item.evidence.includes("Not Installed");
+    case "node_geo":
+      return item.status === "warn";
+    case "sys_ipv6":
+    case "sys_location":
+    case "claude_ban":
+    case "claude_acct":
+      return false;
+    default:
+      return false;
+  }
+}
+
+export function parseEvidenceKv(evidence: string): EvidenceKvRow[] | null {
   if (!evidence) return null;
   const rawParts = evidence
     .split(/\r?\n|\s+\|\s+/)
@@ -157,12 +263,10 @@ function parseEvidenceKv(evidence: string): EvidenceKvRow[] | null {
 
   const rows: EvidenceKvRow[] = [];
   for (const part of rawParts) {
-    // 跳过纯中文提示说明行
     if (/^说明[:：]/.test(part)) continue;
-    const match = part.match(/^([^:=：]{1,64}?)\s*[:=：]\s*(.+)$/);
-    if (!match) return null;
-    const rawK = match[1].trim();
-    const rawV = match[2].trim();
+    const pair = splitEvidencePair(part);
+    if (!pair) return null;
+    const [rawK, rawV] = pair;
     if (
       !rawK ||
       !rawV ||
@@ -174,13 +278,38 @@ function parseEvidenceKv(evidence: string): EvidenceKvRow[] | null {
     }
     const k = formatEvidenceKeyZh(rawK);
     const v = formatEvidenceValueZh(rawV);
+    // 单号卫生锁中「主号候选标识」若与「已绑定主号」完全重复，跳过冗余行
+    if (
+      k === "主号候选标识" &&
+      rows.some((prev) => prev.k === "已绑定主号" && prev.v === v)
+    ) {
+      continue;
+    }
+
+    const isSafeText =
+      /^(ok|pass|true|enabled|online|clean|0\s*(?:项|条|个)?[^。\n]*冲突|0\s*(?:命中|项|命中（干净）|\(clean\))|已通过|正常|在线|无泄漏|官方默认|管理员直写就绪|未登录|未登录（环境纯净）|已确认继续使用当前号|已核实放行（本次会话）|无)$/i.test(
+        v
+      ) ||
+      /\(OK\)|（安全）|（就绪）|已阻断|无直连豁免|原生直连|已开启降噪|已豁免|已禁用非代理|全部物理网卡已禁用|稳定未漂移|已拦截/i.test(
+        `${rawV} ${v}`
+      );
+    const isSoftNotice =
+      /非封号|不阻断启动|待确认当前号|仍为上次污染节点|存在旧凭据或会话残留|warn|drift|待实测|待探测|待审计|待实查|待检测|待核对|待扫描|警告/i.test(
+        `${rawV} ${v}`
+      );
+
     let tone: EvidenceKvRow["tone"];
-    if (/fail|error|blocked|leak|deny|offline|not installed|inactive|missing|异常|失败|阻断|未通过|离线|冲突|未安装|未激活|未配置|泄漏/i.test(rawV)) {
-      tone = "bad";
-    } else if (/warn|drift|待实测|待探测|待审计|待实查|待检测|待核对|待扫描|警告/i.test(rawV)) {
-      tone = "warn";
-    } else if (/^(ok|pass|true|enabled|online|clean|0|已通过|正常|在线|无泄漏|官方默认)/i.test(rawV) || /\(OK\)|已阻断|安全|已开启降噪|已豁免/i.test(rawV)) {
+    if (isSafeText) {
       tone = "ok";
+    } else if (isSoftNotice) {
+      tone = "warn";
+    } else if (
+      /fail|error|leak|deny|offline|not installed|inactive|missing|requires admin|portal_verification|persona_kyc_verification|实锤|清记录 \+ 换节点|异常|失败|未通过|离线|未安装|未激活|未配置|泄漏|检出多账号遗留|需更换当前节点|已失效|交叉残留/i.test(
+        `${rawV} ${v}`
+      ) ||
+      (/冲突/i.test(`${rawV} ${v}`) && !/0\s*(?:项|条|个)?[^。\n]*冲突/i.test(`${rawV} ${v}`))
+    ) {
+      tone = "bad";
     }
     rows.push({ k, v, tone });
   }
@@ -215,6 +344,8 @@ export function ConsolePage() {
   const [exportingDiag, setExportingDiag] = useState(false);
   const [releasingKs, setReleasingKs] = useState(false);
   const [resettingDrift, setResettingDrift] = useState(false);
+  const [confirmingAcct, setConfirmingAcct] = useState(false);
+  const [ackingBanWarn, setAckingBanWarn] = useState(false);
   const [showRawEvidence, setShowRawEvidence] = useState(false);
   const [copiedEvidence, setCopiedEvidence] = useState(false);
 
@@ -254,7 +385,13 @@ export function ConsolePage() {
   const items = preflight.items;
   const mustAll = items.filter((x) => x.part === "must");
   const mustOk = mustAll.filter((x) => x.status === "ok").length;
-  const mustFail = mustAll.length - mustOk;
+  const mustPending = mustAll.length - mustOk;
+  const mustFail = mustPending;
+  const hardFailCount = mustAll.filter((x) => x.status === "fail").length;
+  const warnCount = mustAll.filter((x) => x.status === "warn").length;
+  const autoFixableCount = mustAll.filter(
+    (x) => x.status !== "ok" && isAutoFixableByOneClick(x)
+  ).length;
   const optAll = items.filter((x) => x.part === "opt");
   const optOk = optAll.filter((x) => x.status === "ok").length;
 
@@ -304,10 +441,6 @@ export function ConsolePage() {
       };
 
   const selectedItem = items.find((x) => x.id === selectedId) ?? items[0];
-  const isAcctHighRisk =
-    selectedItem?.id === "claude_acct" &&
-    selectedItem.status === "fail" &&
-    (selectedItem.summary.includes("最高危连坐") || selectedItem.summary.includes("受限"));
 
   const handleExportDiag = async (itemId: string) => {
     setExportingDiag(true);
@@ -341,8 +474,64 @@ export function ConsolePage() {
     }
   };
 
+  const handleConfirmCurrentAccount = async () => {
+    if (confirmingAcct || checking || fixing) return;
+    setConfirmingAcct(true);
+    try {
+      const nextReport = await ipc.confirmCurrentAccount();
+      useGuardStore.getState().setPreflightFromEvent(nextReport);
+      if (isTauriRuntime()) {
+        const snap = await ipc.getSnapshot().catch(() => null);
+        if (snap) useGuardStore.getState().setSnapshot(snap);
+      } else {
+        const mustItems = nextReport.items.filter((x) => x.part === "must");
+        const okCount = mustItems.filter((x) => x.status === "ok").length;
+        const curSnap = useGuardStore.getState().snapshot;
+        useGuardStore.getState().setSnapshot({
+          ...curSnap,
+          mustPassed: okCount,
+          mustTotal: mustItems.length,
+        });
+      }
+      pushToast("已确认继续使用当前号", "单号卫生锁已放行，本机未检出其他账号混登。", "ok");
+    } catch (err) {
+      pushToast("确认当前号失败", String(err), "danger");
+    } finally {
+      setConfirmingAcct(false);
+    }
+  };
+
+  const handleAckBanWarn = async (toastTitle: string) => {
+    if (ackingBanWarn || checking || fixing) return;
+    setAckingBanWarn(true);
+    try {
+      const nextReport = await ipc.acknowledgeBanWarnSession();
+      useGuardStore.getState().setPreflightFromEvent(nextReport);
+      if (isTauriRuntime()) {
+        const snap = await ipc.getSnapshot().catch(() => null);
+        if (snap) useGuardStore.getState().setSnapshot(snap);
+      } else {
+        const mustItems = nextReport.items.filter((x) => x.part === "must");
+        const okCount = mustItems.filter((x) => x.status === "ok").length;
+        const curSnap = useGuardStore.getState().snapshot;
+        useGuardStore.getState().setSnapshot({
+          ...curSnap,
+          mustPassed: okCount,
+          mustTotal: mustItems.length,
+        });
+      }
+      pushToast(toastTitle, "当前会话已核实并放行本次风险提示。", "ok");
+    } catch (err) {
+      pushToast("确认放行失败", String(err), "danger");
+    } finally {
+      setAckingBanWarn(false);
+    }
+  };
+
   /**
-   * 单号卫生锁（claude_acct）严禁擅自乱删，统一引导二选一确认弹窗
+   * 控制台必须项点击处理：
+   * - claude_ban：弹出透明分项清理弹窗，或引导前往节点流量换节点
+   * - claude_acct：单号 Warn 时确认当前号或清理；多号 Fail 时仅引导清理全部登录状态
    */
   const handleFixItemClick = (item: PreflightItem) => {
     if (item.id === "node_geo" || item.id === "opt_exit_geo") {
@@ -351,107 +540,27 @@ export function ConsolePage() {
       return;
     }
     if (item.id === "claude_ban") {
+      if (item.status === "warn" && item.fixLabel?.includes("节点流量")) {
+        setActiveTab("nodes");
+        setNodesSubTab("quality");
+        return;
+      }
       openCleanModal({
-        sourceLabel: "来自控制台 · 本地封号污染残留审查",
+        sourceLabel: "来自控制台 · 本地封号与身份认证审查",
       });
       return;
     }
 
     if (item.id === "claude_acct") {
-      if (item.status === "warn") {
-        openCleanModal({
-          sourceLabel: "来自控制台 · CLI 失效凭据与旧号残留清理",
-        });
+      if (
+        item.status === "warn" &&
+        (item.fixLabel?.includes("确认继续使用当前号") || item.summary.includes("确认"))
+      ) {
+        void handleConfirmCurrentAccount();
         return;
       }
-      const orgMatch = item.evidence.match(/Observed(?: Unique)? orgIds(?:\s*\(\d+\))?:\s*([^\n]+)/);
-      const observedOrgs = (orgMatch?.[1] ?? "")
-        .split(",")
-        .map((s) => s.trim())
-        .filter((s) => s && s !== "None");
-      const latestOrg = observedOrgs[observedOrgs.length - 1] ?? "";
-      const primaryLabelMatch = item.evidence.match(/Primary Candidate Label:\s*([^\n]+)/);
-      const primaryCandidateLabel =
-        primaryLabelMatch?.[1]?.trim() || (latestOrg ? `${latestOrg}...` : "");
-      const highRiskMix = item.summary.includes("最高危连坐") || item.summary.includes("受限");
-      const isSingleNewOrg =
-        observedOrgs.length === 1 &&
-        !highRiskMix &&
-        !item.summary.includes("混登") &&
-        !item.summary.includes("竞态");
-
-      openRiskModal({
-        tone: highRiskMix ? "danger" : "warn",
-        badge: highRiskMix
-          ? "高危连坐 · 建议清理"
-          : isSingleNewOrg
-          ? "单号换新确认"
-          : "单号卫生锁 · 二选一",
-        title: isSingleNewOrg
-          ? "检测到新登录账号，确认更换主号？"
-          : "多账号混登 / 跨 orgId 冲突处理确认",
-        subtitle: isSingleNewOrg
-          ? "当前日志仅观测到 1 个新账号，与历史绑定主号不同；若确认已永久换号可直接换绑，否则可先分项清理"
-          : "绝不擅自乱删你的账号目录；分项清理弹窗会展示各端脱敏账号，默认桌面端与 CLI 全清，也可取消勾选保留你想留的那一端",
-        rows: [
-          {
-            label: "当前检测",
-            value: item.summary,
-            tone: "danger",
-          },
-          {
-            label: "分项清理",
-            value:
-              "打开透明分项清单（默认勾选清理桌面端与 CLI 登录态/日志/缓存，展示各端脱敏账号供自主保留，默认保护 MCP 与 VM 镜像）",
-            tone: "ok",
-          },
-          {
-            label: "仅换绑主号",
-            value: primaryCandidateLabel
-              ? `不删目录，直接将本机绑定主号更新为 ${primaryCandidateLabel}（仅在确认本机无混号风险时使用）`
-              : "不删目录，直接重置主号绑定基线（仅在确认本机环境干净时使用）",
-          },
-        ],
-        primaryLabel: isSingleNewOrg ? "确认为当前新主号" : "分项清理并备份",
-        onPrimary: async () => {
-          if (isSingleNewOrg) {
-            try {
-              await ipc.confirmPrimaryOrgBinding(latestOrg);
-              pushToast(
-                "已更新单号卫生锁绑定主号",
-                latestOrg ? `主号已绑定为 ${latestOrg}... 并完成复测。` : "已刷新主号绑定并完成复测。",
-                "info"
-              );
-              await refreshPreflight(true);
-            } catch (err) {
-              pushToast("更新绑定主号失败", String(err), "danger");
-            }
-          } else {
-            openCleanModal({
-              sourceLabel: "来自控制台 · 单号卫生锁",
-            });
-          }
-        },
-        dangerLabel: isSingleNewOrg ? "分项清理并备份" : "仅换绑新主号",
-        onDanger: async () => {
-          if (isSingleNewOrg) {
-            openCleanModal({
-              sourceLabel: "来自控制台 · 单号卫生锁",
-            });
-          } else {
-            try {
-              await ipc.confirmPrimaryOrgBinding(latestOrg);
-              pushToast(
-                "已更新单号卫生锁绑定主号",
-                latestOrg ? `主号已绑定为 ${latestOrg}... 并完成复测。` : "已刷新主号绑定并完成复测。",
-                "info"
-              );
-              await refreshPreflight(true);
-            } catch (err) {
-              pushToast("更新绑定主号失败", String(err), "danger");
-            }
-          }
-        },
+      openCleanModal({
+        sourceLabel: "来自控制台 · 单号卫生锁（清理登录状态）",
       });
       return;
     }
@@ -525,7 +634,7 @@ export function ConsolePage() {
                 textOverflow: "ellipsis",
               }}
             >
-              {it.summary}
+              {stripFlagEmoji(it.summary)}
             </div>
           </div>
         </div>
@@ -688,7 +797,7 @@ export function ConsolePage() {
               )}
               <span>{releasingKs ? "正在解除熔断..." : "解除熔断保护"}</span>
             </button>
-          ) : mustFail >= 2 ? (
+          ) : mustPending >= 2 && autoFixableCount >= 1 ? (
             <button
               type="button"
               data-testid="btn-batch-fix-all"
@@ -697,7 +806,7 @@ export function ConsolePage() {
               onClick={() => void oneClickFixAll()}
             >
               {fixing && <Loader2 size={13} strokeWidth={1.85} className="guard-spin" />}
-              <span>{fixing ? "处理中..." : `一键处理全部 (${mustFail})`}</span>
+              <span>{fixing ? "处理中..." : `一键处理全部 (${autoFixableCount})`}</span>
             </button>
           ) : deepAudit.running ? (
             <button
@@ -716,9 +825,11 @@ export function ConsolePage() {
             <button type="button" className="guard-btn guard-btn-primary" disabled>
               <Lock size={12.5} strokeWidth={1.55} />
               <span>
-                {snapshot.nodeDown && mustFail === 0
+                {snapshot.nodeDown && mustPending === 0
                   ? "节点不可用 · 请更换"
-                  : `请先处理 ${Math.max(1, mustFail)} 项未通过`}
+                  : hardFailCount > 0
+                  ? `请先处理 ${hardFailCount} 项未通过`
+                  : `请先确认 ${Math.max(1, warnCount)} 项风险`}
               </span>
             </button>
           ) : snapshot.bgClaudeProcs > 0 ? (
@@ -837,7 +948,10 @@ export function ConsolePage() {
                   <span
                     style={
                       mustOk < mustAll.length
-                        ? { color: "var(--bad-fg)", fontWeight: 500 }
+                        ? {
+                            color: hardFailCount > 0 ? "var(--bad-fg)" : "var(--warning-fg)",
+                            fontWeight: 500,
+                          }
                         : undefined
                     }
                   >
@@ -970,7 +1084,7 @@ export function ConsolePage() {
                       minHeight: 38,
                     }}
                   >
-                    {selectedItem.summary}
+                    {stripFlagEmoji(selectedItem.summary)}
                   </p>
                 </div>
 
@@ -1009,7 +1123,7 @@ export function ConsolePage() {
                       {kvRows && (
                         <div
                           className="c-kv-list tabular"
-                          style={{ maxHeight: 196, overflowY: "auto" }}
+                          style={{ maxHeight: 260, overflowY: "auto" }}
                         >
                           {kvRows.map((row) => (
                             <div key={`${row.k}-${row.v}`} className="c-kv-row">
@@ -1101,7 +1215,7 @@ export function ConsolePage() {
                     data-testid="guide-plaintext"
                     style={{
                       fontSize: 12,
-                      color: isAcctHighRisk ? "var(--bad-fg)" : "var(--text-2)",
+                      color: "var(--text-2)",
                       lineHeight: 1.65,
                       userSelect: "text",
                     }}
@@ -1200,12 +1314,126 @@ export function ConsolePage() {
                             <span>前往「节点流量」更换稳定节点 →</span>
                           </button>
                         </>
+                      ) : selectedItem.id === "claude_ban" ? (
+                        <>
+                          {selectedItem.status === "fail" ? (
+                            <>
+                              <button
+                                type="button"
+                                data-testid="btn-ban-clean-records"
+                                className="guard-btn guard-btn-primary"
+                                disabled={fixing || checking}
+                                style={{ width: "100%", height: 32 }}
+                                onClick={() =>
+                                  openCleanModal({
+                                    sourceLabel: "来自控制台 · 本地封号与身份认证审查",
+                                  })
+                                }
+                              >
+                                <span>清理账户记录（备份）</span>
+                              </button>
+                              <button
+                                type="button"
+                                data-testid="btn-ban-switch-node"
+                                className="guard-btn guard-btn-flat"
+                                disabled={fixing || checking}
+                                style={{ width: "100%" }}
+                                onClick={() => {
+                                  setActiveTab("nodes");
+                                  setNodesSubTab("quality");
+                                }}
+                              >
+                                <span>前往「节点流量」更换节点 →</span>
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                data-testid="btn-ban-switch-node"
+                                className="guard-btn guard-btn-primary"
+                                disabled={fixing || checking || ackingBanWarn}
+                                style={{ width: "100%", height: 32 }}
+                                onClick={() => {
+                                  setActiveTab("nodes");
+                                  setNodesSubTab("quality");
+                                }}
+                              >
+                                <span>前往「节点流量」更换节点 →</span>
+                              </button>
+                              <button
+                                type="button"
+                                data-testid="btn-ban-ack-warn"
+                                className="guard-btn guard-btn-flat"
+                                disabled={fixing || checking || ackingBanWarn}
+                                style={{ width: "100%" }}
+                                onClick={() => void handleAckBanWarn("已确认节点 IP 已更换")}
+                              >
+                                {ackingBanWarn && (
+                                  <Loader2 size={12.5} strokeWidth={1.85} className="guard-spin" />
+                                )}
+                                <span>已确认节点 IP 已更换，本次放行</span>
+                              </button>
+                            </>
+                          )}
+                        </>
+                      ) : selectedItem.id === "claude_acct" ? (
+                        <>
+                          {selectedItem.status === "warn" &&
+                          (selectedItem.fixLabel?.includes("确认继续使用当前号") ||
+                            selectedItem.summary.includes("确认")) ? (
+                            <>
+                              <button
+                                type="button"
+                                data-testid="btn-acct-confirm-current"
+                                className="guard-btn guard-btn-primary"
+                                disabled={confirmingAcct || fixing || checking}
+                                style={{ width: "100%", height: 32 }}
+                                onClick={() => void handleConfirmCurrentAccount()}
+                              >
+                                {confirmingAcct && (
+                                  <Loader2 size={13} strokeWidth={1.85} className="guard-spin" />
+                                )}
+                                <span>
+                                  {confirmingAcct ? "正在确认当前号..." : "确认继续使用当前号"}
+                                </span>
+                              </button>
+                              <button
+                                type="button"
+                                data-testid="btn-acct-clean-state"
+                                className="guard-btn guard-btn-flat"
+                                disabled={confirmingAcct || fixing || checking}
+                                style={{ width: "100%" }}
+                                onClick={() =>
+                                  openCleanModal({
+                                    sourceLabel: "来自控制台 · 单号卫生锁（清理登录状态）",
+                                  })
+                                }
+                              >
+                                <span>不是当前号，清理登录状态</span>
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              data-testid="btn-acct-clean-state"
+                              className="guard-btn guard-btn-primary"
+                              disabled={fixing || checking}
+                              style={{ width: "100%", height: 32 }}
+                              onClick={() =>
+                                openCleanModal({
+                                  sourceLabel: "来自控制台 · 单号卫生锁（清理登录状态）",
+                                })
+                              }
+                            >
+                              <span>{selectedItem.fixLabel || "清理登录状态（先备份）"}</span>
+                            </button>
+                          )}
+                        </>
                       ) : selectedItem.fixLabel ? (
                         <button
                           type="button"
-                          className={`guard-btn ${
-                            isAcctHighRisk ? "guard-btn-danger-soft" : "guard-btn-primary"
-                          }`}
+                          className="guard-btn guard-btn-primary"
                           disabled={fixing || checking}
                           style={{ width: "100%", height: 32 }}
                           onClick={() => handleFixItemClick(selectedItem)}

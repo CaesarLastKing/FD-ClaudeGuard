@@ -169,13 +169,26 @@ fn verified_disk_cache() -> &'static RwLock<HashMap<String, VerifiedNodeRecord>>
     })
 }
 
+/// 原子写盘 JSON 文件（先写唯一临时文件再重命名替换，防止崩盘/断电截断破坏 72h 节点缓存）
+fn atomic_write_json(path: &Path, json: &str) {
+    static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let seq = TMP_SEQ.fetch_add(1, Ordering::Relaxed);
+    let tmp = path.with_extension(format!("json.tmp.{}.{seq}", std::process::id()));
+    if std::fs::write(&tmp, json).is_ok() {
+        if std::fs::rename(&tmp, path).is_err() {
+            let _ = std::fs::write(path, json);
+            let _ = std::fs::remove_file(&tmp);
+        }
+    }
+}
+
 fn persist_verified_disk_map(map: &HashMap<String, VerifiedNodeRecord>) {
     if let Some(path) = verified_disk_store_path() {
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
         if let Ok(json) = serde_json::to_string_pretty(map) {
-            let _ = std::fs::write(path, json);
+            atomic_write_json(&path, &json);
         }
     }
 }
@@ -489,11 +502,8 @@ fn stability_cache() -> &'static RwLock<HashMap<String, NodeStabilityRecord>> {
 
 fn persist_stability_map(map: &HashMap<String, NodeStabilityRecord>) {
     if let Some(path) = stability_store_path() {
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
         if let Ok(json) = serde_json::to_string(map) {
-            let _ = std::fs::write(path, json);
+            atomic_write_json(&path, &json);
         }
     }
 }
@@ -1340,7 +1350,7 @@ pub fn extract_region_code(name: &str) -> String {
     if lower.contains("澳门") || lower.contains("澳門") || lower.contains("macau") || lower.contains("🇲🇴") || name.starts_with("MO") {
         return "MO".into();
     }
-    if lower.contains("台湾") || lower.contains("台灣") || lower.contains("taiwan") || lower.contains("🇹🇼") || name.starts_with("TW") {
+    if lower.contains("台湾") || lower.contains("台灣") || lower.contains("台北") || lower.contains("taiwan") || lower.contains("🇹🇼") || name.starts_with("TW") {
         return "TW".into();
     }
     if lower.contains("美国") || lower.contains("美國") || lower.contains("洛杉矶") || lower.contains("硅谷") || lower.contains("🇺🇸") || name.starts_with("US") {
@@ -1381,9 +1391,6 @@ pub fn extract_region_code(name: &str) -> String {
     }
     if lower.contains("瑞典") || lower.contains("斯德哥尔摩") || lower.contains("🇸🇪") || name.starts_with("SE") {
         return "SE".into();
-    }
-    if lower.contains("台湾") || lower.contains("台北") || lower.contains("🇹🇼") || name.starts_with("TW") {
-        return "TW".into();
     }
     if lower.contains("新西兰") || lower.contains("奥克兰") || lower.contains("🇳🇿") || name.starts_with("NZ") {
         return "NZ".into();
@@ -1746,14 +1753,8 @@ fn http_over_named_pipe(
             }
             Err(e) => {
                 last_err = format!("打开命名管道 {pipe_path} 失败: {e}");
-                // Windows ERROR_PIPE_BUSY (231) 时退避重试（降噪：仅重试到第 5 次仍忙时才打一条 WARN）
+                // Windows ERROR_PIPE_BUSY (231) 时静默退避重试；仅全部重试均失败时才记一条 WARN
                 if e.raw_os_error() == Some(231) || attempt < 3 {
-                    if attempt == 4 {
-                        crate::logger::log_warn(
-                            "mihomo",
-                            format!("命名管道持续繁忙 ({method} {path}) attempt={} err={e}", attempt + 1),
-                        );
-                    }
                     std::thread::sleep(Duration::from_millis(25 * (attempt as u64 + 1)));
                     continue;
                 }
@@ -1761,7 +1762,16 @@ fn http_over_named_pipe(
             }
         }
     }
-    let mut file = file_opt.ok_or(last_err)?;
+    let mut file = match file_opt {
+        Some(f) => f,
+        None => {
+            crate::logger::log_warn(
+                "mihomo",
+                format!("命名管道连接失败 ({method} {path}): {last_err}"),
+            );
+            return Err(last_err);
+        }
+    };
 
     let payload = body.unwrap_or("");
     let request = if payload.is_empty() {

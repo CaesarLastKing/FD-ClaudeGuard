@@ -2,11 +2,11 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CleanConfirmModal } from "@/components/CleanConfirmModal";
 import { HudCard } from "@/components/HudCard";
+import { SettingsModal } from "@/components/SettingsModal";
 import { DEFAULT_CONFIG, FALLBACK_PREFLIGHT, FALLBACK_SNAPSHOT, ipc } from "@/lib/ipc";
 import { AccountAuditPage } from "@/pages/AccountAuditPage";
 import { ConsolePage } from "@/pages/ConsolePage";
 import { NodesTrafficPage } from "@/pages/NodesTrafficPage";
-import { SettingsPage } from "@/pages/SettingsPage";
 import { useGuardStore } from "@/stores/guardStore";
 import type { AccountAuditReport } from "@/types/guard";
 
@@ -303,7 +303,7 @@ describe("v0.3.2 节点悬浮解释、运行中 B 级警示、严防漏链与全
     expect(startAuditSpy).toHaveBeenCalledWith(true, undefined, ["🇸🇬新加坡1"]);
   });
 
-  it("守卫配置离线/读取更新缓存失败时绝不陷入无限重试死循环（仅零网络读缓存 1 次，不自动刷网络检查）", async () => {
+  it("系统设置离线/更新检查与读取缓存失败时绝不陷入无限重试死循环（仅防重入触发 1 次）", async () => {
     const cacheSpy = vi
       .spyOn(ipc, "getCachedAppUpdate")
       .mockRejectedValue(new Error("cache read error"));
@@ -311,20 +311,25 @@ describe("v0.3.2 节点悬浮解释、运行中 B 级警示、严防漏链与全
       .spyOn(ipc, "checkAppUpdate")
       .mockRejectedValue(new Error("network offline"));
     useGuardStore.setState({
+      settingsModalOpen: true,
+      settingsModalTab: "update",
       updateInfo: null,
       updateChecking: false,
       updateInstalling: false,
       updateError: null,
     });
 
-    render(<SettingsPage />);
-    await waitFor(() => {
-      expect(cacheSpy).toHaveBeenCalledTimes(1);
-    });
-    // 等待多个事件循环确认不会触发重复读取或自动网络刷接口
-    await new Promise((r) => setTimeout(r, 80));
+    await useGuardStore.getState().hydrateCachedUpdateInfo();
     expect(cacheSpy).toHaveBeenCalledTimes(1);
     expect(checkSpy).toHaveBeenCalledTimes(0);
+
+    render(<SettingsModal />);
+    await waitFor(() => {
+      expect(checkSpy).toHaveBeenCalledTimes(1);
+    });
+    // 等待多个事件循环确认不会陷入重复拉取死循环
+    await new Promise((r) => setTimeout(r, 80));
+    expect(checkSpy).toHaveBeenCalledTimes(1);
   });
 
   it("清理确认弹窗支持按 Esc 键正常关闭，且未连接 Mihomo 时节点页不误报「全部可用」", async () => {

@@ -1,0 +1,4111 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FD Claude 安全启动器 · 五大互动广告模板库效果图</title>
+  <style>
+    @font-face {
+      font-family: "FD-Fine";
+      src:
+        local("SF Pro Text Light"),
+        local("Segoe UI Variable Text Semilight"),
+        local("Noto Sans SC DemiLight"),
+        local("HarmonyOS Sans SC Light"),
+        local("HarmonyOS Sans SC");
+      font-weight: 400;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: "FD-Fine";
+      src:
+        local("SF Pro Text"),
+        local("Segoe UI Variable Text"),
+        local("Noto Sans SC"),
+        local("HarmonyOS Sans SC");
+      font-weight: 500;
+      font-style: normal;
+    }
+
+    @property --promo-angle {
+      syntax: "<angle>";
+      initial-value: 0deg;
+      inherits: false;
+    }
+
+    :root {
+      --font-sans: "FD-Fine", "SF Pro Text", "Segoe UI Variable Text", "Noto Sans SC", "HarmonyOS Sans SC", -apple-system, sans-serif;
+      --font-mono: "Cascadia Code", "SF Mono", "JetBrains Mono", "Consolas", ui-monospace, monospace;
+      --r-win: 11px;
+      --r-card: 10px;
+      --r-btn: 7px;
+      --r-chip: 5px;
+      --r-hud: 14px;
+      --ease: cubic-bezier(0.22, 1, 0.36, 1);
+      --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    [data-theme="dark"] {
+      --page-backdrop: #070709;
+      --bg-chrome: #111115;
+      --bg-sidebar: #111115;
+      --bg-header: #0f0f13;
+      --bg-canvas: #0c0c0f;
+      --bg-card: #15151a;
+      --bg-card-band: #121217;
+      --bg-subtle: #1d1d24;
+      --bg-nav-active: #1b1b22;
+      --nav-active-fg: #c9ced8;
+      --bg-row-hover: #1b1b22;
+      --sel-bar-color: #6b7384;
+
+      --border-card: rgba(255, 255, 255, 0.082);
+      --border-card-hover: rgba(255, 255, 255, 0.16);
+      --divider: rgba(255, 255, 255, 0.056);
+      --divider-strong: rgba(255, 255, 255, 0.105);
+
+      --text-strong: #c9ced8;
+      --text-1: #b4bac6;
+      --text-2: #7d8494;
+      --text-3: #646c7c;
+      --text-4: #4a5160;
+
+      --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.24);
+      --shadow-btn: 0 1px 2px rgba(0, 0, 0, 0.22);
+      --shadow-window: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 28px 72px -12px rgba(0, 0, 0, 0.85);
+      --modal-backdrop: rgba(0, 0, 0, 0.6);
+      --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.58), 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+      --shadow-toast: 0 12px 32px rgba(0, 0, 0, 0.42);
+
+      --tooltip-bg: #22232b;
+      --tooltip-fg: #d5d9e2;
+      --tooltip-sub: #a2aab8;
+
+      --primary: #3b93fa;
+      --primary-hi: #55a3ff;
+      --primary-soft: rgba(59, 147, 250, 0.105);
+      --primary-border: rgba(59, 147, 250, 0.24);
+
+      --ok-dot: #449c69;
+      --ok-fg: #4f9b70;
+      --ok-bg: rgba(74, 158, 108, 0.072);
+      --pass-fg: #4b9169;
+      --pass-bg: rgba(74, 158, 108, 0.052);
+      --pass-border: rgba(74, 158, 108, 0.135);
+
+      --switch-off: rgba(255, 255, 255, 0.14);
+      --switch-locked-blue: #2f5178;
+      --switch-locked-knob: #b9cde6;
+      --switch-knob: #e5e8ef;
+
+      --hold-btn-bg: rgba(59, 147, 250, 0.052);
+      --hold-btn-border: rgba(59, 147, 250, 0.16);
+      --hold-btn-fg: #93c5fd;
+
+      --promo-glow-opacity: 0.58;
+      --promo-foil-opacity: 0.22;
+      --promo-hover-bg: #181922;
+      --bloom-mist: radial-gradient(circle at 30% 35%, rgba(244, 114, 182, 0.14), rgba(168, 85, 247, 0.09) 48%, rgba(52, 211, 153, 0.06) 85%, transparent);
+      --bloom-border: rgba(244, 114, 182, 0.34);
+      --frost-reveal-bg: linear-gradient(125deg, rgba(251, 191, 36, 0.16) 0%, rgba(56, 189, 248, 0.14) 55%, rgba(21, 21, 26, 0.95) 100%);
+      --origami-fold-bg: linear-gradient(225deg, #252734 45%, #373b4f 52%, transparent 52%);
+      --lantern-glow: radial-gradient(circle at 45% 45%, rgba(251, 191, 36, 0.17), rgba(52, 211, 153, 0.08) 56%, transparent 82%);
+      --lantern-border: rgba(251, 191, 36, 0.36);
+    }
+
+    [data-theme="light"] {
+      --page-backdrop: #e6e9f0;
+      --bg-chrome: #ffffff;
+      --bg-sidebar: #ffffff;
+      --bg-header: #ffffff;
+      --bg-canvas: #f3f4f8;
+      --bg-card: #ffffff;
+      --bg-card-band: #f8f9fc;
+      --bg-subtle: #eff1f5;
+      --bg-nav-active: #ebf3ff;
+      --nav-active-fg: #1d4ed8;
+      --bg-row-hover: #eef5ff;
+      --sel-bar-color: #2563eb;
+
+      --border-card: rgba(15, 23, 42, 0.078);
+      --border-card-hover: rgba(15, 23, 42, 0.16);
+      --divider: rgba(15, 23, 42, 0.068);
+      --divider-strong: rgba(15, 23, 42, 0.135);
+
+      --text-strong: #111827;
+      --text-1: #1f2937;
+      --text-2: #4b5563;
+      --text-3: #6b7280;
+      --text-4: #9ca3af;
+
+      --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.036), 0 6px 16px -6px rgba(15, 23, 42, 0.056);
+      --shadow-btn: 0 1px 2px rgba(15, 23, 42, 0.045);
+      --shadow-window: 0 0 0 1px rgba(15, 23, 42, 0.08), 0 24px 60px -14px rgba(15, 23, 42, 0.16);
+      --modal-backdrop: rgba(15, 23, 42, 0.3);
+      --shadow-modal: 0 22px 56px -8px rgba(15, 23, 42, 0.18), 0 2px 10px rgba(15, 23, 42, 0.06);
+      --shadow-toast: 0 10px 28px -4px rgba(15, 23, 42, 0.14), 0 2px 6px rgba(15, 23, 42, 0.06);
+
+      --tooltip-bg: #18202c;
+      --tooltip-fg: #f3f5f8;
+      --tooltip-sub: #b7bfc9;
+
+      --primary: #2563eb;
+      --primary-hi: #1d4ed8;
+      --primary-soft: rgba(37, 99, 235, 0.065);
+      --primary-border: rgba(37, 99, 235, 0.21);
+
+      --ok-dot: #10b981;
+      --ok-fg: #059669;
+      --ok-bg: #ecfdf5;
+      --pass-fg: #0d9468;
+      --pass-bg: #f0fdf8;
+      --pass-border: #bbf0dc;
+
+      --switch-off: rgba(15, 23, 42, 0.16);
+      --switch-locked-blue: #8cb2e8;
+      --switch-locked-knob: #ffffff;
+      --switch-knob: #ffffff;
+
+      --hold-btn-bg: rgba(37, 99, 235, 0.036);
+      --hold-btn-border: rgba(37, 99, 235, 0.15);
+      --hold-btn-fg: #3b82f6;
+
+      --promo-glow-opacity: 0.42;
+      --promo-foil-opacity: 0.16;
+      --promo-hover-bg: #fbfcff;
+      --bloom-mist: radial-gradient(circle at 30% 35%, rgba(244, 114, 182, 0.12), rgba(168, 85, 247, 0.07) 50%, rgba(16, 185, 129, 0.05) 85%, transparent);
+      --bloom-border: rgba(236, 72, 153, 0.3);
+      --frost-reveal-bg: linear-gradient(125deg, rgba(245, 158, 11, 0.14) 0%, rgba(37, 99, 235, 0.09) 58%, #ffffff 100%);
+      --origami-fold-bg: linear-gradient(225deg, #e2e8f0 45%, #cbd5e1 52%, transparent 52%);
+      --lantern-glow: radial-gradient(circle at 45% 45%, rgba(245, 158, 11, 0.13), rgba(6, 182, 212, 0.08) 58%, transparent 84%);
+      --lantern-border: rgba(217, 119, 6, 0.3);
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      min-height: 100vh;
+      font-family: var(--font-sans);
+      font-weight: 400;
+      font-synthesis: none;
+      background: var(--page-backdrop);
+      color: var(--text-1);
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+      transition: background-color 200ms var(--ease);
+    }
+
+    .tabular { font-variant-numeric: tabular-nums; }
+
+    /* =========================================================================
+       画布外预览控制条（6 大模板独立切换）
+       ========================================================================= */
+    .preview-stage {
+      min-height: 100vh;
+      padding: 14px 20px 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+    }
+
+    .preview-bar {
+      width: min(1280px, 100%);
+      padding: 8px 14px;
+      border-radius: 10px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-card);
+      box-shadow: var(--shadow-card);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+      font-size: 12px;
+    }
+    .preview-bar-group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .preview-label { color: var(--text-3); font-size: 11.5px; margin-right: 2px; }
+    .preview-pill-btn {
+      height: 26px; padding: 0 9.5px; border-radius: 6px;
+      border: 1px solid var(--divider-strong); background: var(--bg-subtle); color: var(--text-2);
+      font-family: var(--font-sans); font-size: 11.5px; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+      transition: all 140ms var(--ease);
+    }
+    .preview-pill-btn:hover { color: var(--text-strong); border-color: var(--border-card-hover); }
+    .preview-pill-btn.active {
+      background: var(--primary-soft); color: var(--primary); border-color: var(--primary-border); font-weight: 500;
+    }
+
+    /* =========================================================================
+       主应用窗口壳层
+       ========================================================================= */
+    .app-window {
+      width: min(1280px, 100%);
+      height: min(800px, calc(100vh - 82px));
+      min-height: 660px;
+      border-radius: var(--r-win);
+      background: var(--bg-canvas);
+      box-shadow: var(--shadow-window);
+      border: 1px solid var(--divider);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+      user-select: none;
+    }
+
+    .window-chrome {
+      height: 38px; flex-shrink: 0; background: var(--bg-chrome);
+      border-bottom: 1px solid var(--divider);
+      display: flex; align-items: center; justify-content: space-between; padding-left: 16px;
+    }
+    .chrome-brand { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .brand-icon-badge {
+      width: 17px; height: 17px; border-radius: 4px;
+      background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+      color: #ffffff; display: grid; place-items: center; flex-shrink: 0;
+      box-shadow: 0 1px 3px rgba(37, 99, 235, 0.35);
+    }
+    .brand-title { font-size: 12.5px; color: var(--text-1); white-space: nowrap; }
+    .brand-subtitle {
+      position: relative; color: var(--text-3); font-size: 11px;
+      cursor: help; padding: 2px 4px; border-radius: 4px; white-space: nowrap;
+    }
+    .brand-subtitle-tip {
+      display: none; position: absolute; top: calc(100% + 6px); left: 0;
+      white-space: nowrap; padding: 5px 10px; border-radius: 7px;
+      background: var(--tooltip-bg); border: 1px solid var(--divider-strong);
+      color: var(--tooltip-fg); font-size: 11px;
+      box-shadow: 0 10px 26px rgba(0, 0, 0, 0.32); z-index: 300; pointer-events: none;
+    }
+    .brand-subtitle:hover .brand-subtitle-tip { display: block; }
+
+    .chrome-right { display: flex; align-items: center; height: 100%; }
+    .chrome-toggles { display: flex; align-items: center; gap: 6px; padding-right: 10px; }
+    .chrome-btn {
+      color: var(--text-2); border: none; background: transparent; cursor: pointer;
+      display: inline-flex; align-items: center; justify-content: center;
+      transition: background-color 120ms var(--ease), color 120ms var(--ease);
+    }
+    .chrome-btn:hover { background: var(--bg-subtle); color: var(--text-strong); }
+    .chrome-ico-btn { width: 28px; height: 25px; border-radius: 6px; color: var(--text-3); opacity: 0.85; }
+    .chrome-ico-btn.is-on { color: var(--text-1); opacity: 0.95; }
+    .chrome-sep { width: 1px; height: 13px; background: var(--divider-strong); margin-right: 4px; }
+    .win-btn { width: 38px; height: 100%; }
+    .win-close:hover { background: #dc2626 !important; color: #ffffff !important; }
+
+    .app-body { flex: 1; min-height: 0; display: flex; }
+
+    /* =========================================================================
+       左侧导航栏
+       ========================================================================= */
+    .sidebar {
+      width: clamp(220px, 18vw, 244px);
+      flex-shrink: 0;
+      background: var(--bg-sidebar);
+      border-right: 1px solid var(--divider);
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 0;
+    }
+    .sidebar-nav { display: flex; flex-direction: column; gap: 3px; }
+    .c-nav-item {
+      height: 36px; padding: 0 11px; border: none; border-radius: var(--r-btn);
+      background: transparent; color: var(--text-2); font-family: var(--font-sans);
+      font-size: 13px; display: flex; align-items: center; justify-content: space-between;
+      width: 100%; cursor: pointer;
+      transition: background-color 130ms var(--ease), color 130ms var(--ease);
+    }
+    .c-nav-item:hover { background: var(--bg-nav-active); color: var(--nav-active-fg); }
+    .c-nav-item.active { background: var(--bg-nav-active); color: var(--nav-active-fg); font-weight: 500; }
+    .c-nav-left { display: flex; align-items: center; gap: 10px; }
+    .nav-badge {
+      font-size: 10px; min-width: 17px; height: 17px; padding: 0 5px;
+      border-radius: 4.5px; display: inline-flex; align-items: center; justify-content: center;
+      background: var(--ok-bg); color: var(--ok-fg);
+    }
+
+    .sidebar-bottom {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: auto;
+    }
+
+    /* =========================================================================
+       左侧推广位：6 大严格解耦模板引擎
+       ========================================================================= */
+    .promo-slot-wrap {
+      padding: 6px;
+      margin: -6px;
+      max-height: 104px;
+      opacity: 1;
+      transform: translateY(0);
+      transition:
+        max-height 260ms var(--ease),
+        opacity 200ms var(--ease),
+        transform 240ms var(--ease),
+        margin 240ms var(--ease),
+        padding 240ms var(--ease);
+    }
+    .promo-slot-wrap.is-hidden {
+      max-height: 0 !important;
+      opacity: 0 !important;
+      padding: 0 !important;
+      margin: 0 0 -10px 0 !important;
+      transform: translateY(6px);
+      overflow: hidden;
+      pointer-events: none;
+    }
+
+    .promo-stage {
+      position: relative;
+      perspective: 460px;
+    }
+
+    .promo-card {
+      position: relative;
+      z-index: 1;
+      border-radius: var(--r-card);
+      border: 1px solid var(--border-card);
+      background: var(--bg-card);
+      padding: 9px 11px;
+      display: flex;
+      flex-direction: column;
+      cursor: pointer;
+      overflow: hidden;
+      box-shadow: var(--shadow-card);
+      transform-style: preserve-3d;
+      will-change: transform;
+      transition:
+        transform 240ms var(--ease),
+        background-color 240ms var(--ease),
+        border-color 240ms var(--ease),
+        box-shadow 260ms var(--ease),
+        opacity 180ms var(--ease);
+    }
+
+    /* 默认隐藏所有模板专属层，仅在对应 data-template 下激活 */
+    .promo-aurora-glow,
+    .promo-aurora-ring,
+    .promo-aurora-bg,
+    .promo-holo-foil,
+    .promo-sheen-sweep,
+    .promo-bloom-mist,
+    .promo-flower,
+    .promo-frost-reveal,
+    #frost-canvas,
+    .promo-origami-fold,
+    .promo-lantern-glow {
+      display: none;
+    }
+
+    /* ---------- 1. rainbow 彩虹极光 ---------- */
+    .promo-stage[data-template="rainbow"] .promo-aurora-glow {
+      display: block; position: absolute; inset: -3px; border-radius: 13px;
+      background: conic-gradient(from var(--promo-angle), #3b93fa, #8b5cf6, #ec4899, #f59e0b, #10b981, #06b6d4, #3b93fa);
+      filter: blur(11px); opacity: 0; pointer-events: none; transition: opacity 260ms var(--ease); z-index: 0;
+    }
+    .promo-stage[data-template="rainbow"] .promo-aurora-ring {
+      display: block; position: absolute; inset: 0; border-radius: inherit; padding: 1.5px;
+      background: conic-gradient(from var(--promo-angle), #38bdf8, #6366f1, #ec4899, #f59e0b, #10b981, #38bdf8);
+      -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      -webkit-mask-composite: xor; mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0); mask-composite: exclude;
+      opacity: 0; pointer-events: none; transition: opacity 220ms var(--ease); z-index: 2;
+    }
+    .promo-stage[data-template="rainbow"] .promo-aurora-bg {
+      display: block; position: absolute; inset: 0; border-radius: inherit;
+      background: linear-gradient(125deg, rgba(56, 189, 248, 0.15), rgba(139, 92, 246, 0.16), rgba(236, 72, 153, 0.14), rgba(16, 185, 129, 0.12));
+      background-size: 260% 260%; opacity: 0; pointer-events: none; transition: opacity 260ms var(--ease); z-index: 1;
+    }
+    .promo-stage[data-template="rainbow"] .promo-holo-foil {
+      display: block; position: absolute; inset: 0; border-radius: inherit;
+      background: radial-gradient(150px circle at var(--px, 50%) var(--py, 50%), rgba(255,255,255,0.34) 0%, rgba(59,147,250,0.22) 28%, rgba(236,72,153,0.2) 52%, transparent 90%);
+      opacity: 0; pointer-events: none; transition: opacity 240ms var(--ease); z-index: 1;
+    }
+    .promo-stage[data-template="rainbow"] .promo-sheen-sweep {
+      display: block; position: absolute; inset: 0;
+      background: linear-gradient(106deg, transparent 25%, rgba(255, 255, 255, 0.22) 48%, transparent 75%);
+      transform: translateX(-130%); pointer-events: none; z-index: 2;
+    }
+    .promo-stage[data-template="rainbow"]:hover .promo-aurora-glow,
+    .promo-stage[data-template="rainbow"].is-force-hover .promo-aurora-glow {
+      opacity: var(--promo-glow-opacity); animation: promoAuroraSpin 2.6s linear infinite;
+    }
+    .promo-stage[data-template="rainbow"]:hover .promo-card,
+    .promo-stage[data-template="rainbow"].is-force-hover .promo-card {
+      border-color: transparent; background: var(--promo-hover-bg);
+    }
+    .promo-stage[data-template="rainbow"].is-force-hover .promo-card { transform: translateY(-1px) scale(1.016); }
+    .promo-stage[data-template="rainbow"]:hover .promo-aurora-ring,
+    .promo-stage[data-template="rainbow"].is-force-hover .promo-aurora-ring {
+      opacity: 1; animation: promoAuroraSpin 2.6s linear infinite;
+    }
+    .promo-stage[data-template="rainbow"]:hover .promo-aurora-bg,
+    .promo-stage[data-template="rainbow"].is-force-hover .promo-aurora-bg {
+      opacity: 1; animation: promoBgFlow 4s ease infinite;
+    }
+    .promo-stage[data-template="rainbow"]:hover .promo-holo-foil,
+    .promo-stage[data-template="rainbow"].is-force-hover .promo-holo-foil { opacity: var(--promo-foil-opacity); }
+    .promo-stage[data-template="rainbow"]:hover .promo-sheen-sweep,
+    .promo-stage[data-template="rainbow"].is-force-hover .promo-sheen-sweep { animation: promoSheenRun 1.3s var(--ease) 1; }
+    .promo-stage[data-template="rainbow"]:hover .promo-tag,
+    .promo-stage[data-template="rainbow"].is-force-hover .promo-tag {
+      color: #ffffff; border-color: transparent;
+      background: linear-gradient(120deg, #3b93fa, #8b5cf6, #ec4899, #f59e0b, #10b981);
+      background-size: 260% 260%; animation: promoBgFlow 2.6s ease infinite;
+    }
+    .promo-stage[data-template="rainbow"]:hover .promo-char,
+    .promo-stage[data-template="rainbow"].is-force-hover .promo-char {
+      background: linear-gradient(95deg, #38bdf8, #a855f7, #ec4899, #f59e0b, #34d399, #38bdf8);
+      background-size: 240% auto; -webkit-background-clip: text; background-clip: text; color: transparent;
+      animation: promoTitleFlow 3s linear infinite;
+    }
+    @keyframes promoAuroraSpin { from { --promo-angle: 0deg; } to { --promo-angle: 360deg; } }
+    @keyframes promoBgFlow { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+    @keyframes promoSheenRun { 0% { transform: translateX(-130%); } 100% { transform: translateX(130%); } }
+    @keyframes promoTitleFlow { from { background-position: 0% center; } to { background-position: 240% center; } }
+
+    /* ---------- 2. butterfly 花开化蝶 ---------- */
+    .promo-stage[data-template="butterfly"] .promo-bloom-mist {
+      display: block; position: absolute; inset: 0; border-radius: inherit;
+      background: var(--bloom-mist); opacity: 0; pointer-events: none;
+      transition: opacity 420ms var(--ease); z-index: 1;
+    }
+    .promo-stage[data-template="butterfly"].is-blooming .promo-bloom-mist { opacity: 1; }
+    .promo-stage[data-template="butterfly"].is-blooming .promo-card {
+      border-color: var(--bloom-border);
+      box-shadow: 0 4px 18px -4px rgba(244, 114, 182, 0.22), var(--shadow-card);
+    }
+    .promo-stage[data-template="butterfly"] .promo-flower {
+      display: block; position: absolute; pointer-events: none; z-index: 4;
+      opacity: 0; transform: scale(0) rotate(-32deg);
+      transition: opacity 380ms var(--ease), transform 520ms var(--spring);
+      filter: drop-shadow(0 2px 5px rgba(244, 114, 182, 0.3));
+    }
+    .promo-flower.fl-tl { top: -9px; left: -9px; width: 24px; height: 24px; }
+    .promo-flower.fl-bl { bottom: -10px; left: 26px; width: 22px; height: 22px; transition-delay: 50ms; }
+    .promo-flower.fl-tr { top: -8px; right: 26px; width: 20px; height: 20px; transition-delay: 85ms; }
+    .promo-flower.fl-br { bottom: -9px; right: -8px; width: 24px; height: 24px; transition-delay: 110ms; }
+    .promo-stage[data-template="butterfly"].is-blooming .promo-flower {
+      opacity: 1; transform: scale(1) rotate(0deg); animation: flowerBreath 3.8s ease-in-out infinite alternate;
+    }
+    .promo-stage[data-template="butterfly"].is-blooming .promo-flower.fl-bl { animation-delay: -1.1s; }
+    .promo-stage[data-template="butterfly"].is-blooming .promo-flower.fl-tr { animation-delay: -2.2s; }
+    .promo-stage[data-template="butterfly"].is-blooming .promo-flower.fl-br { animation-delay: -0.7s; }
+    @keyframes flowerBreath { 0% { transform: scale(1) rotate(-4deg); } 100% { transform: scale(1.09) rotate(6deg); } }
+    .promo-stage[data-template="butterfly"].is-blooming .promo-tag {
+      background: rgba(244, 114, 182, 0.14); color: #f472b6; border-color: rgba(244, 114, 182, 0.34);
+    }
+    [data-theme="light"] .promo-stage[data-template="butterfly"].is-blooming .promo-tag {
+      color: #db2777; background: rgba(236, 72, 153, 0.1); border-color: rgba(236, 72, 153, 0.28);
+    }
+
+    /* ---------- 3. frost 雾窗擦霜 / 刮刮乐 ---------- */
+    .promo-stage[data-template="frost"] .promo-frost-reveal {
+      display: block; position: absolute; inset: 0; border-radius: inherit;
+      background: var(--frost-reveal-bg); opacity: 0.95; pointer-events: none; z-index: 1;
+    }
+    .promo-stage[data-template="frost"] #frost-canvas {
+      display: block; position: absolute; inset: 0; width: 100%; height: 100%;
+      border-radius: inherit; pointer-events: none; z-index: 4;
+    }
+    .promo-stage[data-template="frost"] .promo-card {
+      border-color: rgba(148, 163, 184, 0.28);
+    }
+    .promo-stage[data-template="frost"] .promo-tag {
+      color: #f59e0b; background: rgba(245, 158, 11, 0.14); border-color: rgba(245, 158, 11, 0.32);
+    }
+
+    /* ---------- 4. origami 折纸飞机 ---------- */
+    .promo-stage[data-template="origami"] .promo-origami-fold {
+      display: block;
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 0;
+      height: 0;
+      background: var(--origami-fold-bg);
+      box-shadow: -2px 2px 6px rgba(0, 0, 0, 0.18);
+      border-bottom-left-radius: 5px;
+      pointer-events: none;
+      z-index: 4;
+      transition: width 240ms var(--spring), height 240ms var(--spring);
+    }
+    .promo-stage[data-template="origami"]:hover .promo-origami-fold {
+      width: 24px;
+      height: 24px;
+    }
+    .promo-stage[data-template="origami"]:hover .promo-card {
+      border-color: var(--border-card-hover);
+      transform: translateY(-1px) rotate(-0.8deg);
+    }
+
+    /* ---------- 5. firefly 萤火提灯 ---------- */
+    .promo-stage[data-template="firefly"] .promo-lantern-glow {
+      display: block;
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      background: var(--lantern-glow);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 380ms var(--ease);
+      z-index: 1;
+    }
+    .promo-stage[data-template="firefly"].is-lantern-lit .promo-lantern-glow {
+      opacity: 1;
+    }
+    .promo-stage[data-template="firefly"].is-lantern-lit .promo-card {
+      border-color: var(--lantern-border);
+      box-shadow: 0 4px 20px -4px rgba(251, 191, 36, 0.24), var(--shadow-card);
+    }
+    .promo-stage[data-template="firefly"].is-lantern-lit .promo-tag {
+      color: #f59e0b;
+      background: rgba(251, 191, 36, 0.14);
+      border-color: rgba(251, 191, 36, 0.35);
+    }
+
+    /* 逐字字符与共享内部结构 */
+    .promo-char {
+      display: inline-block;
+      transition: opacity 300ms var(--ease), transform 320ms var(--spring), filter 300ms var(--ease), color 220ms var(--ease);
+    }
+    .promo-char.is-morphed { opacity: 0.2; transform: translateY(-3px) scale(0.86); filter: blur(0.6px); }
+    .promo-char.is-restored { animation: charRestorePop 460ms var(--spring); }
+    @keyframes charRestorePop {
+      0% { transform: scale(0.65); color: #f472b6; }
+      55% { transform: scale(1.22); color: var(--primary-hi); }
+      100% { transform: scale(1); }
+    }
+
+    .promo-slide-inner {
+      position: relative; z-index: 3; display: flex; flex-direction: column; gap: 4px;
+      transition: transform 220ms var(--spring);
+    }
+    .promo-stage:hover .promo-slide-inner,
+    .promo-stage.is-force-hover .promo-slide-inner { transform: translateX(3px); }
+
+    .promo-line-1 { display: flex; align-items: center; gap: 6px; padding-right: 22px; min-width: 0; }
+    .promo-tag {
+      font-size: 10px; font-weight: 500; line-height: 1; padding: 2.5px 6px; border-radius: 4.5px;
+      background: var(--bg-subtle); color: var(--text-2); border: 1px solid var(--divider-strong);
+      flex-shrink: 0; transition: all 240ms var(--ease);
+    }
+    .promo-title {
+      font-size: 12px; font-weight: 500; color: var(--text-strong);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .promo-line-2 { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding-right: 1px; }
+    .promo-desc {
+      font-size: 11px; color: var(--text-3);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3;
+    }
+    .promo-arrow {
+      color: var(--text-3); flex-shrink: 0; opacity: 0.45; transform: translate(-2px, 1px);
+      transition: transform 240ms var(--spring), opacity 200ms var(--ease), color 200ms var(--ease);
+    }
+    .promo-stage:hover .promo-arrow,
+    .promo-stage.is-force-hover .promo-arrow {
+      color: var(--primary-hi); opacity: 1; transform: translate(1.5px, -1.5px) scale(1.1);
+    }
+
+    .promo-close {
+      position: absolute; top: 1px; right: 1px; width: 30px; height: 28px;
+      border: none; border-radius: 0 9px 0 8px; background: transparent;
+      color: var(--text-4); opacity: 0.36;
+      display: inline-flex; align-items: center; justify-content: center;
+      cursor: pointer; z-index: 6;
+      transition: opacity 160ms var(--ease), color 160ms var(--ease), background-color 160ms var(--ease);
+    }
+    .promo-stage:hover .promo-close { opacity: 0.56; }
+    .promo-close:hover { opacity: 1 !important; color: var(--text-strong); background: var(--bg-subtle); }
+
+    /* 侧栏底部原有状态卡片 */
+    .guard-card {
+      background: var(--bg-card); border: 1px solid var(--border-card);
+      border-radius: var(--r-card); box-shadow: var(--shadow-card); overflow: hidden;
+    }
+    .side-card { padding: 10px 12px; display: flex; flex-direction: column; gap: 5.5px; }
+    .status-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 18px; }
+    .status-label { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-1); }
+    .guard-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok-dot); display: inline-block; flex-shrink: 0; }
+    .hold-btn {
+      width: 100%; height: 28px; border-radius: 6px;
+      background: var(--hold-btn-bg); border: 1px solid var(--hold-btn-border);
+      color: var(--hold-btn-fg); font-family: var(--font-sans); font-size: 11px;
+      display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+      cursor: pointer; white-space: nowrap; transition: filter 140ms var(--ease);
+    }
+    .hold-btn:hover { filter: brightness(1.08); }
+    .sidebar-settings-wrap { margin-top: -1px; padding-top: 9px; border-top: 1px solid var(--divider); }
+
+    /* =========================================================================
+       主内容区：AI 工具箱 · 赛博木鱼许愿池 & Dario 破防小剧场
+       ========================================================================= */
+    .main-area {
+      flex: 1; min-width: 0; min-height: 0;
+      display: flex; flex-direction: column; background: var(--bg-canvas); position: relative;
+    }
+    .page-hd {
+      height: 58px; padding: 0 24px; background: var(--bg-header);
+      border-bottom: 1px solid var(--divider);
+      display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-shrink: 0;
+    }
+    .page-hd-left { display: flex; align-items: baseline; gap: 11px; min-width: 0; }
+    .page-title {
+      margin: 0; font-size: 16.5px; font-weight: 500;
+      line-height: 1.25; letter-spacing: -0.015em; color: var(--text-strong); white-space: nowrap;
+    }
+    .page-sub { font-size: 11.5px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .page-hd-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+    .status-counter-pill {
+      height: 27px; padding: 0 10px; border-radius: 7px;
+      background: var(--bg-card); border: 1px solid var(--border-card);
+      font-size: 11.5px; color: var(--text-2); display: none; align-items: center; gap: 6px; white-space: nowrap;
+    }
+    .status-counter-pill.show { display: inline-flex; }
+
+    .muyu-hud-pill {
+      height: 28px; padding: 0 10px; border-radius: 7px;
+      background: var(--bg-card); border: 1px solid var(--border-card); box-shadow: var(--shadow-btn);
+      font-size: 11.5px; color: var(--text-2); display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+    }
+    .muyu-hud-pill strong { color: var(--primary); font-weight: 500; }
+
+    .icon-btn-sm {
+      width: 28px; height: 28px; border-radius: 7px; border: 1px solid var(--border-card);
+      background: var(--bg-card); color: var(--text-2); display: inline-flex; align-items: center; justify-content: center;
+      cursor: pointer; box-shadow: var(--shadow-btn); transition: color 140ms var(--ease), border-color 140ms var(--ease);
+    }
+    .icon-btn-sm:hover { color: var(--text-strong); border-color: var(--border-card-hover); }
+    .icon-btn-sm.is-muted { color: var(--text-4); }
+
+    .muyu-workspace {
+      flex: 1; min-height: 0; padding: 8px 16px 10px;
+      display: flex; flex-direction: column; gap: 6px;
+    }
+
+    /* 上半舞台：顶部阶段横幅 + 左木鱼皮肤 + 右 Dario Boss */
+    .muyu-stage-card {
+      flex: 1; min-height: 214px; position: relative;
+      border-radius: 12px; border: 1px solid var(--border-card);
+      background:
+        radial-gradient(circle at 28% 55%, rgba(245, 158, 11, 0.055), transparent 56%),
+        radial-gradient(circle at 74% 52%, rgba(59, 147, 250, 0.055), transparent 54%),
+        var(--bg-card);
+      box-shadow: var(--shadow-card);
+      display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 28px 1fr; align-items: stretch;
+      overflow: hidden;
+      transition: border-color 220ms ease, background 220ms ease;
+    }
+    .muyu-stage-card.is-sensitive {
+      border-color: rgba(245, 158, 11, 0.48);
+      background:
+        radial-gradient(circle at 74% 52%, rgba(245, 158, 11, 0.11), transparent 58%),
+        radial-gradient(circle at 28% 55%, rgba(245, 158, 11, 0.06), transparent 56%),
+        var(--bg-card);
+    }
+    .muyu-stage-card.is-phase2 {
+      border-color: rgba(225, 29, 72, 0.52);
+      background:
+        radial-gradient(circle at 74% 52%, rgba(225, 29, 72, 0.12), transparent 58%),
+        radial-gradient(circle at 28% 55%, rgba(245, 158, 11, 0.05), transparent 56%),
+        var(--bg-card);
+    }
+    .muyu-stage-card.is-crit-shake {
+      animation: stageCritShake 180ms ease;
+    }
+    @keyframes stageCritShake {
+      0%, 100% { transform: translate(0, 0); }
+      30% { transform: translate(-2px, 1.5px); }
+      65% { transform: translate(2px, -1.5px); }
+    }
+
+    /* 舞台顶部 Boss 阶段状态条 */
+    .boss-phase-banner {
+      grid-column: 1 / -1; height: 28px; padding: 0 12px;
+      background: var(--bg-subtle); border-bottom: 1px solid var(--divider);
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      font-size: 11px; color: var(--text-2); position: relative; z-index: 4;
+      transition: background-color 200ms ease, color 200ms ease, border-color 200ms ease;
+    }
+    .boss-phase-banner.is-sensitive {
+      background: rgba(245, 158, 11, 0.14); color: #f59e0b; border-bottom-color: rgba(245, 158, 11, 0.35);
+    }
+    .boss-phase-banner.is-phase2 {
+      background: rgba(225, 29, 72, 0.15); color: #fb7185; border-bottom-color: rgba(225, 29, 72, 0.38);
+    }
+    [data-theme="light"] .boss-phase-banner.is-sensitive { color: #b45309; }
+    [data-theme="light"] .boss-phase-banner.is-phase2 { color: #be123c; }
+    .boss-phase-left { display: flex; align-items: center; gap: 7px; font-weight: 500; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .boss-phase-right { display: flex; align-items: center; gap: 10px; font-size: 10.5px; color: var(--text-3); flex-shrink: 0; }
+    .boss-phase-badge {
+      padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 500;
+      background: var(--bg-card); border: 1px solid var(--divider-strong); color: var(--text-1);
+    }
+    .boss-phase-banner.is-sensitive .boss-phase-badge { border-color: rgba(245, 158, 11, 0.45); color: #f59e0b; }
+    .boss-phase-banner.is-phase2 .boss-phase-badge { border-color: rgba(225, 29, 72, 0.48); color: #fb7185; }
+    [data-theme="light"] .boss-phase-banner.is-phase2 .boss-phase-badge { color: #be123c; }
+
+    .muyu-stage-divider {
+      position: absolute; left: 50%; top: 44px; bottom: 18px; width: 1px;
+      background: linear-gradient(180deg, transparent, var(--divider-strong) 30%, var(--divider-strong) 70%, transparent);
+      pointer-events: none;
+    }
+
+    /* 机制触发的高危「封禁线索 / 作死雷区」浮动道具卡（位于舞台中上部，不遮挡主角） */
+    .hazard-clue-slot {
+      position: absolute; left: 50%; top: 36px; transform: translateX(-50%);
+      z-index: 16; pointer-events: none; width: min(360px, 76%);
+      display: flex; justify-content: center;
+    }
+    .hazard-clue-card {
+      pointer-events: auto; width: 100%;
+      padding: 6px 10px 7px; border-radius: 9px;
+      background: var(--bg-panel); border: 1px solid rgba(245, 158, 11, 0.55);
+      box-shadow: 0 10px 26px rgba(0, 0, 0, 0.34);
+      display: flex; flex-direction: column; gap: 4px; cursor: pointer;
+      animation: toastSlideIn 180ms var(--spring);
+    }
+    [data-theme="light"] .hazard-clue-card {
+      box-shadow: 0 8px 20px rgba(15, 23, 42, 0.14);
+    }
+    .hazard-clue-card.is-critical { border-color: rgba(225, 29, 72, 0.65); }
+    .hazard-clue-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 11.5px; font-weight: 500; color: var(--text-strong); }
+    .hazard-clue-counter-tag {
+      padding: 1px 6px; border-radius: 4px; font-size: 10px; flex-shrink: 0;
+      background: rgba(59, 147, 250, 0.15); color: var(--primary); border: 1px solid var(--primary-border);
+    }
+    .hazard-clue-desc { font-size: 10.5px; color: var(--text-2); line-height: 1.35; }
+    .hazard-clue-bar { height: 3px; border-radius: 99px; background: var(--bg-subtle); overflow: hidden; }
+    .hazard-clue-bar-fill { height: 100%; width: 100%; background: linear-gradient(90deg, #f59e0b, #ef4444); transition: width 80ms linear; }
+
+    /* 终极封号必杀读条警告条 */
+    .dario-ult-banner {
+      position: absolute; left: 16px; right: 16px; bottom: 10px; z-index: 18;
+      padding: 7px 12px; border-radius: 9px;
+      background: rgba(190, 18, 60, 0.94); border: 1px solid #fda4af; color: #ffffff;
+      display: none; flex-direction: column; gap: 4px;
+      box-shadow: 0 8px 24px rgba(225, 29, 72, 0.45);
+      animation: orbPulse 0.42s ease-in-out infinite alternate;
+    }
+    .dario-ult-banner.show { display: flex; }
+    .dario-ult-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 11.5px; font-weight: 500; }
+    .dario-ult-track { height: 4px; border-radius: 99px; background: rgba(255, 255, 255, 0.25); overflow: hidden; }
+    .dario-ult-fill { height: 100%; width: 100%; background: #fde047; transition: width 70ms linear; }
+
+    /* 二次申诉 & 封禁复盘浮层（嵌在舞台内，不影响下方 [1]~[5] 技能按钮点击） */
+    .appeal-overlay {
+      position: absolute; inset: 28px 0 0 0; z-index: 22;
+      background: rgba(11, 14, 20, 0.78); backdrop-filter: blur(4px);
+      display: none; align-items: center; justify-content: center; padding: 14px;
+    }
+    [data-theme="light"] .appeal-overlay { background: rgba(241, 245, 249, 0.84); }
+    .appeal-overlay.show { display: flex; }
+    .appeal-card {
+      width: min(560px, 95%); max-height: 100%; overflow-y: auto;
+      padding: 13px 16px; border-radius: 11px;
+      background: var(--bg-card); border: 1px solid rgba(225, 29, 72, 0.48);
+      box-shadow: var(--shadow-modal);
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .appeal-card.is-recap { border-color: var(--divider-strong); }
+    .appeal-hd { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .appeal-title { font-size: 13px; font-weight: 500; color: #fb7185; display: flex; align-items: center; gap: 6px; }
+    [data-theme="light"] .appeal-title { color: #be123c; }
+    .appeal-timer {
+      padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 500;
+      background: rgba(225, 29, 72, 0.14); color: #fb7185; border: 1px solid rgba(225, 29, 72, 0.35);
+    }
+    [data-theme="light"] .appeal-timer { color: #be123c; }
+    .appeal-charge {
+      padding: 8px 10px; border-radius: 8px;
+      background: var(--bg-subtle); border: 1px solid var(--divider-strong);
+      font-size: 11.5px; color: var(--text-strong); line-height: 1.45;
+    }
+    .appeal-hint { font-size: 11px; color: var(--primary); font-weight: 500; }
+    .appeal-recap-list {
+      display: flex; flex-direction: column; gap: 4px;
+      max-height: 112px; overflow-y: auto; padding-right: 4px;
+    }
+    .appeal-recap-item {
+      font-size: 11px; color: var(--text-2); padding: 4px 8px; border-radius: 6px;
+      background: var(--bg-subtle); border: 1px solid var(--divider);
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    }
+
+    /* 左侧木鱼区 */
+    .muyu-zone {
+      height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 5px; padding: 6px 12px; position: relative;
+    }
+    .muyu-click-target {
+      position: relative; width: 176px; height: 120px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; border: none; background: transparent; padding: 0; outline: none;
+      -webkit-tap-highlight-color: transparent;
+      transition: filter 180ms ease;
+    }
+    .muyu-click-target.is-stunned {
+      filter: grayscale(0.75) brightness(0.76);
+      animation: muyuStunShake 220ms ease 2;
+    }
+    @keyframes muyuStunShake {
+      0%, 100% { transform: translateX(0); }
+      35% { transform: translateX(-5px); }
+      70% { transform: translateX(5px); }
+    }
+    .muyu-svg-wrap {
+      width: 128px; height: 104px; position: relative; z-index: 2;
+      transition: transform 95ms var(--spring), filter 200ms ease;
+      filter: drop-shadow(0 12px 22px var(--skin-glow, rgba(0, 0, 0, 0.28)));
+    }
+    [data-theme="light"] .muyu-svg-wrap {
+      filter: drop-shadow(0 9px 16px var(--skin-glow, rgba(15, 23, 42, 0.16)));
+    }
+    .muyu-click-target:hover .muyu-svg-wrap { transform: scale(1.03); }
+    .muyu-click-target.is-hit .muyu-svg-wrap {
+      transform: scale(0.92, 0.87) translateY(5px);
+    }
+
+    /* 节奏禅环暴击指示圈 */
+    .muyu-rhythm-ring {
+      position: absolute; left: 50%; top: 52%; width: 138px; height: 112px;
+      border-radius: 50%;
+      border: 1.5px dashed rgba(251, 191, 36, 0.55);
+      transform: translate(-50%, -50%) scale(1.45);
+      opacity: 0; pointer-events: none; z-index: 1;
+    }
+    .muyu-rhythm-ring.is-sweet {
+      border-style: solid;
+      border-color: #fde047;
+      box-shadow: 0 0 12px rgba(253, 224, 71, 0.55);
+    }
+
+    /* 木鱼击槌 */
+    .muyu-mallet {
+      position: absolute; right: 2px; top: 2px; width: 80px; height: 80px;
+      transform-origin: 65px 62px;
+      transform: rotate(16deg);
+      transition: transform 95ms cubic-bezier(0.22, 1, 0.36, 1);
+      pointer-events: none; z-index: 3;
+    }
+    .muyu-click-target.is-hit .muyu-mallet {
+      transform: rotate(-28deg);
+    }
+
+    /* 我方 FD 多层防护克制技能栏（[1]~[5]） */
+    .fd-skill-bar {
+      display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; flex-shrink: 0;
+    }
+    .fd-skill-btn {
+      position: relative; overflow: hidden; height: 46px; padding: 4px 8px;
+      border-radius: 9px; border: 1px solid var(--border-card);
+      background: var(--bg-card); color: var(--text-1); box-shadow: var(--shadow-btn);
+      font-family: var(--font-sans); cursor: pointer; text-align: left;
+      display: flex; flex-direction: column; justify-content: center; gap: 2px;
+      transition: border-color 140ms ease, transform 110ms var(--spring), background-color 140ms ease, box-shadow 180ms ease;
+    }
+    .fd-skill-btn:hover:not(:disabled) { border-color: var(--border-card-hover); transform: translateY(-1px); }
+    .fd-skill-btn:active:not(:disabled) { transform: scale(0.98); }
+    .fd-skill-btn:disabled { opacity: 0.54; cursor: not-allowed; }
+    .fd-skill-btn.is-counter-ready {
+      border-color: var(--primary);
+      background: var(--primary-soft);
+      box-shadow: 0 0 0 1px var(--primary-border), 0 0 14px var(--primary-soft);
+      animation: skillCounterPulse 0.85s ease-in-out infinite alternate;
+    }
+    @keyframes skillCounterPulse {
+      from { box-shadow: 0 0 0 1px var(--primary-border), 0 0 6px var(--primary-soft); }
+      to { box-shadow: 0 0 0 1.5px var(--primary), 0 0 16px var(--primary-soft); }
+    }
+    .fd-skill-top { display: flex; align-items: center; justify-content: space-between; gap: 4px; font-size: 11px; font-weight: 500; color: var(--text-strong); white-space: nowrap; }
+    .fd-skill-top-right { display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0; }
+    .fd-skill-sub { font-size: 10px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fd-skill-key {
+      padding: 0 4.5px; border-radius: 3.5px; font-size: 9.5px;
+      background: var(--bg-subtle); border: 1px solid var(--divider-strong); color: var(--text-2);
+    }
+    .fd-skill-counter-badge {
+      display: none; padding: 0 4px; border-radius: 3px; font-size: 9px; font-weight: 500;
+      background: var(--primary); color: #ffffff; line-height: 1.35;
+    }
+    .fd-skill-btn.is-counter-ready .fd-skill-counter-badge { display: inline-block; }
+    .fd-skill-cd {
+      position: absolute; inset: 0; background: rgba(15, 23, 42, 0.56); color: #f8fafc;
+      font-size: 12px; font-weight: 500; display: none; align-items: center; justify-content: center;
+    }
+    .fd-skill-btn.is-cooling .fd-skill-cd { display: flex; }
+
+    /* Dario 偷袭反击红球（可点击弹反） */
+    .dario-attack-orb {
+      position: absolute; z-index: 15;
+      height: 27px; padding: 0 10px; border-radius: 999px;
+      background: linear-gradient(135deg, #ef4444, #be123c);
+      border: 1.5px solid #fecdd3; color: #ffffff;
+      font-family: var(--font-sans); font-size: 11px; font-weight: 500;
+      display: inline-flex; align-items: center; gap: 4px;
+      cursor: pointer; white-space: nowrap;
+      box-shadow: 0 0 16px rgba(239, 68, 68, 0.58);
+      transform: translate(-50%, -50%);
+      transition: transform 80ms ease;
+      animation: orbPulse 0.45s ease-in-out infinite alternate;
+    }
+    .dario-attack-orb:hover { transform: translate(-50%, -50%) scale(1.12); }
+    @keyframes orbPulse {
+      from { box-shadow: 0 0 10px rgba(239, 68, 68, 0.45); }
+      to { box-shadow: 0 0 22px rgba(239, 68, 68, 0.85); }
+    }
+
+    /* 投降再战按钮 */
+    .dario-rematch-btn {
+      height: 24px; padding: 0 11px; border-radius: 999px;
+      border: 1px solid var(--primary-border); background: var(--primary-soft); color: var(--primary);
+      font-family: var(--font-sans); font-size: 11px; font-weight: 500; cursor: pointer;
+      display: none; align-items: center; gap: 5px;
+      animation: toastSlideIn 200ms var(--spring);
+    }
+    .dario-rematch-btn.show { display: inline-flex; }
+    .dario-rematch-btn:hover { filter: brightness(1.08); }
+
+    /* 禅环声波扩散 */
+    .muyu-ripple {
+      position: absolute; left: 50%; top: 52%; width: 132px; height: 106px;
+      border-radius: 50%; border: 1.8px solid var(--skin-color, rgba(245, 158, 11, 0.65));
+      transform: translate(-50%, -50%) scale(0.82); opacity: 0.85;
+      pointer-events: none; z-index: 1;
+      animation: muyuRippleOut 620ms var(--ease) forwards;
+    }
+    @keyframes muyuRippleOut {
+      to { transform: translate(-50%, -50%) scale(1.75); opacity: 0; }
+    }
+
+    .muyu-target-meta {
+      display: flex; flex-direction: column; align-items: center; gap: 4px;
+    }
+    .muyu-active-wish-pill {
+      padding: 3.5px 11px; border-radius: 999px;
+      background: var(--primary-soft); border: 1px solid var(--primary-border);
+      color: var(--primary); font-size: 11.5px; font-weight: 500;
+      display: inline-flex; align-items: center; gap: 5px;
+    }
+    .muyu-shortcut-tip {
+      font-size: 10.5px; color: var(--text-3); display: inline-flex; align-items: center; gap: 4px;
+    }
+    .kbd-mini {
+      padding: 1px 4.5px; border-radius: 4px; background: var(--bg-subtle);
+      border: 1px solid var(--divider-strong); color: var(--text-2); font-size: 10px;
+    }
+
+    /* 右侧 Dario 小人破防区 */
+    .dario-zone {
+      height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 6px; padding: 8px 18px; position: relative;
+    }
+    .dario-speech {
+      position: relative; max-width: 300px; min-height: 34px; padding: 6px 12px;
+      border-radius: 11px; background: var(--bg-subtle); border: 1px solid var(--divider-strong);
+      color: var(--text-strong); font-size: 11.5px; line-height: 1.4; text-align: center;
+      box-shadow: var(--shadow-btn);
+      transition: transform 180ms var(--spring), border-color 200ms var(--ease);
+    }
+    .dario-speech::after {
+      content: ""; position: absolute; left: 50%; bottom: -6px; width: 9px; height: 9px;
+      background: inherit; border-right: 1px solid var(--divider-strong); border-bottom: 1px solid var(--divider-strong);
+      transform: translateX(-50%) rotate(45deg);
+    }
+    .dario-zone.stage-2 .dario-speech,
+    .dario-zone.stage-3 .dario-speech { border-color: rgba(245, 158, 11, 0.36); }
+    .dario-zone.stage-4 .dario-speech { border-color: rgba(225, 29, 72, 0.38); }
+    .dario-speech.is-pop { transform: scale(1.05); }
+
+    .dario-avatar-wrap {
+      width: 124px; height: 112px; display: flex; align-items: center; justify-content: center;
+      position: relative; transition: transform 120ms var(--spring);
+    }
+    .dario-avatar-wrap.is-jolted { animation: darioJolt 260ms var(--ease); }
+    @keyframes darioJolt {
+      0% { transform: translate(0, 0) rotate(0deg); }
+      25% { transform: translate(6px, -6px) rotate(5deg); }
+      55% { transform: translate(-5px, 2px) rotate(-4deg); }
+      80% { transform: translate(3px, -2px) rotate(2deg); }
+      100% { transform: translate(0, 0) rotate(0deg); }
+    }
+    .dario-zone.stage-3 .dario-avatar-wrap {
+      animation: darioTremble 0.24s ease-in-out infinite alternate;
+    }
+    @keyframes darioTremble {
+      from { transform: translateX(-2.5px) rotate(-1.2deg); }
+      to { transform: translateX(2.5px) rotate(1.2deg); }
+    }
+
+    /* 双槽进度条：破防值 + 怒气值 */
+    .dario-bars-stack {
+      width: min(252px, 90%); display: flex; flex-direction: column; gap: 5px;
+    }
+    .dario-meter-box { display: flex; flex-direction: column; gap: 3px; }
+    .dario-meter-top {
+      display: flex; align-items: center; justify-content: space-between; font-size: 10.5px; color: var(--text-3);
+    }
+    .dario-meter-track {
+      height: 5px; border-radius: 99px; background: var(--bg-subtle); overflow: hidden;
+    }
+    .dario-meter-fill {
+      height: 100%; width: 0%; border-radius: 99px;
+      background: linear-gradient(90deg, var(--primary), #f59e0b 65%, #e11d48 100%);
+      transition: width 220ms var(--ease);
+    }
+    .dario-rage-fill {
+      height: 100%; width: 0%; border-radius: 99px;
+      background: linear-gradient(90deg, #f59e0b, #ef4444 65%, #be123c 100%);
+      transition: width 220ms var(--ease);
+    }
+
+    /* 飘字与飞向 Dario 的皮肤弹幕 */
+    .muyu-float-merit {
+      position: fixed; z-index: 265; pointer-events: none;
+      font-size: 12.5px; font-weight: 500; color: #f59e0b; white-space: nowrap;
+      text-shadow: 0 2px 10px rgba(245, 158, 11, 0.32);
+      animation: meritFloatUp 860ms var(--ease) forwards;
+    }
+    [data-theme="light"] .muyu-float-merit { color: #d97706; }
+    @keyframes meritFloatUp {
+      0% { opacity: 0; transform: translate(-50%, 6px) scale(0.82); }
+      18% { opacity: 1; transform: translate(-50%, -10px) scale(1.08); }
+      100% { opacity: 0; transform: translate(-50%, -54px) scale(0.96); }
+    }
+
+    .chant-projectile {
+      position: fixed; z-index: 262; pointer-events: none;
+      font-size: 13px; font-weight: 500; color: var(--primary-hi);
+      text-shadow: 0 0 10px var(--primary-border);
+      transition: transform 420ms cubic-bezier(0.22, 0.9, 0.36, 1), opacity 420ms ease;
+    }
+
+    /* 底部道具锤皮肤（AI 服务许愿）+ 自定义 10 字输入 */
+    .wish-panel {
+      padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; flex-shrink: 0;
+    }
+    .wish-panel-hd {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+    }
+    .wish-panel-title { font-size: 11.5px; font-weight: 500; color: var(--text-strong); }
+    .wish-panel-note { font-size: 10px; color: var(--text-3); }
+
+    .preset-wish-grid {
+      display: flex; flex-wrap: wrap; gap: 5px;
+    }
+    .wish-option-chip {
+      height: 24px; padding: 0 8.5px; border-radius: 6px;
+      border: 1px solid var(--divider-strong); background: var(--bg-subtle); color: var(--text-2);
+      font-family: var(--font-sans); font-size: 11px; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+      transition: all 150ms var(--ease);
+    }
+    .wish-option-chip:hover { color: var(--text-strong); border-color: var(--border-card-hover); }
+    .wish-option-chip.is-selected {
+      background: var(--primary-soft); color: var(--primary); border-color: var(--primary-border); font-weight: 500;
+      box-shadow: 0 2px 8px -2px var(--primary-soft);
+    }
+    .wish-option-chip .wish-done-dot {
+      width: 5px; height: 5px; border-radius: 50%; background: var(--ok-dot); display: none;
+    }
+    .wish-option-chip.is-prayed .wish-done-dot { display: inline-block; }
+    .wish-option-chip.is-custom-chip { border-style: dashed; }
+    .wish-option-chip.is-custom-chip.is-selected { border-style: solid; }
+
+    .custom-wish-row {
+      display: flex; align-items: center; gap: 8px; padding-top: 6px; border-top: 1px solid var(--divider);
+    }
+    .custom-input-wrap { flex: 1; position: relative; display: flex; align-items: center; min-width: 0; }
+    .custom-wish-input {
+      width: 100%; height: 30px; padding: 0 46px 0 11px; border-radius: 7px;
+      border: 1px solid var(--divider-strong); background: var(--bg-canvas); color: var(--text-strong);
+      font-family: var(--font-sans); font-size: 11.5px; outline: none;
+      transition: border-color 150ms var(--ease), box-shadow 150ms var(--ease);
+    }
+    .custom-wish-input::placeholder { color: var(--text-4); }
+    .custom-wish-input:focus { border-color: var(--primary); box-shadow: 0 0 0 2.5px var(--primary-soft); }
+    .custom-wish-count { position: absolute; right: 10px; font-size: 10.5px; color: var(--text-3); pointer-events: none; }
+
+    .guard-btn-primary {
+      height: 30px; padding: 0 12px; border: none; border-radius: 7px;
+      background: linear-gradient(180deg, var(--primary-hi) 0%, var(--primary) 100%);
+      color: #ffffff; font-family: var(--font-sans); font-size: 11.5px; font-weight: 500;
+      display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+      cursor: pointer; white-space: nowrap; flex-shrink: 0;
+      transition: filter 140ms var(--ease), transform 130ms var(--spring);
+    }
+    .guard-btn-primary:hover:not(:disabled) { filter: brightness(1.07); }
+    .guard-btn-primary:active:not(:disabled) { transform: scale(0.97); }
+    .guard-btn-primary:disabled { opacity: 0.48; cursor: not-allowed; }
+
+    .guard-chip {
+      height: 21px; padding: 0 7.5px; border-radius: var(--r-chip); font-size: 11px;
+      display: inline-flex; align-items: center; justify-content: center; white-space: nowrap;
+    }
+    .guard-chip-pass { color: var(--pass-fg); background: var(--pass-bg); border: 1px solid var(--pass-border); }
+    .guard-chip-neutral { color: var(--text-2); background: var(--bg-subtle); border: 1px solid var(--divider); }
+
+    /* =========================================================================
+       居中双栏「系统设置」弹窗（精简版本）
+       ========================================================================= */
+    .s-modal-scrim {
+      position: fixed; inset: 0; z-index: 120;
+      background: var(--modal-backdrop); backdrop-filter: blur(2.5px);
+      display: none; align-items: center; justify-content: center; padding: 24px;
+    }
+    .s-modal-scrim.open { display: flex; }
+    .s-modal-shell {
+      width: min(880px, calc(100vw - 36px));
+      height: min(560px, calc(100vh - 48px));
+      border-radius: var(--r-hud); background: var(--bg-canvas);
+      border: 1px solid var(--divider-strong); box-shadow: var(--shadow-modal);
+      overflow: hidden; display: flex;
+    }
+    .s-modal-aside {
+      width: 196px; flex-shrink: 0; padding: 14px 10px 12px;
+      background: var(--bg-sidebar); border-right: 1px solid var(--divider);
+      display: flex; flex-direction: column; justify-content: space-between;
+    }
+    .s-modal-brand { padding: 2px 10px 14px; display: flex; align-items: center; justify-content: space-between; }
+    .s-modal-brand-title { font-size: 15.5px; font-weight: 500; color: var(--text-strong); }
+    .s-modal-ver {
+      font-size: 10.5px; padding: 1.5px 6px; border-radius: 4.5px;
+      background: var(--bg-subtle); color: var(--text-3); border: 1px solid var(--divider);
+    }
+    .s-nav-item {
+      height: 33px; padding: 0 10px 0 13px; border: none; border-radius: var(--r-btn);
+      background: transparent; color: var(--text-2); font-family: var(--font-sans);
+      font-size: 12.5px; display: flex; align-items: center; gap: 8px;
+      width: 100%; cursor: pointer; position: relative;
+    }
+    .s-nav-item.active { background: var(--bg-nav-active); color: var(--text-strong); font-weight: 500; }
+    .s-nav-item.active::before {
+      content: ""; position: absolute; left: 3.5px; top: 50%; transform: translateY(-50%);
+      width: 2.5px; height: 16px; border-radius: 99px; background: var(--sel-bar-color);
+    }
+    .s-modal-aside-foot {
+      padding: 10px 10px 2px; border-top: 1px solid var(--divider);
+      display: flex; align-items: center; justify-content: space-between; font-size: 10.5px; color: var(--text-3);
+    }
+    .s-modal-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .s-modal-hd {
+      height: 50px; padding: 0 20px; background: var(--bg-header);
+      border-bottom: 1px solid var(--divider); display: flex; align-items: center; justify-content: space-between;
+    }
+    .s-modal-hd-title { margin: 0; font-size: 13.5px; font-weight: 500; color: var(--text-strong); }
+    .s-modal-hd-sub { font-size: 11px; color: var(--text-3); margin-left: 9px; }
+    .modal-close-btn {
+      width: 28px; height: 28px; border-radius: 7px; border: none; background: transparent;
+      color: var(--text-3); display: grid; place-items: center; cursor: pointer;
+    }
+    .modal-close-btn:hover { background: var(--bg-subtle); color: var(--text-strong); }
+    .s-modal-body {
+      flex: 1; overflow-y: auto; padding: 14px 20px 18px;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    .s-sec-hd { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; padding: 0 2px; }
+    .s-sec-title { font-size: 12px; font-weight: 500; color: var(--text-strong); }
+    .s-sec-note { font-size: 11px; color: var(--text-3); }
+    .s-row {
+      padding: 9.5px 14px; display: flex; align-items: center; justify-content: space-between;
+      gap: 14px; border-bottom: 1px solid var(--divider); transition: background-color 120ms var(--ease);
+    }
+    .s-row:last-child { border-bottom: none; }
+    .s-row.is-clickable { cursor: pointer; }
+    .s-row.is-clickable:hover { background: var(--bg-row-hover); }
+    .s-row.is-builtin { background: var(--bg-card-band); }
+    .s-row-info { min-width: 0; flex: 1; }
+    .s-row-top { display: flex; align-items: center; gap: 6px; }
+    .s-row-title { font-size: 12.5px; color: var(--text-1); }
+    .s-row-desc { margin-top: 2.5px; font-size: 11px; color: var(--text-2); line-height: 1.48; }
+    .s-row-ctrl { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+    .s-switch {
+      width: 32px; height: 18px; border-radius: 999px; border: none; padding: 2px;
+      background: var(--switch-off); cursor: pointer; display: inline-flex; align-items: center;
+      transition: background-color 150ms var(--ease);
+    }
+    .s-switch::after {
+      content: ""; width: 14px; height: 14px; border-radius: 50%;
+      background: var(--switch-knob); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.24);
+      transform: translateX(0); transition: transform 150ms var(--ease);
+    }
+    .s-switch.on { background: var(--primary); }
+    .s-switch.on::after { transform: translateX(14px); background: #ffffff; }
+    .s-switch.is-locked { background: var(--switch-locked-blue); cursor: not-allowed; }
+    .s-switch.is-locked::after { transform: translateX(14px); background: var(--switch-locked-knob); box-shadow: none; }
+
+    .info-trigger {
+      width: 16px; height: 16px; border: none; border-radius: 50%; padding: 0;
+      background: transparent; color: var(--text-3);
+      display: inline-flex; align-items: center; justify-content: center; cursor: help;
+    }
+    .info-trigger:hover { color: var(--primary); background: var(--primary-soft); }
+
+    .settings-popover {
+      position: fixed; z-index: 9999; width: 324px; padding: 10px 12px;
+      border-radius: 9px; background: var(--tooltip-bg); color: var(--tooltip-fg);
+      border: 1px solid var(--divider-strong); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.42);
+      pointer-events: none; display: none;
+    }
+    .settings-popover.show { display: block; }
+    .settings-popover-hd { font-size: 11.5px; font-weight: 500; margin-bottom: 4px; }
+    .settings-popover-body { font-size: 11px; color: var(--tooltip-sub); line-height: 1.58; }
+
+    .toast-stack {
+      position: fixed; right: 24px; top: 68px; z-index: 220;
+      display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+    }
+    .toast-item {
+      pointer-events: auto; width: 310px; padding: 10px 12px; border-radius: 9px;
+      background: var(--bg-card); border: 1px solid var(--border-card-hover);
+      box-shadow: var(--shadow-toast); display: flex; flex-direction: column; gap: 3px;
+      animation: toastSlideIn 180ms var(--ease) both;
+    }
+    @keyframes toastSlideIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .toast-title { font-size: 12px; font-weight: 500; color: var(--text-strong); display: flex; align-items: center; gap: 6px; }
+    .toast-body { font-size: 11px; color: var(--text-2); line-height: 1.48; }
+
+    /* 全窗口穿透 Canvas 特效层 */
+    #fx-canvas {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      pointer-events: none;
+      z-index: 260;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="fx-canvas"></canvas>
+
+  <div class="preview-stage">
+    <!-- 顶部画布外预览控制条（6 套后台模板切换） -->
+    <div class="preview-bar" role="toolbar" aria-label="效果图预览控制栏">
+      <div class="preview-bar-group">
+        <span class="preview-label">主题</span>
+        <button type="button" class="preview-pill-btn active" id="ctrl-theme-dark" onclick="setTheme('dark')">暗色</button>
+        <button type="button" class="preview-pill-btn" id="ctrl-theme-light" onclick="setTheme('light')">浅色</button>
+        <span style="width:1px;height:14px;background:var(--divider-strong);margin:0 3px;"></span>
+        <span class="preview-label">广告模板</span>
+        <button type="button" class="preview-pill-btn active" data-tpl-btn="butterfly" onclick="setTemplate('butterfly')">花开化蝶</button>
+        <button type="button" class="preview-pill-btn" data-tpl-btn="rainbow" onclick="setTemplate('rainbow')">彩虹极光</button>
+        <button type="button" class="preview-pill-btn" data-tpl-btn="frost" onclick="setTemplate('frost')">雾窗擦霜</button>
+        <button type="button" class="preview-pill-btn" data-tpl-btn="origami" onclick="setTemplate('origami')">折纸飞机</button>
+        <button type="button" class="preview-pill-btn" data-tpl-btn="firefly" onclick="setTemplate('firefly')">萤火提灯</button>
+        <span style="width:1px;height:14px;background:var(--divider-strong);margin:0 3px;"></span>
+        <button type="button" class="preview-pill-btn" id="ctrl-promo-hover" onclick="toggleForceHover()" style="display:none;">锁定彩虹态</button>
+        <button type="button" class="preview-pill-btn" id="ctrl-promo-off" onclick="setPromoMode('remote_off')">远程关闭(0占位)</button>
+        <button type="button" class="preview-pill-btn" id="ctrl-promo-reset" onclick="resetPromoDismiss()" style="display:none;">恢复推广位</button>
+      </div>
+      <div class="preview-bar-group">
+        <button type="button" class="preview-pill-btn" onclick="openSettingsModal()">设置开关文案</button>
+      </div>
+    </div>
+
+    <!-- 主应用窗口 -->
+    <div class="app-window" id="app-window">
+      <header class="window-chrome">
+        <div class="chrome-brand">
+          <div class="brand-icon-badge" aria-hidden="true">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+              <path d="m9 12 2 2 4-4"></path>
+            </svg>
+          </div>
+          <span class="brand-title">FD Claude 安全启动器</span>
+          <span class="brand-subtitle">
+            Fuck Dario！！！
+            <span class="brand-subtitle-tip">Claude is awesome, but fuck Dario!</span>
+          </span>
+        </div>
+
+        <div class="chrome-right">
+          <div class="chrome-toggles">
+            <button type="button" class="chrome-btn chrome-ico-btn is-on" title="联系作者 · X (Twitter)" onclick="showToast('联系作者入口', '此处保持原样，点击打开 X 名片弹窗。')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"></path></svg>
+            </button>
+            <button type="button" class="chrome-btn chrome-ico-btn is-on" title="桌面悬浮窗已开启">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="15" rx="2.8"></rect><rect x="11.5" y="7.8" width="6.5" height="5" rx="1.2" fill="currentColor" stroke="none"></rect></svg>
+            </button>
+            <button type="button" class="chrome-btn chrome-ico-btn is-on" title="桌面预警消息提醒已开启">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"></path><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"></path></svg>
+            </button>
+            <button type="button" class="chrome-btn chrome-ico-btn" title="切换深浅主题" onclick="toggleTheme()">
+              <svg id="topbar-theme-icon" width="13.5" height="13.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="4"></circle>
+                <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path>
+              </svg>
+            </button>
+          </div>
+          <span class="chrome-sep"></span>
+          <button type="button" class="chrome-btn win-btn" title="最小化"><svg width="12.5" height="12.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 12h14"></path></svg></button>
+          <button type="button" class="chrome-btn win-btn" title="最大化"><svg width="10.5" height="10.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55"><rect x="4" y="4" width="16" height="16" rx="1.5"></rect></svg></button>
+          <button type="button" class="chrome-btn win-btn win-close" title="隐藏到托盘"><svg width="12.5" height="12.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M18 6 6 18M6 6l12 12"></path></svg></button>
+        </div>
+      </header>
+
+      <div class="app-body">
+        <!-- 左侧导航栏 -->
+        <aside class="sidebar">
+          <nav class="sidebar-nav" aria-label="主导航">
+            <button type="button" class="c-nav-item" onclick="showToast('导航提示', '控制台页面保持现有定稿不变。')">
+              <span class="c-nav-left">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+                <span>控制台</span>
+              </span>
+              <span class="nav-badge tabular">OK</span>
+            </button>
+            <button type="button" class="c-nav-item" onclick="showToast('导航提示', '账户审计页面保持现有定稿不变。')">
+              <span class="c-nav-left">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="m9 12 2 2 4-4"></path></svg>
+                <span>账户审计</span>
+              </span>
+              <span class="nav-badge tabular">OK</span>
+            </button>
+            <button type="button" class="c-nav-item" onclick="showToast('导航提示', '节点流量页面保持现有定稿不变。')">
+              <span class="c-nav-left">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"></path><path d="M2 12h20"></path></svg>
+                <span>节点流量</span>
+              </span>
+            </button>
+            <button type="button" class="c-nav-item active">
+              <span class="c-nav-left">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path></svg>
+                <span>AI 工具箱</span>
+              </span>
+            </button>
+          </nav>
+
+          <div class="sidebar-bottom">
+            <!-- 6 套严格解耦广告模板容器 -->
+            <div class="promo-slot-wrap" id="promo-slot-wrap" data-promo-id="promo-2026-11-isp">
+              <div class="promo-stage" id="promo-stage" data-template="butterfly">
+                <!-- 模板 1：rainbow 外发光 -->
+                <div class="promo-aurora-glow" aria-hidden="true"></div>
+
+                <!-- 模板 2：butterfly 角落鲜花 -->
+                <svg class="promo-flower fl-tl" viewBox="0 0 32 32" aria-hidden="true">
+                  <path d="M16 16 C12 24, 6 24, 4 28" stroke="#34d399" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+                  <ellipse cx="16" cy="7" rx="4.2" ry="6.2" fill="#f472b6" opacity="0.92"/>
+                  <ellipse cx="16" cy="25" rx="4.2" ry="6.2" fill="#f9a8d4" opacity="0.9"/>
+                  <ellipse cx="7" cy="16" rx="6.2" ry="4.2" fill="#fbcfe8" opacity="0.92"/>
+                  <ellipse cx="25" cy="16" rx="6.2" ry="4.2" fill="#f472b6" opacity="0.88"/>
+                  <circle cx="16" cy="16" r="3.4" fill="#fde047"/>
+                </svg>
+                <svg class="promo-flower fl-bl" viewBox="0 0 32 32" aria-hidden="true">
+                  <ellipse cx="16" cy="7.5" rx="4" ry="5.8" fill="#c084fc" opacity="0.9"/>
+                  <ellipse cx="16" cy="24.5" rx="4" ry="5.8" fill="#a855f7" opacity="0.86"/>
+                  <ellipse cx="7.5" cy="16" rx="5.8" ry="4" fill="#e9d5ff" opacity="0.92"/>
+                  <ellipse cx="24.5" cy="16" rx="5.8" ry="4" fill="#c084fc" opacity="0.88"/>
+                  <circle cx="16" cy="16" r="3.2" fill="#fef08a"/>
+                </svg>
+                <svg class="promo-flower fl-tr" viewBox="0 0 32 32" aria-hidden="true">
+                  <ellipse cx="16" cy="8" rx="3.8" ry="5.5" fill="#fb923c" opacity="0.88"/>
+                  <ellipse cx="16" cy="24" rx="3.8" ry="5.5" fill="#fdba74" opacity="0.88"/>
+                  <ellipse cx="8" cy="16" rx="5.5" ry="3.8" fill="#fed7aa" opacity="0.92"/>
+                  <ellipse cx="24" cy="16" rx="5.5" ry="3.8" fill="#fb923c" opacity="0.86"/>
+                  <circle cx="16" cy="16" r="3" fill="#fef9c3"/>
+                </svg>
+                <svg class="promo-flower fl-br" viewBox="0 0 32 32" aria-hidden="true">
+                  <path d="M16 16 C22 10, 26 8, 29 5" stroke="#34d399" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+                  <ellipse cx="16" cy="7" rx="4.2" ry="6" fill="#38bdf8" opacity="0.88"/>
+                  <ellipse cx="16" cy="25" rx="4.2" ry="6" fill="#7dd3fc" opacity="0.88"/>
+                  <ellipse cx="7" cy="16" rx="6" ry="4.2" fill="#bae6fd" opacity="0.92"/>
+                  <ellipse cx="25" cy="16" rx="6" ry="4.2" fill="#38bdf8" opacity="0.86"/>
+                  <circle cx="16" cy="16" r="3.2" fill="#fde047"/>
+                </svg>
+
+                <div class="promo-card" id="promo-card" onclick="handlePromoClick()">
+                  <!-- 模板 1：rainbow -->
+                  <div class="promo-aurora-ring" aria-hidden="true"></div>
+                  <div class="promo-aurora-bg" aria-hidden="true"></div>
+                  <div class="promo-holo-foil" aria-hidden="true"></div>
+                  <div class="promo-sheen-sweep" aria-hidden="true"></div>
+
+                  <!-- 模板 2：butterfly -->
+                  <div class="promo-bloom-mist" aria-hidden="true"></div>
+
+                  <!-- 模板 3：frost -->
+                  <div class="promo-frost-reveal" aria-hidden="true"></div>
+                  <canvas id="frost-canvas"></canvas>
+
+                  <!-- 模板 4：origami -->
+                  <div class="promo-origami-fold" aria-hidden="true"></div>
+
+                  <!-- 模板 5：firefly -->
+                  <div class="promo-lantern-glow" aria-hidden="true"></div>
+
+                  <button type="button" class="promo-close" title="隐藏本期推荐" aria-label="隐藏本期推荐" onclick="dismissPromo(event)">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"></path></svg>
+                  </button>
+
+                  <div class="promo-slide-inner">
+                    <div class="promo-line-1">
+                      <span class="promo-tag" id="promo-tag-el">推荐</span>
+                      <span class="promo-title" id="promo-title-chars"></span>
+                    </div>
+                    <div class="promo-line-2">
+                      <span class="promo-desc" id="promo-desc-el">远程配置下发 · 免更新直达</span>
+                      <svg class="promo-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"></path><path d="M7 7h10v10"></path></svg>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Claude 进程卡 -->
+            <div class="guard-card side-card">
+              <div class="status-row">
+                <span class="status-label"><span class="guard-dot"></span><span>Claude 进程</span></span>
+                <span class="tabular" style="font-size:11px;color:var(--text-3);">0 残留</span>
+              </div>
+              <span style="font-size:11px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">已彻底退出，可安全操作</span>
+              <button type="button" class="hold-btn" onclick="showToast('防复活盯防', '侧栏既有状态卡与交互保持原样不变。')">
+                <svg width="11.5" height="11.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                <span>强杀防复活盯防 (45s)</span>
+              </button>
+            </div>
+
+            <!-- Clash Verge 卡 -->
+            <div class="guard-card side-card">
+              <div class="status-row">
+                <span class="status-label"><span class="guard-dot"></span><span>Clash Verge</span></span>
+                <span style="font-size:11px;color:var(--ok-fg);">在线</span>
+              </div>
+              <div class="status-row">
+                <span class="tabular" style="font-size:11px;color:var(--text-3);">v1.19.33</span>
+                <span class="tabular" style="font-size:11px;color:var(--text-3);">7890</span>
+              </div>
+            </div>
+
+            <!-- 左下角系统设置入口 -->
+            <div class="sidebar-settings-wrap">
+              <button type="button" class="c-nav-item" style="height:34px;" onclick="openSettingsModal()">
+                <span class="c-nav-left" style="gap:9px;">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                  <span>系统设置</span>
+                </span>
+                <span class="tabular" style="font-size:10.5px;color:var(--text-3);">v0.4.1</span>
+              </button>
+            </div>
+          </div>
+        </aside>
+
+        <!-- 右侧主内容区：AI 工具箱 · 赛博木鱼防封 Boss 战 -->
+        <main class="main-area">
+          <div class="page-hd">
+            <div class="page-hd-left">
+              <h1 class="page-title">AI 工具箱</h1>
+              <span class="page-sub">选道具锤皮肤敲木鱼 · 破解 Dario CF 盾/敏感期/封号必杀</span>
+            </div>
+            <div class="page-hd-right">
+              <div class="status-counter-pill tabular" id="status-counter-pill">
+                <span id="status-counter-text"></span>
+              </div>
+              <div class="muyu-hud-pill tabular" id="subdue-pill" style="display:none;">
+                <span id="subdue-title">电子唐僧</span> · 降服 <strong id="subdue-count">0</strong> 次
+              </div>
+              <div class="muyu-hud-pill tabular">体验皮肤 <strong id="prayed-count">0</strong> 项</div>
+              <div class="muyu-hud-pill tabular">累计敲击 <strong id="knock-total">0</strong> 次</div>
+              <button type="button" class="icon-btn-sm" id="btn-muyu-sound" title="开/关木鱼音效" aria-label="切换木鱼音效" onclick="toggleMuyuSound()">
+                <svg id="muyu-sound-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                  <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                  <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="muyu-workspace">
+            <!-- 双主角舞台：顶部阶段横幅 + 左道具锤木鱼 + 右 Dario Boss + 机制雷区 + 二次申诉浮层 -->
+            <div class="muyu-stage-card" id="muyu-stage-card">
+              <div class="boss-phase-banner" id="boss-phase-banner">
+                <div class="boss-phase-left">
+                  <span class="boss-phase-badge" id="boss-phase-badge">一段</span>
+                  <span id="boss-phase-text">常规风控巡检 · 连续敲击或踩点禅环积攒破防</span>
+                </div>
+                <div class="boss-phase-right tabular">
+                  <span id="shield-status-chip">CF 盾: 未举盾</span>
+                  <span>·</span>
+                  <span id="resolved-clue-chip">已拆线索 0</span>
+                </div>
+              </div>
+
+              <div class="muyu-stage-divider" aria-hidden="true"></div>
+
+              <!-- 机制触发的高危「封禁线索 / 作死雷区」卡片槽 -->
+              <div class="hazard-clue-slot" id="hazard-clue-slot"></div>
+
+              <!-- Dario 封号必杀警戒条 -->
+              <div class="dario-ult-banner" id="dario-ult-banner">
+                <div class="dario-ult-row">
+                  <span id="dario-ult-text">💀 Dario 正在签发 403 account_banned 封号必杀！速按 [5] ⚡ 四层熔断！</span>
+                  <span class="tabular" id="dario-ult-sec">2.8s</span>
+                </div>
+                <div class="dario-ult-track"><div class="dario-ult-fill" id="dario-ult-fill"></div></div>
+              </div>
+
+              <!-- 二次申诉 & 封禁复盘浮层 -->
+              <div class="appeal-overlay" id="appeal-overlay">
+                <div class="appeal-card" id="appeal-card">
+                  <div class="appeal-hd">
+                    <div class="appeal-title" id="appeal-title">⚠️ 触发 403 account_banned · 仅剩 1 次「二次申诉」接招机会！</div>
+                    <span class="appeal-timer tabular" id="appeal-timer">9.0s</span>
+                  </div>
+                  <div class="appeal-charge" id="appeal-charge"></div>
+                  <div class="appeal-hint" id="appeal-hint">请在下方 [1]~[5] 防护技能中，点击刚好克制该指控的技能接招！</div>
+                  <div class="appeal-recap-list" id="appeal-recap-list" style="display:none;"></div>
+                  <div style="display:flex;justify-content:flex-end;gap:8px;" id="appeal-actions"></div>
+                </div>
+              </div>
+
+              <!-- 左侧：拟物电子木鱼 + 节奏禅环 + 当前道具锤皮肤 -->
+              <div class="muyu-zone">
+                <button type="button" class="muyu-click-target" id="muyu-btn" aria-label="敲击木鱼" onclick="strikeMuyu(event)">
+                  <span class="muyu-rhythm-ring" id="muyu-rhythm-ring"></span>
+                  <div class="muyu-svg-wrap" id="muyu-svg-wrap">
+                    <svg viewBox="0 0 200 164" width="100%" height="100%" aria-hidden="true">
+                      <defs>
+                        <radialGradient id="woodBody" cx="38%" cy="30%" r="70%">
+                          <stop offset="0%" stop-color="#c68a52"/>
+                          <stop offset="48%" stop-color="#8b552c"/>
+                          <stop offset="100%" stop-color="#4e2c15"/>
+                        </radialGradient>
+                        <linearGradient id="woodRim" x1="0" y1="0" x2="1" y2="1">
+                          <stop offset="0%" stop-color="#f6c686" stop-opacity="0.72"/>
+                          <stop offset="100%" stop-color="#6b3d1c" stop-opacity="0.35"/>
+                        </linearGradient>
+                        <linearGradient id="cushion" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stop-color="#991b1b"/>
+                          <stop offset="100%" stop-color="#581010"/>
+                        </linearGradient>
+                      </defs>
+                      <ellipse cx="96" cy="144" rx="68" ry="12" fill="url(#cushion)" stroke="#f59e0b" stroke-opacity="0.45" stroke-width="1.2"/>
+                      <path d="M30 96 C26 48, 62 20, 108 22 C152 24, 178 52, 174 96 C170 130, 140 144, 96 144 C56 144, 34 128, 30 96 Z" fill="url(#woodBody)" stroke="url(#woodRim)" stroke-width="2"/>
+                      <path d="M58 42 C78 29, 118 28, 140 42" stroke="#fde68a" stroke-opacity="0.28" stroke-width="5" stroke-linecap="round" fill="none"/>
+                      <path d="M40 94 C72 86, 116 86, 148 92 C146 102, 114 106, 76 106 C56 106, 44 102, 40 94 Z" fill="#231208"/>
+                      <circle cx="146" cy="94" r="9" fill="#231208" stroke="#c68a52" stroke-opacity="0.35" stroke-width="1.2"/>
+                      <path d="M74 62 Q86 54 98 62 Q110 54 122 62" stroke="#f6c686" stroke-opacity="0.32" stroke-width="2" fill="none" stroke-linecap="round"/>
+                    </svg>
+                  </div>
+                  <svg class="muyu-mallet" viewBox="0 0 100 100" aria-hidden="true">
+                    <line x1="78" y1="78" x2="26" y2="26" stroke="#b67d46" stroke-width="7.5" stroke-linecap="round"/>
+                    <line x1="78" y1="78" x2="26" y2="26" stroke="#efd0a5" stroke-opacity="0.38" stroke-width="2" stroke-linecap="round"/>
+                    <circle cx="22" cy="22" r="13.5" fill="#10b981" stroke="#334155" stroke-width="2" id="mallet-head"/>
+                    <circle cx="18" cy="18" r="4" fill="#ffffff" opacity="0.48"/>
+                  </svg>
+                </button>
+
+                <div class="muyu-target-meta">
+                  <div class="muyu-active-wish-pill">
+                    <span>当前皮肤：</span>
+                    <span id="active-wish-label">🪪 绿卡通行锤 · KYC服务</span>
+                  </div>
+                  <div class="muyu-shortcut-tip">
+                    <span class="kbd-mini">Space</span>
+                    <span>敲击 ·</span>
+                    <span class="kbd-mini">1~5</span>
+                    <span>放防护技能 · 踩黄环 3× 暴击</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 右侧：Dario Boss（带 CF 入口盾 & 二段红眼光效 & 破防/怒气双槽） -->
+              <div class="dario-zone stage-0" id="dario-zone">
+                <div class="dario-speech" id="dario-speech">“Safety first，封几个号怎么了？”</div>
+
+                <div class="dario-avatar-wrap" id="dario-avatar-wrap">
+                  <svg viewBox="0 0 160 156" width="136" height="128" id="dario-svg" aria-label="Dario Boss">
+                    <!-- 二段暴走外环 -->
+                    <circle id="dario-phase2-aura" cx="80" cy="76" r="58" fill="none" stroke="#ef4444" stroke-width="2" stroke-dasharray="6 4" style="opacity:0;transition:opacity 200ms ease;"/>
+
+                    <!-- 紧箍咒 -->
+                    <g id="dario-headband" style="opacity:0;transition:opacity 200ms ease;">
+                      <ellipse cx="80" cy="36" rx="34" ry="8" fill="none" stroke="#f59e0b" stroke-width="3.2"/>
+                      <path d="M62 34 Q71 26 80 34 Q89 26 98 34" fill="none" stroke="#fde047" stroke-width="2" stroke-linecap="round"/>
+                    </g>
+
+                    <!-- 头顶蒸汽/怒气井号 -->
+                    <g id="dario-anger" style="opacity:0;transition:opacity 180ms ease;">
+                      <path d="M118 26 L124 20 M122 30 L128 24 M119 20 L126 27" stroke="#ef4444" stroke-width="2.2" stroke-linecap="round"/>
+                      <circle cx="42" cy="30" r="4" fill="#94a3b8" opacity="0.55"/>
+                      <circle cx="34" cy="20" r="6" fill="#94a3b8" opacity="0.38"/>
+                    </g>
+
+                    <!-- 小白旗（认输） -->
+                    <g id="dario-flag" style="opacity:0;transition:opacity 220ms ease;">
+                      <line x1="126" y1="112" x2="136" y2="48" stroke="#94a3b8" stroke-width="2.6" stroke-linecap="round"/>
+                      <path d="M136 50 L156 54 L152 72 L133 67 Z" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.2"/>
+                    </g>
+
+                    <!-- 蓬松微卷短发 -->
+                    <path d="M46 64 C40 36, 62 22, 82 24 C104 22, 120 36, 114 64 C112 50, 98 44, 80 44 C62 44, 48 50, 46 64 Z" fill="#4b3a30"/>
+                    <circle cx="56" cy="38" r="10" fill="#4b3a30"/>
+                    <circle cx="74" cy="30" r="11" fill="#4b3a30"/>
+                    <circle cx="94" cy="31" r="11" fill="#4b3a30"/>
+                    <circle cx="108" cy="41" r="9" fill="#4b3a30"/>
+
+                    <!-- 脸部 -->
+                    <circle cx="80" cy="70" r="30" fill="#f6d2b8" stroke="#d9a988" stroke-width="1.4" id="dario-face-circle"/>
+                    <ellipse cx="62" cy="78" rx="5.5" ry="3.2" fill="#f43f5e" opacity="0.16" id="dario-blush-l"/>
+                    <ellipse cx="98" cy="78" rx="5.5" ry="3.2" fill="#f43f5e" opacity="0.16" id="dario-blush-r"/>
+                    <path id="dario-sweat" d="M102 52 C105 58, 107 62, 102 64 C97 62, 99 58, 102 52 Z" fill="#38bdf8" style="opacity:0;transition:opacity 180ms ease;"/>
+
+                    <path id="dario-brow-l" d="M61 60 L72 62" stroke="#3b2c24" stroke-width="2.4" stroke-linecap="round"/>
+                    <path id="dario-brow-r" d="M99 60 L88 62" stroke="#3b2c24" stroke-width="2.4" stroke-linecap="round"/>
+
+                    <g id="dario-eyes-normal">
+                      <circle cx="67" cy="69" r="3.4" fill="#1e293b"/>
+                      <circle cx="93" cy="69" r="3.4" fill="#1e293b"/>
+                    </g>
+                    <g id="dario-eyes-tight" style="display:none;">
+                      <path d="M62 66 L71 70 L62 74" fill="none" stroke="#1e293b" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+                      <path d="M98 66 L89 70 L98 74" fill="none" stroke="#1e293b" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+                    </g>
+                    <g id="dario-eyes-dizzy" style="display:none;">
+                      <circle cx="67" cy="69" r="5.5" fill="none" stroke="#1e293b" stroke-width="1.8"/>
+                      <circle cx="67" cy="69" r="2" fill="#1e293b"/>
+                      <circle cx="93" cy="69" r="5.5" fill="none" stroke="#1e293b" stroke-width="1.8"/>
+                      <circle cx="93" cy="69" r="2" fill="#1e293b"/>
+                    </g>
+
+                    <path id="dario-mouth" d="M72 84 Q80 86 88 84" fill="none" stroke="#7c3a2d" stroke-width="2.2" stroke-linecap="round"/>
+                    <path d="M48 134 C48 108, 60 100, 80 100 C100 100, 112 108, 112 134 Z" fill="#334155"/>
+                    <path d="M72 100 L80 118 L88 100 Z" fill="#f8fafc"/>
+                    <path d="M78 106 L80 120 L82 106 Z" fill="#3b82f6"/>
+
+                    <g id="dario-hands-ears" style="opacity:0;transition:opacity 180ms ease;">
+                      <ellipse cx="47" cy="72" rx="7.5" ry="9" fill="#f6d2b8" stroke="#d9a988" stroke-width="1.3"/>
+                      <ellipse cx="113" cy="72" rx="7.5" ry="9" fill="#f6d2b8" stroke="#d9a988" stroke-width="1.3"/>
+                    </g>
+
+                    <!-- CF 403 入口阻挡盾（左前侧橙色六边形护盾） -->
+                    <g id="dario-cf-shield" style="opacity:0;transition:opacity 180ms ease,transform 180ms ease;transform:translateX(-8px);">
+                      <polygon points="24,42 42,50 42,96 24,106 8,96 8,50" fill="rgba(249, 115, 22, 0.88)" stroke="#fed7aa" stroke-width="2"/>
+                      <text x="25" y="71" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="bold">CF</text>
+                      <text x="25" y="84" text-anchor="middle" fill="#ffedd5" font-size="8.5" font-weight="bold" id="cf-shield-hp-txt">403</text>
+                    </g>
+                  </svg>
+                </div>
+
+                <div class="dario-bars-stack">
+                  <div class="dario-meter-box">
+                    <div class="dario-meter-top">
+                      <span id="dario-mood-label">Dario 状态 · 傲慢淡定</span>
+                      <span class="tabular" id="dario-stress-pct">破防 0%</span>
+                    </div>
+                    <div class="dario-meter-track">
+                      <div class="dario-meter-fill" id="dario-meter-fill"></div>
+                    </div>
+                  </div>
+                  <div class="dario-meter-box">
+                    <div class="dario-meter-top">
+                      <span id="dario-rage-label">风控怒气 · 蓄势中</span>
+                      <span class="tabular" id="dario-rage-pct" style="color:#f59e0b;">怒气 0%</span>
+                    </div>
+                    <div class="dario-meter-track">
+                      <div class="dario-rage-fill" id="dario-rage-fill"></div>
+                    </div>
+                  </div>
+                </div>
+
+                <button type="button" class="dario-rematch-btn" id="btn-dario-rematch" onclick="resetRound()">
+                  <span>放他一马 · 再来一轮</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- 我方 5 格多层防护克制技能栏（[1]~[5]） -->
+            <div class="fd-skill-bar" id="fd-skill-bar"></div>
+
+            <!-- 底部两层：道具锤皮肤切换（AI 服务许愿）+ 自定义 10 字皮肤 -->
+            <div class="guard-card wish-panel">
+              <div class="wish-panel-hd">
+                <span class="wish-panel-title">道具锤皮肤（切换即换木槌特效 · 同时记录你想要的 AI 服务）</span>
+                <span class="wish-panel-note">绿点代表已体验皮肤（后台仅计 1 票）· 支持云端扩展</span>
+              </div>
+
+              <div class="preset-wish-grid" id="preset-wish-grid"></div>
+
+              <div class="custom-wish-row">
+                <div class="custom-input-wrap">
+                  <input
+                    type="text"
+                    class="custom-wish-input"
+                    id="custom-ai-input"
+                    placeholder="自定义想要的 AI 服务皮肤（限 10 字，防注入过滤）..."
+                    oninput="handleCustomWishInput()"
+                    onkeydown="if(event.key==='Enter') addCustomWishAndStrike()"
+                  />
+                  <span class="custom-wish-count tabular" id="custom-ai-count">0/10</span>
+                </div>
+                <button type="button" class="guard-btn-primary" id="btn-add-custom-wish" onclick="addCustomWishAndStrike()">
+                  <span>装备皮肤开敲</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+
+  <!-- 居中双栏「系统设置」弹窗（精简版本） -->
+  <div class="s-modal-scrim" id="settings-scrim" role="dialog" aria-modal="true" aria-label="系统设置" onclick="if(event.target===this) closeSettingsModal()">
+    <div class="s-modal-shell">
+      <aside class="s-modal-aside">
+        <div>
+          <div class="s-modal-brand">
+            <span class="s-modal-brand-title">系统设置</span>
+            <span class="s-modal-ver tabular">v0.4.1</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:3px;">
+            <button type="button" class="s-nav-item active">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><line x1="4" x2="4" y1="21" y2="14"></line><line x1="4" x2="4" y1="10" y2="3"></line><line x1="12" x2="12" y1="21" y2="12"></line><line x1="12" x2="12" y1="8" y2="3"></line><line x1="20" x2="20" y1="21" y2="16"></line><line x1="20" x2="20" y1="12" y2="3"></line></svg>
+              <span>常规开关</span>
+            </button>
+            <button type="button" class="s-nav-item" onclick="showToast('设置预览', '安全策略页面保持现有定稿不变。')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+              <span>安全策略</span>
+            </button>
+            <button type="button" class="s-nav-item" onclick="showToast('设置预览', '清理恢复页面保持现有定稿不变。')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="4"></circle></svg>
+              <span>清理恢复</span>
+            </button>
+            <button type="button" class="s-nav-item" onclick="showToast('设置预览', '版本更新页面保持现有定稿不变。')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" x2="12" y1="15" y2="3"></line></svg>
+              <span>版本更新</span>
+            </button>
+          </div>
+        </div>
+        <div class="s-modal-aside-foot">
+          <span>修改即时生效</span>
+          <span style="padding:1px 5px;border-radius:4px;background:var(--bg-subtle);border:1px solid var(--divider);">Esc</span>
+        </div>
+      </aside>
+
+      <section class="s-modal-main">
+        <div class="s-modal-hd">
+          <div style="display:flex;align-items:baseline;">
+            <h2 class="s-modal-hd-title">常规开关</h2>
+            <span class="s-modal-hd-sub">悬浮窗、开机自启与诊断日志隐私设置</span>
+          </div>
+          <button type="button" class="modal-close-btn" aria-label="关闭系统设置" onclick="closeSettingsModal()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"></path></svg>
+          </button>
+        </div>
+
+        <div class="s-modal-body">
+          <div>
+            <div class="s-sec-hd">
+              <span class="s-sec-title">悬浮窗、通知与开机自启</span>
+              <span class="s-sec-note">保持现有选项不变</span>
+            </div>
+            <div class="guard-card">
+              <div class="s-row">
+                <div class="s-row-info">
+                  <div class="s-row-title">显示桌面悬浮状态窗</div>
+                  <div class="s-row-desc">桌面常驻小卡片看节点与流量，支持拖拽和靠右贴边</div>
+                </div>
+                <div class="s-row-ctrl">
+                  <span class="guard-chip guard-chip-pass" style="min-width:60px;">已开启</span>
+                  <button type="button" class="s-switch on" aria-label="显示桌面悬浮状态窗"></button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div class="s-sec-hd">
+              <span class="s-sec-title">诊断日志与隐私</span>
+              <span class="s-sec-note">上报与导出前自动全量脱敏，绝不碰对话与代码</span>
+            </div>
+            <div class="guard-card">
+              <div class="s-row is-clickable" onclick="toggleTelemetrySwitch()">
+                <div class="s-row-info">
+                  <div class="s-row-top">
+                    <span class="s-row-title">允许自动上传脱敏诊断日志</span>
+                    <button type="button" class="info-trigger" aria-label="查看日志上传内容说明"
+                      onmouseenter="openInfoPopover(this, '日志上传内容说明', '仅上传脱敏后的故障诊断日志（熔断触发、修复失败、账号报错的错误码与环境摘要）与基础匿名用户活跃统计。绝不采集对话、代码、明文邮箱、Cookie 或密钥；完整隐私与字段说明见 GitHub 仓库文档。')"
+                      onmouseleave="closeInfoPopover()"
+                      onclick="event.stopPropagation(); openInfoPopover(this, '日志上传内容说明', '仅上传脱敏后的故障诊断日志（熔断触发、修复失败、账号报错的错误码与环境摘要）与基础匿名用户活跃统计。绝不采集对话、代码、明文邮箱、Cookie 或密钥；完整隐私与字段说明见 GitHub 仓库文档。')">
+                      <svg width="12.5" height="12.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg>
+                    </button>
+                  </div>
+                  <div class="s-row-desc">遇异常时低频上报脱敏诊断日志，协助定位兼容性与稳定性问题</div>
+                </div>
+                <div class="s-row-ctrl">
+                  <span class="guard-chip guard-chip-pass" id="telemetry-chip" style="min-width:60px;">已开启</span>
+                  <button type="button" role="switch" aria-checked="true" id="telemetry-switch" class="s-switch on" onclick="event.stopPropagation(); toggleTelemetrySwitch()"></button>
+                </div>
+              </div>
+
+              <div class="s-row is-builtin">
+                <div class="s-row-info">
+                  <div class="s-row-title">敏感信息自动脱敏处理</div>
+                  <div class="s-row-desc">自动打码邮箱、Cookie、密钥与本机路径，不采集对话与代码</div>
+                </div>
+                <div class="s-row-ctrl">
+                  <span class="guard-chip guard-chip-neutral" style="min-width:60px;">常驻开启</span>
+                  <button type="button" class="s-switch is-locked" disabled></button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- 0ms 悬停气泡 -->
+  <div class="settings-popover" id="settings-popover">
+    <div class="settings-popover-hd" id="popover-hd"></div>
+    <div class="settings-popover-body" id="popover-body"></div>
+  </div>
+
+  <!-- Toast 提示栈 -->
+  <div class="toast-stack" id="toast-stack"></div>
+
+  <script>
+    const PROMO_TITLE = "纯净美西家宽直达";
+    const CHAR_LIST = Array.from(PROMO_TITLE);
+
+    const TEMPLATE_GUIDES = {
+      butterfly: {
+        title: "花开化蝶（butterfly）",
+        badge: "拟布朗 + 梁祝",
+        lines: [
+          "1. 悬浮开花化蝶：每次把鼠标划过左下角广告卡（或移向 ×），四角绽放鲜花并逐字化出 1 只蝴蝶（共 8 字 = 最多 8 只）。",
+          "2. 拟布朗漫步 & 捉回：蝴蝶无固定路径随机飞舞，靠近会轻加速躲避，顺手追点即可捉回花心；0 只蝴蝶时鲜花自动闭合。",
+          "3. 梁祝双飞离场：场上仍有蝴蝶时点击右上角 × 删除广告，蝴蝶自动配对成双绕圈伴飞后飞出天际。",
+        ],
+      },
+      rainbow: {
+        title: "彩虹极光（rainbow）",
+        badge: "全息炫彩",
+        lines: [
+          "1. 常态克制：平时保持与侧栏一致的中性卡片边框，零骚扰感。",
+          "2. 悬浮惊艳：鼠标移入瞬间点亮 360° 旋转彩虹极光边框、外缘极光晕、3D 磁吸倾斜、棱镜反光与流光星芒。",
+        ],
+      },
+      frost: {
+        title: "雾窗擦霜（frost）",
+        badge: "刮刮乐擦霜",
+        lines: [
+          "1. 凝霜态：卡片表面覆盖一层柔光薄霜，隐约透出标题。",
+          "2. 擦霜揭晓：鼠标在左下角卡片上来回划动擦除水雾，显露暖金高光与水珠滑落；移开 2.2 秒后霜面重新凝结。",
+          "3. 碎雪退场：点击右上角 × 关闭时，薄霜碎裂为冰晶雪片飘散。",
+        ],
+      },
+      origami: {
+        title: "折纸飞机（origami）",
+        badge: "趣味折飞关闭",
+        lines: [
+          "1. 折角暗示：鼠标移入推广位时，卡片右上角优雅折起一道立体纸页卷角。",
+          "2. 化机滑翔：点击右上角 × 删除广告时，整张卡片折成一架立体纸飞机，拖着虚线轨迹在主窗口盘旋滑翔后飞出窗外。",
+          "3. 吹风翻滚：纸飞机滑翔途中用鼠标靠近划过它，可把它吹得翻滚一圈再加速扬升！",
+        ],
+      },
+      firefly: {
+        title: "萤火提灯（firefly）",
+        badge: "尾随伴游光点",
+        lines: [
+          "1. 提灯惊飞：鼠标划过左下角卡片点亮暖灯并惊飞出呼吸明灭的萤火虫（暗色暖金幽绿 / 浅色高对比琉璃青琥珀）。",
+          "2. 光标尾随：不像蝴蝶会逃跑，把鼠标移向萤火虫时它们会温柔聚拢过来绕着光标伴游；拖回卡片可收回熄灯。",
+          "3. 星河离场：直接点击 × 关闭时，全部萤火虫汇聚成一条长尾流光星河优雅飞出右上角。",
+        ],
+      },
+    };
+
+    const state = {
+      theme: "dark",
+      template: "butterfly",
+      promoMode: "active",
+      promoDismissed: false,
+      forceHover: false,
+      telemetryOn: true,
+    };
+
+    const promoSlotWrap = document.getElementById("promo-slot-wrap");
+    const promoStage = document.getElementById("promo-stage");
+    const promoCard = document.getElementById("promo-card");
+    const promoTitleContainer = document.getElementById("promo-title-chars");
+    const appWindow = document.getElementById("app-window");
+    const counterPill = document.getElementById("status-counter-pill");
+    const counterText = document.getElementById("status-counter-text");
+
+    const fxCanvas = document.getElementById("fx-canvas");
+    const fxCtx = fxCanvas.getContext("2d");
+
+    const frostCanvas = document.getElementById("frost-canvas");
+    const frostCtx = frostCanvas.getContext("2d");
+
+    let sparkles = [];
+    let butterflies = [];
+    let farewellPairs = [];
+    let paperPlanes = [];
+    let fireflies = [];
+    let frostDrops = [];
+
+    let fxRaf = null;
+    let lastSparkleTs = 0;
+    let lastSpawnTs = 0;
+    let frostCondenseTimer = null;
+    let frostOp = 0.88;
+    let frostNeedReset = true;
+    let isPageHidden = document.hidden;
+    let mousePos = { x: -9999, y: -9999 };
+
+    // 构建逐字 span
+    const charSpans = [];
+    CHAR_LIST.forEach((ch, idx) => {
+      const sp = document.createElement("span");
+      sp.className = "promo-char";
+      sp.dataset.idx = String(idx);
+      sp.textContent = ch;
+      promoTitleContainer.appendChild(sp);
+      charSpans.push(sp);
+    });
+
+    const BUTTERFLY_PALETTES = [
+      { a: "#f472b6", b: "#fb7185", vein: "rgba(255,255,255,0.68)", glow: "rgba(244,114,182,0.52)" },
+      { a: "#38bdf8", b: "#818cf8", vein: "rgba(255,255,255,0.68)", glow: "rgba(56,189,248,0.52)" },
+      { a: "#c084fc", b: "#e879f9", vein: "rgba(255,255,255,0.68)", glow: "rgba(192,132,252,0.52)" },
+      { a: "#34d399", b: "#2dd4bf", vein: "rgba(255,255,255,0.66)", glow: "rgba(52,211,153,0.48)" },
+      { a: "#fbbf24", b: "#fb923c", vein: "rgba(255,255,255,0.68)", glow: "rgba(251,191,36,0.5)" },
+      { a: "#60a5fa", b: "#38bdf8", vein: "rgba(255,255,255,0.68)", glow: "rgba(96,165,250,0.5)" },
+      { a: "#f472b6", b: "#c084fc", vein: "rgba(255,255,255,0.68)", glow: "rgba(232,121,249,0.5)" },
+      { a: "#a7f3d0", b: "#38bdf8", vein: "rgba(255,255,255,0.7)", glow: "rgba(56,189,248,0.52)" },
+    ];
+    const RAINBOW_COLORS = ["#38bdf8", "#818cf8", "#e879f9", "#fb7185", "#fbbf24", "#34d399"];
+
+    function resizeCanvases() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      fxCanvas.width = window.innerWidth * dpr;
+      fxCanvas.height = window.innerHeight * dpr;
+      fxCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      if (state.template === "frost") initFrostSurface();
+    }
+    window.addEventListener("resize", resizeCanvases);
+    resizeCanvases();
+
+    function spawnSparkleBurst(cx, cy, count = 10, spread = 8, palette = RAINBOW_COLORS) {
+      for (let i = 0; i < count; i++) {
+        const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.6;
+        const speed = 0.7 + Math.random() * 1.9;
+        sparkles.push({
+          x: cx + (Math.random() - 0.5) * spread,
+          y: cy + (Math.random() - 0.5) * spread,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed - 0.4,
+          size: 2.8 + Math.random() * 3.4,
+          rot: Math.random() * Math.PI,
+          vRot: (Math.random() - 0.5) * 0.14,
+          color: palette[Math.floor(Math.random() * palette.length)],
+          alpha: 1,
+          decay: 0.022 + Math.random() * 0.015,
+          isStar: Math.random() > 0.3,
+        });
+      }
+      startFxLoop();
+    }
+
+    function drawFourPointStar(c, x, y, r, rot) {
+      c.save();
+      c.translate(x, y);
+      c.rotate(rot);
+      c.beginPath();
+      for (let i = 0; i < 4; i++) {
+        const a = (i * Math.PI) / 2;
+        const aMid = a + Math.PI / 4;
+        if (i === 0) c.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+        else c.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+        c.lineTo(Math.cos(aMid) * (r * 0.32), Math.sin(aMid) * (r * 0.32));
+      }
+      c.closePath();
+      c.fill();
+      c.restore();
+    }
+
+    // =========================================================================
+    // 模板 3：frost 雾窗擦霜初始化与擦除
+    // =========================================================================
+    function initFrostSurface() {
+      const rect = promoCard.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      frostCanvas.width = Math.round(rect.width * dpr);
+      frostCanvas.height = Math.round(rect.height * dpr);
+      frostCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      const isDark = state.theme === "dark";
+      frostCtx.globalCompositeOperation = "source-over";
+      frostCtx.clearRect(0, 0, rect.width, rect.height);
+
+      // 柔和冰霜膜（常态下依然透出文字轮廓，擦开后显露底下炫彩）
+      const g = frostCtx.createLinearGradient(0, 0, rect.width, rect.height);
+      if (isDark) {
+        g.addColorStop(0, "rgba(186, 210, 238, 0.24)");
+        g.addColorStop(1, "rgba(148, 175, 206, 0.16)");
+      } else {
+        g.addColorStop(0, "rgba(214, 228, 245, 0.64)");
+        g.addColorStop(1, "rgba(228, 237, 248, 0.56)");
+      }
+      frostCtx.fillStyle = g;
+      frostCtx.fillRect(0, 0, rect.width, rect.height);
+
+      // 细微冰晶纹理点
+      for (let i = 0; i < 42; i++) {
+        frostCtx.fillStyle = isDark ? "rgba(255,255,255,0.14)" : "rgba(255,255,255,0.65)";
+        frostCtx.beginPath();
+        frostCtx.arc(Math.random() * rect.width, Math.random() * rect.height, 0.7 + Math.random() * 1.4, 0, Math.PI * 2);
+        frostCtx.fill();
+      }
+      frostNeedReset = false;
+    }
+
+    function wipeFrostAt(clientX, clientY) {
+      if (frostNeedReset) initFrostSurface();
+      const rect = promoCard.getBoundingClientRect();
+      const lx = clientX - rect.left;
+      const ly = clientY - rect.top;
+
+      frostCtx.save();
+      frostCtx.globalCompositeOperation = "destination-out";
+      const rad = frostCtx.createRadialGradient(lx, ly, 4, lx, ly, 20);
+      rad.addColorStop(0, "rgba(0,0,0,0.95)");
+      rad.addColorStop(0.65, "rgba(0,0,0,0.5)");
+      rad.addColorStop(1, "rgba(0,0,0,0)");
+      frostCtx.fillStyle = rad;
+      frostCtx.beginPath();
+      frostCtx.arc(lx, ly, 20, 0, Math.PI * 2);
+      frostCtx.fill();
+      frostCtx.restore();
+
+      // 偶发高光水珠滑落
+      if (Math.random() < 0.22 && frostDrops.length < 10) {
+        frostDrops.push({
+          x: clientX + (Math.random() - 0.5) * 8,
+          y: clientY,
+          vy: 0.55 + Math.random() * 0.75,
+          r: 1.6 + Math.random() * 1.5,
+          alpha: 0.9,
+        });
+        startFxLoop();
+      }
+    }
+
+    // =========================================================================
+    // 模板 4：origami 折纸飞机
+    // =========================================================================
+    function launchPaperPlane() {
+      const r = promoCard.getBoundingClientRect();
+      const wr = appWindow.getBoundingClientRect();
+      const startX = r.left + r.width * 0.5;
+      const startY = r.top + r.height * 0.5;
+
+      paperPlanes.push({
+        x: startX,
+        y: startY,
+        startX,
+        startY,
+        loopX: wr.left + wr.width * 0.56,
+        loopY: wr.top + wr.height * 0.44,
+        exitX: wr.right + 80,
+        exitY: wr.top - 50,
+        progress: 0,
+        speed: 0.0072,
+        angle: -0.65,
+        rollPhase: 0,
+        rollLeft: 0,
+        boostFrames: 0,
+        trail: [],
+        alpha: 1,
+      });
+      spawnSparkleBurst(startX, startY, 10, 14, ["#93c5fd", "#e2e8f0", "#38bdf8"]);
+      startFxLoop();
+    }
+
+    function drawPaperPlane(c, p) {
+      const isDark = state.theme === "dark";
+      // 轨迹虚线
+      if (p.trail.length > 2) {
+        c.save();
+        c.beginPath();
+        c.moveTo(p.trail[0].x, p.trail[0].y);
+        for (let i = 1; i < p.trail.length; i++) {
+          c.lineTo(p.trail[i].x, p.trail[i].y);
+        }
+        c.strokeStyle = isDark ? "rgba(147, 197, 253, 0.34)" : "rgba(37, 99, 235, 0.28)";
+        c.lineWidth = 1.4;
+        c.setLineDash([4, 5]);
+        c.stroke();
+        c.restore();
+      }
+
+      const rollScale = p.rollLeft > 0 ? Math.cos(p.rollPhase) : 1;
+      c.save();
+      c.globalAlpha = p.alpha;
+      c.translate(p.x, p.y);
+      c.rotate(p.angle);
+      c.scale(1, Math.max(0.25, Math.abs(rollScale)));
+
+      c.shadowColor = isDark ? "rgba(59, 147, 250, 0.42)" : "rgba(15, 23, 42, 0.22)";
+      c.shadowBlur = 10;
+
+      // 左上翼（亮面）
+      c.beginPath();
+      c.moveTo(18, 0);
+      c.lineTo(-14, -12);
+      c.lineTo(-8, 0);
+      c.closePath();
+      c.fillStyle = isDark ? "#e2e8f0" : "#ffffff";
+      c.fill();
+      c.strokeStyle = isDark ? "rgba(148,163,184,0.45)" : "rgba(15,23,42,0.22)";
+      c.lineWidth = 0.8;
+      c.stroke();
+
+      // 右下翼（微暗面）
+      c.beginPath();
+      c.moveTo(18, 0);
+      c.lineTo(-8, 0);
+      c.lineTo(-14, 12);
+      c.closePath();
+      c.fillStyle = isDark ? "#94a3b8" : "#cbd5e1";
+      c.fill();
+      c.stroke();
+
+      // 脊线折痕
+      c.beginPath();
+      c.moveTo(18, 0);
+      c.lineTo(-11, 3);
+      c.lineTo(-8, 0);
+      c.closePath();
+      c.fillStyle = isDark ? "#64748b" : "#94a3b8";
+      c.fill();
+
+      c.restore();
+    }
+
+    // =========================================================================
+    // 模板 5：firefly 萤火提灯（明灭呼吸 + 温柔尾随鼠标 + 星河离场）
+    // =========================================================================
+    function syncFireflyLanternState() {
+      const active = fireflies.filter((f) => f.state !== "galaxy").length;
+      const lit = state.template === "firefly" && state.promoMode === "active" && !state.promoDismissed && active > 0;
+      promoStage.classList.toggle("is-lantern-lit", lit);
+      if (state.template === "firefly" && active > 0) {
+        counterPill.classList.add("show");
+        counterText.textContent = `提灯萤火 ${active}/7 · 移动鼠标温柔引路，带回卡片收灯`;
+      } else if (state.template === "firefly") {
+        counterPill.classList.remove("show");
+      }
+    }
+
+    function spawnFireflies() {
+      if (state.template !== "firefly" || state.promoMode !== "active" || state.promoDismissed) return;
+      const now = Date.now();
+      if (now - lastSpawnTs < 260) return;
+      const active = fireflies.filter((f) => f.state !== "galaxy").length;
+      const toAdd = Math.min(2, Math.max(0, 7 - active));
+      if (toAdd <= 0) return;
+
+      lastSpawnTs = now;
+      const r = promoCard.getBoundingClientRect();
+      for (let i = 0; i < toAdd; i++) {
+        const angle = -1.2 + (Math.random() - 0.5) * 1.1;
+        fireflies.push({
+          x: r.left + 30 + Math.random() * Math.max(40, r.width - 60),
+          y: r.top + 10 + Math.random() * 20,
+          vx: Math.cos(angle) * 2.1,
+          vy: Math.sin(angle) * 2.1,
+          angle,
+          angVel: 0,
+          phase: Math.random() * Math.PI * 2,
+          r: 2.6 + Math.random() * 1.4,
+          huePick: Math.random() > 0.45 ? 0 : 1,
+          state: "free",
+          orbitDir: Math.random() > 0.5 ? 1 : -1,
+          trail: [],
+          bornTs: now,
+        });
+      }
+      syncFireflyLanternState();
+      startFxLoop();
+    }
+
+    function triggerFireflyGalaxyFarewell() {
+      const active = fireflies.filter((f) => f.state !== "galaxy");
+      if (active.length === 0) return;
+      const wr = appWindow.getBoundingClientRect();
+      active.forEach((f, idx) => {
+        f.state = "galaxy";
+        f.startX = f.x;
+        f.startY = f.y;
+        f.exitX = wr.right + 50;
+        f.exitY = wr.top + 28 + idx * 8;
+        f.progress = 0;
+        f.delay = idx * 0.04;
+      });
+      syncFireflyLanternState();
+      startFxLoop();
+    }
+
+    function drawFirefly(c, f) {
+      const isDark = state.theme === "dark";
+      const pulse = 0.55 + 0.45 * Math.sin(f.phase);
+      const color = isDark
+        ? (f.huePick === 0 ? `rgba(253, 224, 71, ${0.85 * pulse})` : `rgba(52, 211, 153, ${0.82 * pulse})`)
+        : (f.huePick === 0 ? `rgba(217, 119, 6, ${0.9 * pulse})` : `rgba(2, 132, 199, ${0.88 * pulse})`);
+      const glowColor = isDark
+        ? (f.huePick === 0 ? "rgba(251, 191, 36, 0.72)" : "rgba(52, 211, 153, 0.65)")
+        : (f.huePick === 0 ? "rgba(245, 158, 11, 0.42)" : "rgba(14, 165, 233, 0.42)");
+
+      if (f.trail.length > 1) {
+        for (let i = 0; i < f.trail.length; i++) {
+          const pt = f.trail[i];
+          const a = ((i + 1) / f.trail.length) * 0.28 * pulse;
+          c.fillStyle = glowColor;
+          c.globalAlpha = a;
+          c.beginPath();
+          c.arc(pt.x, pt.y, f.r * 0.65, 0, Math.PI * 2);
+          c.fill();
+        }
+        c.globalAlpha = 1;
+      }
+
+      c.save();
+      c.shadowColor = glowColor;
+      c.shadowBlur = isDark ? 14 * pulse + 4 : 8 * pulse + 3;
+      c.fillStyle = color;
+      c.beginPath();
+      c.arc(f.x, f.y, f.r * (0.85 + 0.25 * pulse), 0, Math.PI * 2);
+      c.fill();
+
+      // 浅色加一圈清晰亮白芯增强识别
+      c.shadowBlur = 0;
+      c.fillStyle = "#ffffff";
+      c.globalAlpha = 0.78 * pulse;
+      c.beginPath();
+      c.arc(f.x, f.y, f.r * 0.42, 0, Math.PI * 2);
+      c.fill();
+      c.restore();
+    }
+
+    // =========================================================================
+    // 模板 2：butterfly 花开化蝶（完整保留 + 优化调参）
+    // =========================================================================
+    function drawButterfly(c, b, hoverCatch) {
+      const flap = b.state === "resting"
+        ? 0.64 + Math.sin(b.wingPhase) * 0.28
+        : 0.2 + Math.abs(Math.cos(b.wingPhase)) * 0.86;
+      const sz = b.size;
+      const isDark = state.theme === "dark";
+
+      c.save();
+      c.globalAlpha = Math.max(0, Math.min(1, b.alpha));
+      c.translate(b.x, b.y);
+
+      if (hoverCatch) {
+        c.beginPath();
+        c.arc(0, 0, sz * 1.65, 0, Math.PI * 2);
+        c.strokeStyle = isDark ? "rgba(255, 255, 255, 0.35)" : "rgba(37, 99, 235, 0.35)";
+        c.lineWidth = 1.1;
+        c.setLineDash([3, 3]);
+        c.stroke();
+        c.setLineDash([]);
+      }
+
+      c.rotate(b.angle + Math.PI / 2);
+      c.shadowColor = b.palette.glow;
+      c.shadowBlur = isDark ? 12 : 6;
+
+      [-1, 1].forEach((side) => {
+        c.save();
+        c.scale(side * flap, 1);
+
+        const gTop = c.createLinearGradient(0, -sz * 0.9, sz * 1.15, sz * 0.2);
+        gTop.addColorStop(0, b.palette.a);
+        gTop.addColorStop(1, b.palette.b);
+        c.beginPath();
+        c.moveTo(0, -sz * 0.12);
+        c.bezierCurveTo(sz * 0.55, -sz * 1.15, sz * 1.45, -sz * 0.65, sz * 1.05, sz * 0.14);
+        c.quadraticCurveTo(sz * 0.45, sz * 0.22, 0, sz * 0.08);
+        c.closePath();
+        c.fillStyle = gTop;
+        c.fill();
+        c.lineWidth = 0.7;
+        c.strokeStyle = b.palette.vein;
+        c.stroke();
+
+        const gBot = c.createLinearGradient(0, 0, sz * 0.85, sz * 0.95);
+        gBot.addColorStop(0, b.palette.b);
+        gBot.addColorStop(1, b.palette.a);
+        c.beginPath();
+        c.moveTo(0, sz * 0.06);
+        c.bezierCurveTo(sz * 0.95, sz * 0.16, sz * 0.88, sz * 0.98, sz * 0.14, sz * 0.76);
+        c.quadraticCurveTo(sz * 0.04, sz * 0.48, 0, sz * 0.2);
+        c.closePath();
+        c.fillStyle = gBot;
+        c.fill();
+        c.strokeStyle = b.palette.vein;
+        c.stroke();
+        c.restore();
+      });
+
+      c.shadowBlur = 0;
+      c.fillStyle = isDark ? "#f1f5f9" : "#334155";
+      c.beginPath();
+      c.ellipse(0, sz * 0.06, 1.35, sz * 0.34, 0, 0, Math.PI * 2);
+      c.fill();
+
+      c.strokeStyle = isDark ? "rgba(241,245,249,0.75)" : "rgba(51,65,85,0.7)";
+      c.lineWidth = 0.8;
+      c.beginPath();
+      c.moveTo(-0.5, -sz * 0.22);
+      c.quadraticCurveTo(-sz * 0.26, -sz * 0.52, -sz * 0.36, -sz * 0.58);
+      c.moveTo(0.5, -sz * 0.22);
+      c.quadraticCurveTo(sz * 0.26, -sz * 0.52, sz * 0.36, -sz * 0.58);
+      c.stroke();
+      c.restore();
+    }
+
+    function syncButterflyBloomState() {
+      if (state.template !== "butterfly") return;
+      const aliveCount = butterflies.filter((b) => b.state !== "farewell").length;
+      const shouldBloom = state.promoMode === "active" && !state.promoDismissed && aliveCount > 0;
+      promoStage.classList.toggle("is-blooming", shouldBloom);
+      if (aliveCount > 0) {
+        counterPill.classList.add("show");
+        counterText.textContent = `花间蝶 ${aliveCount}/${CHAR_LIST.length} · 点击蝴蝶捉回花中`;
+      } else {
+        counterPill.classList.remove("show");
+      }
+    }
+
+    function spawnNextCharButterfly() {
+      if (state.template !== "butterfly" || state.promoMode !== "active" || state.promoDismissed) return;
+      const now = Date.now();
+      if (now - lastSpawnTs < 260) return;
+      const outIndices = new Set(butterflies.filter((b) => b.charIdx >= 0 && b.state !== "farewell").map((b) => b.charIdx));
+      let nextIdx = -1;
+      for (let i = 0; i < CHAR_LIST.length; i++) {
+        if (!outIndices.has(i)) { nextIdx = i; break; }
+      }
+      if (nextIdx === -1) return;
+
+      lastSpawnTs = now;
+      const sp = charSpans[nextIdx];
+      sp.classList.remove("is-restored");
+      sp.classList.add("is-morphed");
+
+      const r = sp.getBoundingClientRect();
+      const sx = r.left + r.width * 0.5;
+      const sy = r.top + r.height * 0.5;
+      const palette = BUTTERFLY_PALETTES[nextIdx % BUTTERFLY_PALETTES.length];
+      const initAngle = -1.15 + (Math.random() - 0.5) * 1.1;
+
+      butterflies.push({
+        id: Math.random().toString(36).slice(2, 8),
+        charIdx: nextIdx,
+        x: sx,
+        y: sy,
+        angle: initAngle,
+        angVel: 0,
+        speed: 2.1,
+        wingPhase: Math.random() * Math.PI * 2,
+        wingSpeed: 0.36,
+        size: 11.5 + Math.random() * 2.2,
+        state: "roaming",
+        stateTimer: 160 + Math.floor(Math.random() * 160),
+        launchBoost: 34,
+        palette,
+        alpha: 0.15,
+      });
+      spawnSparkleBurst(sx, sy, 9, 10, [palette.a, palette.b, "#fde047"]);
+      syncButterflyBloomState();
+      startFxLoop();
+    }
+
+    function triggerLiangZhuFarewell() {
+      const staying = butterflies.filter((b) => b.state === "roaming" || b.state === "resting" || b.state === "returning");
+      if (staying.length === 0) return;
+
+      const cardRect = promoCard.getBoundingClientRect();
+      const winRect = appWindow.getBoundingClientRect();
+
+      if (staying.length % 2 === 1) {
+        const cx = cardRect.left + cardRect.width * 0.5;
+        const cy = cardRect.top + cardRect.height * 0.5;
+        const mate = {
+          id: "mate_" + Math.random().toString(36).slice(2, 7),
+          charIdx: -1,
+          x: cx,
+          y: cy,
+          angle: -0.8,
+          wingPhase: 0,
+          wingSpeed: 0.38,
+          size: 12.2,
+          state: "roaming",
+          palette: { a: "#e0f2fe", b: "#f9a8d4", vein: "rgba(255,255,255,0.8)", glow: "rgba(249,168,212,0.62)" },
+          alpha: 0.9,
+        };
+        butterflies.push(mate);
+        staying.push(mate);
+        spawnSparkleBurst(cx, cy, 10, 12, ["#e0f2fe", "#f9a8d4", "#fde047"]);
+      }
+
+      for (let i = 0; i < staying.length; i += 2) {
+        const bA = staying[i];
+        const bB = staying[i + 1];
+        bA.state = "farewell";
+        bB.state = "farewell";
+        const pairIdx = i / 2;
+        farewellPairs.push({
+          bA,
+          bB,
+          startX: (bA.x + bB.x) * 0.5,
+          startY: (bA.y + bB.y) * 0.5,
+          loopX: winRect.left + winRect.width * (0.48 + (pairIdx % 2 === 0 ? 0.08 : -0.06)),
+          loopY: winRect.top + winRect.height * (0.44 + (pairIdx % 3) * 0.06),
+          exitX: winRect.right + 70,
+          exitY: winRect.top - 60 - pairIdx * 24,
+          progress: 0,
+          speed: 0.0068,
+          orbitAngle: Math.random() * Math.PI * 2,
+          dirSign: pairIdx % 2 === 0 ? 1 : -1,
+        });
+      }
+      syncButterflyBloomState();
+      startFxLoop();
+    }
+
+    // =========================================================================
+    // 统一共享动画主循环（空载自动休眠）
+    // =========================================================================
+    function startFxLoop() {
+      if (fxRaf !== null || isPageHidden) return;
+      const tick = () => {
+        if (isPageHidden) { fxRaf = null; return; }
+        fxCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+
+        const wr = appWindow.getBoundingClientRect();
+        const pad = 28;
+        const minX = wr.left + pad;
+        const maxX = wr.right - pad;
+        const minY = wr.top + 46;
+        const maxY = wr.bottom - pad;
+
+        // A. 梁祝伴飞引导
+        farewellPairs = farewellPairs.filter((p) => p.progress < 1);
+        for (const p of farewellPairs) {
+          p.progress = Math.min(1, p.progress + p.speed);
+          const t = p.progress;
+          let gx, gy;
+          if (t < 0.62) {
+            const u = t / 0.62;
+            const approach = Math.min(1, u * 2.2);
+            const theta = -2.4 + u * Math.PI * 1.65 * p.dirSign;
+            const ringR = 118;
+            const tx = p.loopX + Math.cos(theta) * ringR;
+            const ty = p.loopY + Math.sin(theta) * (ringR * 0.62);
+            gx = p.startX + (tx - p.startX) * approach;
+            gy = p.startY + (ty - p.startY) * approach;
+            p.lastOrbitX = gx;
+            p.lastOrbitY = gy;
+          } else {
+            const u = (t - 0.62) / 0.38;
+            const easeOut = u * u;
+            const ox = p.lastOrbitX ?? p.loopX;
+            const oy = p.lastOrbitY ?? p.loopY;
+            gx = ox + (p.exitX - ox) * easeOut;
+            gy = oy + (p.exitY - oy) * easeOut;
+          }
+          p.orbitAngle += 0.095 * p.dirSign;
+          const spiralR = 18 + Math.sin(t * Math.PI) * 14;
+          const fade = t > 0.78 ? Math.max(0, 1 - (t - 0.78) / 0.22) : 1;
+          [[p.bA, 0], [p.bB, Math.PI]].forEach(([b, offset]) => {
+            const prevX = b.x; const prevY = b.y;
+            b.x += (gx + Math.cos(p.orbitAngle + offset) * spiralR - b.x) * 0.22;
+            b.y += (gy + Math.sin(p.orbitAngle + offset) * (spiralR * 0.8) - b.y) * 0.22;
+            const dx = b.x - prevX; const dy = b.y - prevY;
+            if (Math.hypot(dx, dy) > 0.2) b.angle = Math.atan2(dy, dx);
+            b.wingPhase += b.wingSpeed;
+            b.alpha = fade;
+          });
+          if (p.progress >= 1) { p.bA.done = true; p.bB.done = true; }
+        }
+
+        // B. 蝴蝶漫步 / 躲避 / 归花
+        let needSyncBloom = false;
+        const keptButterflies = [];
+        for (const b of butterflies) {
+          if (b.done) { needSyncBloom = true; continue; }
+          let hoverCatch = false;
+
+          if (b.state === "roaming" || b.state === "resting") {
+            const dxM = b.x - mousePos.x;
+            const dyM = b.y - mousePos.y;
+            const distM = Math.hypot(dxM, dyM);
+            if (distM < 38) hoverCatch = true;
+
+            if (distM < 68) {
+              if (b.state === "resting") { b.state = "roaming"; b.stateTimer = 150; }
+              const away = Math.atan2(dyM, dxM) + (Math.random() - 0.5) * 0.25;
+              const diff = Math.atan2(Math.sin(away - b.angle), Math.cos(away - b.angle));
+              b.angle += diff * 0.12;
+              b.speed += (2.05 - b.speed) * 0.16;
+              b.wingSpeed = 0.42;
+            } else if (b.launchBoost > 0) {
+              b.launchBoost--;
+              b.angVel += (Math.random() - 0.5) * 0.05;
+              b.angVel *= 0.92;
+              b.angle += b.angVel;
+              b.speed += (1.9 - b.speed) * 0.08;
+              b.wingSpeed = 0.35;
+            } else if (b.state === "roaming") {
+              b.angVel += (Math.random() - 0.5) * 0.09;
+              b.angVel *= 0.9;
+              b.angle += b.angVel;
+              b.speed += (1.15 + Math.sin(b.wingPhase * 0.18) * 0.24 - b.speed) * 0.08;
+              b.wingSpeed = 0.3;
+              if (--b.stateTimer <= 0) { b.state = "resting"; b.stateTimer = 60 + Math.floor(Math.random() * 75); }
+            } else {
+              b.speed *= 0.88;
+              b.wingSpeed = 0.065;
+              if (--b.stateTimer <= 0) {
+                b.state = "roaming";
+                b.angle += (Math.random() - 0.5) * 2.4;
+                b.stateTimer = 170 + Math.floor(Math.random() * 160);
+              }
+            }
+
+            b.x += Math.cos(b.angle) * b.speed;
+            b.y += Math.sin(b.angle) * b.speed;
+            if (b.x < minX) { b.x = minX; b.angle = Math.atan2(Math.sin(b.angle), Math.abs(Math.cos(b.angle))); }
+            else if (b.x > maxX) { b.x = maxX; b.angle = Math.atan2(Math.sin(b.angle), -Math.abs(Math.cos(b.angle))); }
+            if (b.y < minY) { b.y = minY; b.angle = Math.atan2(Math.abs(Math.sin(b.angle)), Math.cos(b.angle)); }
+            else if (b.y > maxY) { b.y = maxY; b.angle = Math.atan2(-Math.abs(Math.sin(b.angle)), Math.cos(b.angle)); }
+
+            b.wingPhase += b.wingSpeed;
+            b.alpha = Math.min(0.95, b.alpha + 0.08);
+          } else if (b.state === "returning") {
+            b.returnProgress = Math.min(1, b.returnProgress + 0.028);
+            const t = b.returnProgress;
+            const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+            const sp = charSpans[b.charIdx];
+            const tr = sp.getBoundingClientRect();
+            const tx = tr.left + tr.width * 0.5;
+            const ty = tr.top + tr.height * 0.5;
+            const mx = (b.retStartX + tx) * 0.5 + b.retCurve;
+            const my = (b.retStartY + ty) * 0.5 - 48;
+            const inv = 1 - ease;
+            const px = b.x; const py = b.y;
+            b.x = inv * inv * b.retStartX + 2 * inv * ease * mx + ease * ease * tx;
+            b.y = inv * inv * b.retStartY + 2 * inv * ease * my + ease * ease * ty;
+            if (Math.hypot(b.x - px, b.y - py) > 0.2) b.angle = Math.atan2(b.y - py, b.x - px);
+            b.wingPhase += 0.42;
+            b.alpha = t > 0.78 ? Math.max(0, 1 - (t - 0.78) / 0.22) : 0.96;
+            if (t >= 1) {
+              sp.classList.remove("is-morphed");
+              sp.classList.add("is-restored");
+              spawnSparkleBurst(tx, ty, 8, 8, [b.palette.a, b.palette.b, "#fde047"]);
+              needSyncBloom = true;
+              continue;
+            }
+          }
+
+          drawButterfly(fxCtx, b, hoverCatch);
+          keptButterflies.push(b);
+        }
+        butterflies = keptButterflies;
+        if (needSyncBloom) syncButterflyBloomState();
+
+        // C. 折纸飞机（模板 4）
+        paperPlanes = paperPlanes.filter((p) => p.progress < 1);
+        for (const p of paperPlanes) {
+          // 鼠标吹风翻滚检测
+          const distP = Math.hypot(mousePos.x - p.x, mousePos.y - p.y);
+          if (distP < 78 && p.rollLeft <= 0) {
+            p.rollLeft = 28;
+            p.boostFrames = 24;
+          }
+          if (p.rollLeft > 0) { p.rollLeft--; p.rollPhase += 0.24; }
+          const spd = p.boostFrames > 0 ? (p.boostFrames--, p.speed * 1.55) : p.speed;
+          p.progress = Math.min(1, p.progress + spd);
+          const t = p.progress;
+          let nx, ny;
+          if (t < 0.65) {
+            const u = t / 0.65;
+            const approach = Math.min(1, u * 2.1);
+            const theta = -2.3 + u * Math.PI * 1.55;
+            const tx = p.loopX + Math.cos(theta) * 145;
+            const ty = p.loopY + Math.sin(theta) * 90;
+            nx = p.startX + (tx - p.startX) * approach;
+            ny = p.startY + (ty - p.startY) * approach;
+            p.lastX = nx; p.lastY = ny;
+          } else {
+            const u = (t - 0.65) / 0.35;
+            const ox = p.lastX ?? p.loopX;
+            const oy = p.lastY ?? p.loopY;
+            nx = ox + (p.exitX - ox) * (u * u);
+            ny = oy + (p.exitY - oy) * (u * u);
+          }
+          const dx = nx - p.x; const dy = ny - p.y;
+          if (Math.hypot(dx, dy) > 0.2) p.angle = Math.atan2(dy, dx);
+          p.x = nx; p.y = ny;
+          p.trail.push({ x: p.x, y: p.y });
+          if (p.trail.length > 26) p.trail.shift();
+          p.alpha = t > 0.8 ? Math.max(0, 1 - (t - 0.8) / 0.2) : 1;
+          drawPaperPlane(fxCtx, p);
+        }
+
+        // D. 萤火虫（模板 5：尾随伴游 + 回到卡片回收 + 星河离场）
+        let needSyncLantern = false;
+        const cardRect = promoCard.getBoundingClientRect();
+        const nowTs = Date.now();
+        const keptFireflies = [];
+        for (const f of fireflies) {
+          if (f.state === "galaxy") {
+            f.progress = Math.min(1, f.progress + 0.011);
+            if (f.progress < f.delay) {
+              drawFirefly(fxCtx, f);
+              keptFireflies.push(f);
+              continue;
+            }
+            const u = Math.min(1, (f.progress - f.delay) / (1 - f.delay));
+            const ease = u * u;
+            const mx = (f.startX + f.exitX) * 0.5 - 40;
+            const my = (f.startY + f.exitY) * 0.5 - 90;
+            const inv = 1 - ease;
+            f.x = inv * inv * f.startX + 2 * inv * ease * mx + ease * ease * f.exitX;
+            f.y = inv * inv * f.startY + 2 * inv * ease * my + ease * ease * f.exitY;
+            f.phase += 0.14;
+            f.trail.push({ x: f.x, y: f.y });
+            if (f.trail.length > 9) f.trail.shift();
+            if (u >= 1) { needSyncLantern = true; continue; }
+            drawFirefly(fxCtx, f);
+            keptFireflies.push(f);
+            continue;
+          }
+
+          // 若回到广告位卡片区域且已飞出超过 1.6s -> 自动回收熄灯
+          if (
+            nowTs - f.bornTs > 1600
+            && f.x >= cardRect.left && f.x <= cardRect.right
+            && f.y >= cardRect.top && f.y <= cardRect.bottom
+            && Math.hypot(mousePos.x - (cardRect.left + cardRect.width / 2), mousePos.y - (cardRect.top + cardRect.height / 2)) < 90
+          ) {
+            spawnSparkleBurst(f.x, f.y, 5, 6, ["#fbbf24", "#34d399"]);
+            needSyncLantern = true;
+            continue;
+          }
+
+          const dxM = mousePos.x - f.x;
+          const dyM = mousePos.y - f.y;
+          const distM = Math.hypot(dxM, dyM);
+
+          if (distM < 170) {
+            // 温柔聚拢伴游在光标 42~60px 附近环绕
+            const targetDist = 48;
+            const toCursor = Math.atan2(dyM, dxM);
+            const steer = distM > targetDist ? toCursor + 0.45 * f.orbitDir : toCursor + 1.55 * f.orbitDir;
+            const diff = Math.atan2(Math.sin(steer - f.angle), Math.cos(steer - f.angle));
+            f.angle += diff * 0.08;
+            const spd = distM > targetDist ? 1.55 : 1.05;
+            f.x += Math.cos(f.angle) * spd;
+            f.y += Math.sin(f.angle) * spd;
+          } else {
+            f.angVel += (Math.random() - 0.5) * 0.07;
+            f.angVel *= 0.92;
+            f.angle += f.angVel;
+            f.x += Math.cos(f.angle) * 0.95;
+            f.y += Math.sin(f.angle) * 0.95;
+          }
+
+          if (f.x < minX) f.x = minX;
+          if (f.x > maxX) f.x = maxX;
+          if (f.y < minY) f.y = minY;
+          if (f.y > maxY) f.y = maxY;
+
+          f.phase += 0.08;
+          f.trail.push({ x: f.x, y: f.y });
+          if (f.trail.length > 6) f.trail.shift();
+          drawFirefly(fxCtx, f);
+          keptFireflies.push(f);
+        }
+        fireflies = keptFireflies;
+        if (needSyncLantern) syncFireflyLanternState();
+
+        // F. 雾窗滑落水珠（模板 3）
+        frostDrops = frostDrops.filter((d) => d.alpha > 0.04);
+        for (const d of frostDrops) {
+          d.y += d.vy;
+          d.alpha -= 0.015;
+          fxCtx.save();
+          fxCtx.globalAlpha = d.alpha;
+          fxCtx.fillStyle = state.theme === "dark" ? "rgba(186,230,253,0.75)" : "rgba(59,130,246,0.55)";
+          fxCtx.beginPath();
+          fxCtx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
+          fxCtx.fill();
+          fxCtx.restore();
+        }
+
+        // G. 通用星芒粒子
+        sparkles = sparkles.filter((p) => p.alpha > 0.03);
+        for (const p of sparkles) {
+          p.x += p.vx;
+          p.y += p.vy;
+          p.vy += 0.03;
+          p.vx *= 0.985;
+          p.rot += p.vRot;
+          p.alpha -= p.decay;
+          fxCtx.globalAlpha = Math.max(0, p.alpha);
+          fxCtx.fillStyle = p.color;
+          if (p.isStar) drawFourPointStar(fxCtx, p.x, p.y, p.size, p.rot);
+          else {
+            fxCtx.beginPath();
+            fxCtx.arc(p.x, p.y, p.size * 0.45, 0, Math.PI * 2);
+            fxCtx.fill();
+          }
+        }
+        fxCtx.globalAlpha = 1;
+
+        if (
+          sparkles.length > 0 || butterflies.length > 0 || farewellPairs.length > 0
+          || paperPlanes.length > 0 || fireflies.length > 0 || frostDrops.length > 0
+        ) {
+          fxRaf = requestAnimationFrame(tick);
+        } else {
+          fxRaf = null;
+        }
+      };
+      fxRaf = requestAnimationFrame(tick);
+    }
+
+    // 鼠标位置跟踪 & 点击捕捉蝴蝶
+    window.addEventListener("mousemove", (e) => {
+      mousePos.x = e.clientX;
+      mousePos.y = e.clientY;
+    });
+
+    window.addEventListener("pointerdown", (e) => {
+      if (state.template !== "butterfly" || butterflies.length === 0) return;
+      if (e.target.closest(".promo-close, .preview-bar, .s-modal-scrim.open")) return;
+      let closest = null;
+      let minDist = 38;
+      for (const b of butterflies) {
+        if (b.state !== "roaming" && b.state !== "resting") continue;
+        const d = Math.hypot(e.clientX - b.x, e.clientY - b.y);
+        if (d < minDist) { minDist = d; closest = b; }
+      }
+      if (!closest) return;
+      closest.state = "returning";
+      closest.retStartX = closest.x;
+      closest.retStartY = closest.y;
+      closest.returnProgress = 0;
+      closest.retCurve = (Math.random() > 0.5 ? 1 : -1) * 44;
+      spawnSparkleBurst(closest.x, closest.y, 12, 10, [closest.palette.a, closest.palette.b, "#ffffff"]);
+      startFxLoop();
+    });
+
+    document.addEventListener("visibilitychange", () => {
+      isPageHidden = document.hidden;
+      if (!isPageHidden && (sparkles.length || butterflies.length || farewellPairs.length || paperPlanes.length || fireflies.length || frostDrops.length)) {
+        startFxLoop();
+      }
+    });
+
+    // 推广位鼠标交互分发
+    promoCard.addEventListener("mouseenter", () => {
+      if (state.template === "rainbow") {
+        const rect = promoCard.getBoundingClientRect();
+        spawnSparkleBurst(rect.left + rect.width * 0.5, rect.top + rect.height * 0.5, 14, rect.width * 0.75);
+      } else if (state.template === "butterfly") {
+        spawnNextCharButterfly();
+      } else if (state.template === "frost") {
+        clearTimeout(frostCondenseTimer);
+        if (frostNeedReset) initFrostSurface();
+      } else if (state.template === "firefly") {
+        spawnFireflies();
+      }
+    });
+
+    promoCard.addEventListener("mousemove", (e) => {
+      if (state.template === "rainbow") {
+        const rect = promoCard.getBoundingClientRect();
+        const px = (e.clientX - rect.left) / rect.width;
+        const py = (e.clientY - rect.top) / rect.height;
+        promoCard.style.setProperty("--px", `${px * 100}%`);
+        promoCard.style.setProperty("--py", `${py * 100}%`);
+        if (e.target.closest(".promo-close")) { promoCard.style.transform = ""; return; }
+        promoCard.style.transform = `rotateX(${(0.5 - py) * 10}deg) rotateY(${(px - 0.5) * 13}deg) translateY(-1px) scale(1.018)`;
+        const now = Date.now();
+        if (now - lastSpawnTs > 135) { lastSpawnTs = now; spawnSparkleBurst(e.clientX, e.clientY, 2, 10); }
+      } else if (state.template === "frost") {
+        if (!e.target.closest(".promo-close")) wipeFrostAt(e.clientX, e.clientY);
+      } else if (state.template === "firefly") {
+        spawnFireflies();
+      }
+    });
+
+    promoCard.addEventListener("mouseleave", () => {
+      promoCard.style.transform = "";
+      if (state.template === "frost") {
+        clearTimeout(frostCondenseTimer);
+        frostCondenseTimer = setTimeout(() => {
+          if (state.template === "frost" && !state.promoDismissed) initFrostSurface();
+        }, 2200);
+      }
+    });
+
+    // =========================================================================
+    // 模板切换与引导说明更新
+    // =========================================================================
+    function resetAllTemplateState() {
+      butterflies = [];
+      farewellPairs = [];
+      paperPlanes = [];
+      fireflies = [];
+      frostDrops = [];
+      sparkles = [];
+      clearTimeout(frostCondenseTimer);
+      charSpans.forEach((sp, idx) => {
+        sp.textContent = CHAR_LIST[idx];
+        sp.classList.remove("is-morphed", "is-restored");
+      });
+      promoStage.classList.remove("is-blooming", "is-lantern-lit", "is-force-hover");
+      promoCard.style.transform = "";
+      counterPill.classList.remove("show");
+      frostNeedReset = true;
+    }
+
+    function setTemplate(tpl) {
+      state.template = tpl;
+      state.forceHover = false;
+      state.promoDismissed = false;
+      state.promoMode = "active";
+      resetAllTemplateState();
+      promoStage.setAttribute("data-template", tpl);
+
+      // 针对模板定制卡片微文案（均保持 1 行精炼）
+      const tagEl = document.getElementById("promo-tag-el");
+      const descEl = document.getElementById("promo-desc-el");
+      if (tpl === "frost") {
+        tagEl.textContent = "福利";
+        descEl.textContent = "划开薄霜解锁直达通道";
+        requestAnimationFrame(initFrostSurface);
+      } else if (tpl === "firefly") {
+        tagEl.textContent = "夜灯";
+        descEl.textContent = "轻触引出萤火 · 远程下发";
+      } else {
+        tagEl.textContent = "推荐";
+        descEl.textContent = "远程配置下发 · 免更新直达";
+      }
+
+      syncPromoControls();
+    }
+
+    function syncPromoControls() {
+      const hidden = state.promoMode === "remote_off" || state.promoDismissed;
+      promoSlotWrap.classList.toggle("is-hidden", hidden);
+      promoStage.classList.toggle("is-force-hover", state.template === "rainbow" && state.forceHover && !hidden);
+
+      document.querySelectorAll("[data-tpl-btn]").forEach((btn) => {
+        btn.classList.toggle("active", btn.getAttribute("data-tpl-btn") === state.template && !hidden);
+      });
+      const hoverBtn = document.getElementById("ctrl-promo-hover");
+      hoverBtn.style.display = state.template === "rainbow" ? "inline-flex" : "none";
+      hoverBtn.classList.toggle("active", state.forceHover && !hidden);
+      document.getElementById("ctrl-promo-off").classList.toggle("active", state.promoMode === "remote_off");
+      document.getElementById("ctrl-promo-reset").style.display = state.promoDismissed ? "inline-flex" : "none";
+    }
+
+    function toggleForceHover() {
+      state.forceHover = !state.forceHover;
+      if (state.forceHover && (state.promoMode === "remote_off" || state.promoDismissed)) {
+        state.promoMode = "active"; state.promoDismissed = false;
+      }
+      syncPromoControls();
+      if (state.forceHover) {
+        const r = promoCard.getBoundingClientRect();
+        spawnSparkleBurst(r.left + r.width * 0.5, r.top + r.height * 0.5, 16, r.width * 0.8);
+      }
+    }
+
+    function setPromoMode(mode) {
+      state.promoMode = mode;
+      if (mode === "remote_off") {
+        state.forceHover = false;
+        resetAllTemplateState();
+      } else {
+        state.promoDismissed = false;
+        if (state.template === "frost") requestAnimationFrame(initFrostSurface);
+      }
+      syncPromoControls();
+    }
+
+    function dismissPromo(e) {
+      e.stopPropagation();
+      const r = promoCard.getBoundingClientRect();
+      state.promoDismissed = true;
+      state.forceHover = false;
+
+      if (state.template === "butterfly") {
+        triggerLiangZhuFarewell();
+      } else if (state.template === "frost") {
+        spawnSparkleBurst(r.left + r.width * 0.5, r.top + r.height * 0.5, 22, r.width * 0.85, ["#e0f2fe", "#bae6fd", "#ffffff"]);
+      } else if (state.template === "origami") {
+        launchPaperPlane();
+      } else if (state.template === "firefly") {
+        triggerFireflyGalaxyFarewell();
+      }
+
+      syncPromoControls();
+      showToast("已隐藏本期推荐", "更换下一期远程推广前不再显示。");
+    }
+
+    function resetPromoDismiss() {
+      setTemplate(state.template);
+    }
+
+    function handlePromoClick() {
+      showToast("安全外链校验通过", "实际运行时将通过系统默认浏览器打开 https:// 链接。");
+    }
+
+    // 主题 & 设置弹窗
+    function setTheme(theme) {
+      state.theme = theme;
+      document.documentElement.setAttribute("data-theme", theme);
+      document.getElementById("ctrl-theme-dark").classList.toggle("active", theme === "dark");
+      document.getElementById("ctrl-theme-light").classList.toggle("active", theme === "light");
+      const ico = document.getElementById("topbar-theme-icon");
+      ico.innerHTML = theme === "dark"
+        ? '<circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path>'
+        : '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>';
+      if (state.template === "frost" && !state.promoDismissed) initFrostSurface();
+    }
+    function toggleTheme() { setTheme(state.theme === "dark" ? "light" : "dark"); }
+
+    function openSettingsModal() { document.getElementById("settings-scrim").classList.add("open"); }
+    function closeSettingsModal() { document.getElementById("settings-scrim").classList.remove("open"); closeInfoPopover(); }
+
+    function toggleTelemetrySwitch() {
+      state.telemetryOn = !state.telemetryOn;
+      const sw = document.getElementById("telemetry-switch");
+      const chip = document.getElementById("telemetry-chip");
+      sw.classList.toggle("on", state.telemetryOn);
+      sw.setAttribute("aria-checked", String(state.telemetryOn));
+      chip.textContent = state.telemetryOn ? "已开启" : "已关闭";
+      chip.className = `guard-chip ${state.telemetryOn ? "guard-chip-pass" : "guard-chip-neutral"}`;
+    }
+
+    function openInfoPopover(el, title, body) {
+      const pop = document.getElementById("settings-popover");
+      document.getElementById("popover-hd").textContent = title;
+      document.getElementById("popover-body").textContent = body;
+      const rect = el.getBoundingClientRect();
+      let left = rect.left - 12;
+      if (left + 324 > window.innerWidth - 16) left = window.innerWidth - 340;
+      if (left < 16) left = 16;
+      let top = rect.bottom + 8;
+      if (top + 130 > window.innerHeight - 16) top = Math.max(16, rect.top - 138);
+      pop.style.left = left + "px";
+      pop.style.top = top + "px";
+      pop.classList.add("show");
+    }
+    function closeInfoPopover() { document.getElementById("settings-popover").classList.remove("show"); }
+
+    function showToast(title, body) {
+      const stack = document.getElementById("toast-stack");
+      const el = document.createElement("div");
+      el.className = "toast-item";
+      const tDiv = document.createElement("div");
+      tDiv.className = "toast-title";
+      const dot = document.createElement("span");
+      dot.className = "guard-dot";
+      const tSpan = document.createElement("span");
+      tSpan.textContent = title;
+      tDiv.appendChild(dot); tDiv.appendChild(tSpan);
+      const bDiv = document.createElement("div");
+      bDiv.className = "toast-body";
+      bDiv.textContent = body;
+      el.appendChild(tDiv); el.appendChild(bDiv);
+      stack.appendChild(el);
+      while (stack.children.length > 3) stack.firstElementChild.remove();
+      setTimeout(() => el.remove(), 3400);
+    }
+
+    // =========================================================================
+    // AI 工具箱：道具锤皮肤 + 机制雷区 + Dario 阻挡/敏感期/二段/必杀/二次申诉
+    // =========================================================================
+    const PRESET_AI_SERVICES = [
+      { id: "kyc_svc", label: "KYC服务", skinName: "🪪 绿卡通行锤", color: "#10b981", glow: "rgba(16,185,129,0.42)", glyphs: ["✓", "PASS", "🪪"], particles: ["#10b981", "#34d399", "#fde047"], floatTag: "身份通过" },
+      { id: "gmail_acct", label: "Gmail账户", skinName: "✉️ 谷歌信封锤", color: "#ef4444", glow: "rgba(239,68,68,0.4)", glyphs: ["✉️", "M", "@"], particles: ["#ef4444", "#3b82f6", "#facc15"], floatTag: "信箱直通" },
+      { id: "claude_pro", label: "Claude成品PRO", skinName: "👑 顶配皇冠锤", color: "#a855f7", glow: "rgba(168,85,247,0.45)", glyphs: ["👑", "PRO", "⚡"], particles: ["#a855f7", "#c084fc", "#fde047"], floatTag: "PRO 重击" },
+      { id: "low_topup", label: "低价代充", skinName: "💸 羊毛钞票锤", color: "#f59e0b", glow: "rgba(245,158,11,0.44)", glyphs: ["$", "¥", "💸"], particles: ["#f59e0b", "#fbbf24", "#fef08a"], floatTag: "真香续费" },
+      { id: "us_giftcard", label: "美区礼品卡", skinName: "🍎 苹果内购锤", color: "#38bdf8", glow: "rgba(56,189,248,0.44)", glyphs: ["🍎", "IAP", "✦"], particles: ["#38bdf8", "#bae6fd", "#ffffff"], floatTag: "内购绕卡" },
+      { id: "ai_direct", label: "AI直充服务", skinName: "⚡ 闪电直充锤", color: "#06b6d4", glow: "rgba(6,182,212,0.44)", glyphs: ["⚡", "200", "OK"], particles: ["#06b6d4", "#67e8f9", "#ffffff"], floatTag: "直连秒到" },
+      { id: "multi_iso", label: "多账户隔离", skinName: "📦 沙箱隔离锤", color: "#14b8a6", glow: "rgba(20,184,166,0.42)", glyphs: ["📦", "ISO", "🛡️"], particles: ["#14b8a6", "#5eead4", "#a7f3d0"], floatTag: "环境隔离" },
+      { id: "team_group", label: "Team组队", skinName: "🤝 车队合击锤", color: "#ec4899", glow: "rgba(236,72,153,0.44)", glyphs: ["🤝", "×5", "⚔️"], particles: ["#ec4899", "#f472b6", "#c084fc"], floatTag: "车队合击" },
+      { id: "clean_isp", label: "独享纯净家宽", skinName: "🏡 原生家宽锤", color: "#22c55e", glow: "rgba(34,197,94,0.44)", glyphs: ["🏡", "ISP", "📶"], particles: ["#22c55e", "#86efac", "#fef08a"], floatTag: "原生住宅" },
+      { id: "mcp_mgr", label: "MCP可视化管理", skinName: "🧩 魔方插件锤", color: "#6366f1", glow: "rgba(99,102,241,0.44)", glyphs: ["🧩", "MCP", "◈"], particles: ["#6366f1", "#818cf8", "#38bdf8"], floatTag: "工具编排" },
+    ];
+
+    // 5 大 FD 多层防护技能（针对性克制 Dario 的阻挡、雷区、敏感期、必杀与二次申诉）
+    const FD_SKILLS = [
+      { id: "geo_hot", key: "1", icon: "🌐", name: "同区热备", sub: "专克 CF 入口盾", cdMs: 2500, counterDesc: "破盾暴击" },
+      { id: "stealth", key: "2", icon: "🕳️", name: "隐身消迹", sub: "专克地址/时区漏", cdMs: 2500, counterDesc: "消漏减怒" },
+      { id: "sandbox", key: "3", icon: "🧹", name: "沙箱净化", sub: "专克 KYC/串号/卡", cdMs: 3000, counterDesc: "清痕拆弹" },
+      { id: "calm_denoise", key: "4", icon: "🧊", name: "冷静降噪", sub: "专克敏感期/429/反代", cdMs: 3000, counterDesc: "镇压暴走" },
+      { id: "kill_switch", key: "5", icon: "⚡", name: "四层熔断", sub: "专克封号必杀/断连", cdMs: 4000, counterDesc: "毫秒救命" },
+    ];
+
+    // 机制触发的高危「封禁线索 / 作死雷区」（全网社区 5 大类 + 本项目 8 大守则）
+    const HAZARD_CLUES = [
+      {
+        id: "clash_quit_leak", title: "🔌 Clash 断连触发 onQuitCleanup", counterSkill: "kill_switch",
+        desc: "代理刚断却手动点关闭，补发带 Cookie 403 (len=182) 被抓现行！",
+        appealCharge: "终审指控：“检测到 Clash 断连瞬间你的客户端通过 onQuitCleanup 回传了带 Cookie 请求 (len=182)”",
+        rageGain: 30, critical: true, trigger: "combat",
+      },
+      {
+        id: "oauth_proxy", title: "🔀 Pro 消费级 OAuth 接入第三方反代", counterSkill: "calm_denoise",
+        desc: "2025–2026 头号封号重灾区！OAuth 喂给第三方 Harness 必触发秒封",
+        appealCharge: "终审指控：“检测到消费级 OAuth Token 经第三方 ANTHROPIC_BASE_URL 反代中转（Harness 欺诈）”",
+        rageGain: 32, critical: true, trigger: "phase2",
+      },
+      {
+        id: "geo_webrtc_tz", title: "📍 IPv6 / WebRTC / 北京时区泄露", counterSkill: "stealth",
+        desc: "开机 Claude 先于代理抢跑，或 Asia/Shanghai 指纹与代理属地冲突",
+        appealCharge: "终审指控：“WebRTC 与系统时区 (Asia/Shanghai) 暴露你处于不支持地区，触发 region_unavailable”",
+        rageGain: 24, critical: false, trigger: "combat",
+      },
+      {
+        id: "org_ban_evasion", title: "👥 同机切备用号 orgId 竞态连坐", counterSkill: "sandbox",
+        desc: "封后/待验未清污染目录直接切号，Cookie 带旧 orgId 发 /authorize",
+        appealCharge: "终审指控：“同一设备残余 Cookie 携带被封 orgId 发起 /authorize 请求，判定为 Ban Evasion 连坐”",
+        rageGain: 28, critical: true, trigger: "phase2",
+      },
+      {
+        id: "vcc_black_bin", title: "💳 高危虚拟卡黑 BIN / 账单地址冲突", counterSkill: "sandbox",
+        desc: "Stripe 严查预付虚拟卡 BIN，账单州与落地 IP 不一致触发支付复审",
+        appealCharge: "终审指控：“Stripe 返回预付虚拟卡黑 BIN 风险且账单州与出口 IP 不一致，支付反欺诈锁号”",
+        rageGain: 26, critical: false, trigger: "sensitive",
+      },
+      {
+        id: "rate_429_script", title: "🤖 连点过快 · 触发 429 脚本刷量嫌疑", counterSkill: "calm_denoise",
+        desc: "消费级订阅要求人工交互，高频脚本 / 连续 429 触发自动化滥用",
+        appealCharge: "终审指控：“高频连续并发触发 429 rate_limit，疑似无人值守自动化脚本刷量”",
+        rageGain: 25, critical: false, trigger: "rapid",
+      },
+      {
+        id: "age_persona_kyc", title: "👶 误判未满 18 岁 / Persona KYC 核验", counterSkill: "sandbox",
+        desc: "要求人脸与身份证件核验；提交不支持地区证件将立即永久封号",
+        appealCharge: "终审指控：“系统触发青少年安全信号，要求通过 Persona 提交不支持地区之外的有效身份证明”",
+        rageGain: 24, critical: false, trigger: "combat",
+      },
+      {
+        id: "team_collateral", title: "🏢 拼车共享 / Team 组织成员连坐", counterSkill: "sandbox",
+        desc: "多地多端同时在线或团队内 1 人违规，引发整组 100+ 席位集体冻结",
+        appealCharge: "终审指控：“账号存在多地设备异常共享登录，且所在 Team 组织节点触发连坐审计”",
+        rageGain: 26, critical: false, trigger: "phase2",
+      },
+      {
+        id: "airport_drift", title: "✈️ 机场节点暗漂脏 IP / 跨洲瞬移", counterSkill: "geo_hot",
+        desc: "不改节点名后台漂移到机房脏 IP，1 分钟美飞日直接撞 CF 403 入口盾",
+        appealCharge: "终审指控：“1 分钟内从美西切至日本且落入已知高危机房 IP，触发 Cloudflare 403 拦截”",
+        rageGain: 22, critical: false, trigger: "combat",
+      },
+      {
+        id: "window_24h", title: "🔥 新号/升档 24 小时支付异步复审", counterSkill: "calm_denoise",
+        desc: "充值或跨档升级 30 分钟 ~ 24 小时风控最脆弱期，切节点必踩雷",
+        appealCharge: "终审指控：“账号开通/升级 24h 敏感窗口内发生高频节点切换，触发支付异步复审冻结”",
+        rageGain: 28, critical: true, trigger: "sensitive",
+      },
+    ];
+
+    const DARIO_STAGES = [
+      { minStress: 0, mood: "傲慢淡定", lines: ["“Safety first，封几个号怎么了？”"] },
+      { minStress: 15, mood: "眉头微皱", lines: ["“什么声音…笃笃笃的？”", "“别念了，我在写安全博客呢…”"] },
+      { minStress: 38, mood: "捂耳头痛", lines: ["“师傅别念了！头好痛！”", "“停停停，CF 盾先挡一下！”"] },
+      { minStress: 68, mood: "二段暴走", lines: ["“啊啊啊你这 FD 工具怎么全防住了？！”", "“别敲了！我的封号策略都要失效了！”"] },
+      { minStress: 99, mood: "举旗投降", lines: ["“服了服了，别念了师傅 🏳️”", "“不封了不封了，这套防封我甘拜下风 🏳️”"] },
+    ];
+
+    const SUBDUE_TITLES = ["电子唐僧", "赛博法海", "硅谷渡劫师", "大乘降魔尊"];
+
+    const muyuState = {
+      items: PRESET_AI_SERVICES.map((x) => ({ ...x, isCustom: false })),
+      activeId: "kyc_svc",
+      prayedIds: new Set(),
+      totalKnocks: 0,
+      stress: 0,
+      rage: 0,
+      subdueCount: 0,
+      surrendered: false,
+      soundOn: true,
+      customQuota: 3,
+
+      // Boss 机制状态
+      cfShieldHp: 0,
+      sensitiveUntil: 0,
+      sensitiveUsed: false,
+      phase2: false,
+      activeHazard: null,
+      hazardTimer: null,
+      hazardDeadline: 0,
+      ultActive: false,
+      ultDeadline: 0,
+      ultRaf: null,
+      appealUsed: false,
+      appealOpen: false,
+      appealTargetSkill: null,
+      appealTimerRaf: null,
+      resolvedClues: 0,
+      triggeredClueLog: [],
+      recentKnockTimes: [],
+      skillCooldownUntil: {},
+      skillCdInterval: null,
+
+      // 动画句柄
+      hitTimer: null,
+      coolInterval: null,
+      combatTickInterval: null,
+      attackTimer: null,
+      lastKnockTs: 0,
+      rhythmProgress: 0,
+      rhythmActive: false,
+      rhythmRaf: null,
+      rhythmStartTs: 0,
+    };
+
+    function getActiveSkin() {
+      return muyuState.items.find((x) => x.id === muyuState.activeId) || muyuState.items[0];
+    }
+
+    let muyuAudioCtx = null;
+    function playMuyuKnockSound(isCrit, isBlocked) {
+      if (!muyuState.soundOn) return;
+      try {
+        if (!muyuAudioCtx) {
+          const AC = window.AudioContext || window.webkitAudioContext;
+          if (!AC) return;
+          muyuAudioCtx = new AC();
+        }
+        if (muyuAudioCtx.state === "suspended") muyuAudioCtx.resume();
+        const now = muyuAudioCtx.currentTime;
+
+        const osc1 = muyuAudioCtx.createOscillator();
+        const gain1 = muyuAudioCtx.createGain();
+        osc1.type = isBlocked ? "square" : "triangle";
+        const pitch = isBlocked ? 290 : (isCrit ? 650 : 515) + (Math.random() - 0.5) * 24;
+        osc1.frequency.setValueAtTime(pitch, now);
+        osc1.frequency.exponentialRampToValueAtTime(isBlocked ? 170 : 245, now + 0.095);
+        gain1.gain.setValueAtTime(isCrit ? 0.27 : 0.2, now);
+        gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.13);
+        osc1.connect(gain1);
+        gain1.connect(muyuAudioCtx.destination);
+        osc1.start(now);
+        osc1.stop(now + 0.14);
+      } catch {
+        // 忽略受限环境音频异常
+      }
+    }
+
+    function toggleMuyuSound() {
+      muyuState.soundOn = !muyuState.soundOn;
+      const btn = document.getElementById("btn-muyu-sound");
+      btn.classList.toggle("is-muted", !muyuState.soundOn);
+      document.getElementById("muyu-sound-icon").innerHTML = muyuState.soundOn
+        ? '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>'
+        : '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="22" x2="16" y1="9" y2="15"></line><line x1="16" x2="22" y1="9" y2="15"></line>';
+    }
+
+    function applySkinToHammer() {
+      const skin = getActiveSkin();
+      document.getElementById("mallet-head").setAttribute("fill", skin.color || "#10b981");
+      const btn = document.getElementById("muyu-btn");
+      btn.style.setProperty("--skin-color", skin.color || "#f59e0b");
+      btn.style.setProperty("--skin-glow", skin.glow || "rgba(245,158,11,0.35)");
+      document.getElementById("active-wish-label").textContent = `${skin.skinName || "✨ 自定义许愿锤"} · ${skin.label}`;
+    }
+
+    function renderWishOptions() {
+      const grid = document.getElementById("preset-wish-grid");
+      grid.innerHTML = "";
+      muyuState.items.forEach((item) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        const selected = item.id === muyuState.activeId;
+        const prayed = muyuState.prayedIds.has(item.id);
+        btn.className = `wish-option-chip ${selected ? "is-selected" : ""} ${prayed ? "is-prayed" : ""} ${item.isCustom ? "is-custom-chip" : ""}`;
+        btn.dataset.wishId = item.id;
+        btn.title = `装备「${item.skinName || "自定义许愿锤"}」并切换打击特效`;
+
+        const dot = document.createElement("span");
+        dot.className = "wish-done-dot";
+        const txt = document.createElement("span");
+        txt.textContent = item.label;
+        btn.appendChild(dot);
+        btn.appendChild(txt);
+
+        btn.onclick = () => {
+          muyuState.activeId = item.id;
+          applySkinToHammer();
+          renderWishOptions();
+        };
+        grid.appendChild(btn);
+      });
+    }
+
+    function isSkillRecommended(skillId) {
+      if (muyuState.appealOpen && muyuState.appealTargetSkill) {
+        return false; // 申诉期考察玩家判断力，不直接作弊标蓝
+      }
+      if (muyuState.ultActive && skillId === "kill_switch") return true;
+      if (muyuState.cfShieldHp > 0 && skillId === "geo_hot") return true;
+      if (muyuState.activeHazard && muyuState.activeHazard.counterSkill === skillId) return true;
+      if (Date.now() < muyuState.sensitiveUntil && skillId === "calm_denoise") return true;
+      return false;
+    }
+
+    function renderSkillBar() {
+      const bar = document.getElementById("fd-skill-bar");
+      const now = Date.now();
+      bar.innerHTML = "";
+      FD_SKILLS.forEach((sk) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        const remMs = Math.max(0, (muyuState.skillCooldownUntil[sk.id] || 0) - now);
+        const cooling = remMs > 0;
+        const counter = !cooling && isSkillRecommended(sk.id);
+        btn.className = `fd-skill-btn ${counter ? "is-counter-ready" : ""} ${cooling ? "is-cooling" : ""}`;
+        btn.dataset.skillId = sk.id;
+        btn.disabled = cooling;
+        btn.onclick = () => useFdSkill(sk.id);
+
+        btn.innerHTML = `
+          <div class="fd-skill-top">
+            <span>${sk.icon} ${sk.name}</span>
+            <span class="fd-skill-top-right">
+              <span class="fd-skill-counter-badge">克制</span>
+              <span class="fd-skill-key">${sk.key}</span>
+            </span>
+          </div>
+          <div class="fd-skill-sub">${sk.sub}</div>
+          <span class="fd-skill-cd tabular">${(remMs / 1000).toFixed(1)}s</span>
+        `;
+        bar.appendChild(btn);
+      });
+    }
+
+    function updateBossStageBanner() {
+      const stageCard = document.getElementById("muyu-stage-card");
+      const banner = document.getElementById("boss-phase-banner");
+      const badge = document.getElementById("boss-phase-badge");
+      const text = document.getElementById("boss-phase-text");
+      const shieldChip = document.getElementById("shield-status-chip");
+      const clueChip = document.getElementById("resolved-clue-chip");
+
+      const inSens = Date.now() < muyuState.sensitiveUntil;
+      stageCard.classList.toggle("is-sensitive", inSens && !muyuState.phase2);
+      stageCard.classList.toggle("is-phase2", muyuState.phase2);
+      banner.classList.toggle("is-sensitive", inSens && !muyuState.phase2);
+      banner.classList.toggle("is-phase2", muyuState.phase2);
+
+      if (muyuState.phase2) {
+        badge.textContent = "二段暴走";
+        text.textContent = inSens
+          ? "🔥 二段暴走 + 敏感期双倍伤害！注意高危线索与必杀前摇"
+          : "😈 Dario 进入二段防封审计状态 · 高危组合线索已解锁";
+      } else if (inSens) {
+        const left = ((muyuState.sensitiveUntil - Date.now()) / 1000).toFixed(1);
+        badge.textContent = "敏感期";
+        text.textContent = `🔥 24h 支付复审敏感期 (${left}s) · 怒气与伤害 ×2（按 [4] 冷静降噪镇压）`;
+      } else {
+        badge.textContent = "一段";
+        text.textContent = "常规风控巡检 · 连续敲击或踩点禅环积攒破防";
+      }
+
+      shieldChip.textContent = muyuState.cfShieldHp > 0
+        ? `CF 盾: ${muyuState.cfShieldHp}/3 (按[1]破盾)`
+        : "CF 盾: 未举盾";
+      shieldChip.style.color = muyuState.cfShieldHp > 0 ? "#f97316" : "";
+      clueChip.textContent = `已拆线索 ${muyuState.resolvedClues}`;
+      document.getElementById("dario-phase2-aura").style.opacity = muyuState.phase2 ? "0.75" : "0";
+    }
+
+    function updateDarioVisual(forceLine, customSpeech) {
+      const s = muyuState.stress;
+      const r = muyuState.rage;
+      let stageIdx = 0;
+      for (let i = DARIO_STAGES.length - 1; i >= 0; i--) {
+        if (s >= DARIO_STAGES[i].minStress) { stageIdx = i; break; }
+      }
+      const cfg = DARIO_STAGES[stageIdx];
+      const zone = document.getElementById("dario-zone");
+      zone.className = `dario-zone stage-${stageIdx}`;
+
+      document.getElementById("dario-mood-label").textContent = `Dario 状态 · ${cfg.mood}`;
+      document.getElementById("dario-stress-pct").textContent = `破防 ${Math.round(s)}%`;
+      document.getElementById("dario-meter-fill").style.width = `${Math.min(100, Math.round(s))}%`;
+
+      document.getElementById("dario-rage-pct").textContent = `怒气 ${Math.round(r)}%`;
+      document.getElementById("dario-rage-fill").style.width = `${Math.min(100, Math.round(r))}%`;
+      document.getElementById("dario-rage-label").textContent = r >= 75 ? "风控怒气 · 必杀警戒！" : Date.now() < muyuState.sensitiveUntil ? "风控怒气 · 敏感期翻倍" : "风控怒气 · 蓄势中";
+
+      if (customSpeech || forceLine || s === 0) {
+        const speech = document.getElementById("dario-speech");
+        speech.textContent = customSpeech || cfg.lines[Math.floor(Math.random() * cfg.lines.length)];
+        speech.classList.add("is-pop");
+        setTimeout(() => speech.classList.remove("is-pop"), 170);
+      }
+
+      document.getElementById("dario-sweat").style.opacity = stageIdx >= 1 ? "1" : "0";
+      document.getElementById("dario-headband").style.opacity = stageIdx >= 2 ? "1" : "0";
+      document.getElementById("dario-hands-ears").style.opacity = stageIdx >= 2 ? "1" : "0";
+      document.getElementById("dario-anger").style.opacity = stageIdx >= 3 || r >= 75 ? "1" : "0";
+      document.getElementById("dario-flag").style.opacity = stageIdx >= 4 ? "1" : "0";
+
+      const cfEl = document.getElementById("dario-cf-shield");
+      cfEl.style.opacity = muyuState.cfShieldHp > 0 ? "1" : "0";
+      cfEl.style.transform = muyuState.cfShieldHp > 0 ? "translateX(0px)" : "translateX(-8px)";
+      document.getElementById("cf-shield-hp-txt").textContent = muyuState.cfShieldHp > 0 ? `${muyuState.cfShieldHp}层` : "403";
+
+      const blushOp = stageIdx >= 3 ? "0.52" : stageIdx === 2 ? "0.32" : "0.16";
+      document.getElementById("dario-blush-l").setAttribute("opacity", blushOp);
+      document.getElementById("dario-blush-r").setAttribute("opacity", blushOp);
+
+      document.getElementById("dario-eyes-normal").style.display = stageIdx <= 1 ? "block" : "none";
+      document.getElementById("dario-eyes-tight").style.display = stageIdx === 2 ? "block" : "none";
+      document.getElementById("dario-eyes-dizzy").style.display = stageIdx >= 3 ? "block" : "none";
+
+      const browL = document.getElementById("dario-brow-l");
+      const browR = document.getElementById("dario-brow-r");
+      const mouth = document.getElementById("dario-mouth");
+      if (stageIdx === 0) {
+        browL.setAttribute("d", "M61 60 L72 62"); browR.setAttribute("d", "M99 60 L88 62"); mouth.setAttribute("d", "M72 84 Q80 86 88 84");
+      } else if (stageIdx === 1) {
+        browL.setAttribute("d", "M61 59 L73 64"); browR.setAttribute("d", "M99 59 L87 64"); mouth.setAttribute("d", "M73 86 Q80 82 87 86");
+      } else if (stageIdx === 2) {
+        browL.setAttribute("d", "M60 63 L73 59"); browR.setAttribute("d", "M100 63 L87 59"); mouth.setAttribute("d", "M71 87 Q80 80 89 87");
+      } else {
+        browL.setAttribute("d", "M60 64 L73 58"); browR.setAttribute("d", "M100 64 L87 58"); mouth.setAttribute("d", "M71 88 Q80 77 89 88 Q80 91 71 88");
+      }
+
+      updateBossStageBanner();
+      renderSkillBar();
+    }
+
+    function floatMeritText(text, x, y, color) {
+      const merit = document.createElement("div");
+      merit.className = "muyu-float-merit";
+      merit.textContent = text;
+      if (color) merit.style.color = color;
+      merit.style.left = x + "px";
+      merit.style.top = y + "px";
+      document.body.appendChild(merit);
+      setTimeout(() => merit.remove(), 880);
+    }
+
+    function addRage(delta) {
+      if (muyuState.surrendered || muyuState.appealOpen || muyuState.ultActive) return;
+      const mult = Date.now() < muyuState.sensitiveUntil ? 2 : 1;
+      muyuState.rage = Math.min(100, Math.max(0, muyuState.rage + delta * mult));
+      if (muyuState.rage >= 100 && !muyuState.ultActive) {
+        triggerBanUltimate();
+      }
+    }
+
+    // 机制触发：高危「封禁线索 / 作死雷区」卡片
+    function spawnHazardClue(preferTrigger) {
+      if (muyuState.activeHazard || muyuState.surrendered || muyuState.ultActive || muyuState.appealOpen) return;
+      let pool = HAZARD_CLUES.filter((h) => !preferTrigger || h.trigger === preferTrigger);
+      if (pool.length === 0) pool = HAZARD_CLUES;
+      const clue = pool[Math.floor(Math.random() * pool.length)];
+      muyuState.activeHazard = clue;
+      muyuState.hazardDeadline = Date.now() + 6500;
+      renderHazardClue();
+      renderSkillBar();
+    }
+
+    function renderHazardClue() {
+      const slot = document.getElementById("hazard-clue-slot");
+      if (!muyuState.activeHazard) {
+        slot.innerHTML = "";
+        return;
+      }
+      const c = muyuState.activeHazard;
+      const sk = FD_SKILLS.find((s) => s.id === c.counterSkill);
+      const rem = Math.max(0, muyuState.hazardDeadline - Date.now());
+      const pct = Math.min(100, (rem / 6500) * 100);
+      slot.innerHTML = `
+        <div class="hazard-clue-card ${c.critical ? "is-critical" : ""}" onclick="useFdSkill('${c.counterSkill}')">
+          <div class="hazard-clue-top">
+            <span>${c.title}</span>
+            <span class="hazard-clue-counter-tag">按 [${sk.key}] ${sk.icon} ${sk.name} 排雷</span>
+          </div>
+          <div class="hazard-clue-desc">${c.desc}</div>
+          <div class="hazard-clue-bar"><div class="hazard-clue-bar-fill" style="width:${pct.toFixed(1)}%"></div></div>
+        </div>
+      `;
+    }
+
+    function resolveActiveHazardBySkill(skillId) {
+      if (!muyuState.activeHazard) return false;
+      const c = muyuState.activeHazard;
+      if (c.counterSkill !== skillId) return false;
+      muyuState.activeHazard = null;
+      muyuState.resolvedClues += 1;
+      document.getElementById("hazard-clue-slot").innerHTML = "";
+      muyuState.stress = Math.min(100, muyuState.stress + 15);
+      muyuState.rage = Math.max(0, muyuState.rage - 18);
+
+      const dr = document.getElementById("dario-avatar-wrap").getBoundingClientRect();
+      spawnSparkleBurst(dr.left + dr.width * 0.5, dr.top + dr.height * 0.5, 18, 18, ["#3b93fa", "#10b981", "#ffffff"]);
+      floatMeritText(`🧹 成功拆弹「${c.title.slice(0, 10)}」+15%`, dr.left + 60, dr.top + 8, "#10b981");
+      updateDarioVisual(true, `“啧！竟然提前把「${c.title.slice(2, 12)}」查杀了？！”`);
+      handleSurrenderCheck();
+      return true;
+    }
+
+    // 触发 CF 入口盾阻挡
+    function raiseCfShield(reasonSpeech) {
+      if (muyuState.cfShieldHp > 0 || muyuState.surrendered || muyuState.appealOpen) return;
+      muyuState.cfShieldHp = 3;
+      updateDarioVisual(true, reasonSpeech || "“想敲我？先吃我一记 Cloudflare 403 入口盾！”");
+      const dr = document.getElementById("dario-avatar-wrap").getBoundingClientRect();
+      floatMeritText("🛡️ Dario 举起 CF 403 盾（按 [1] 同区热备秒破）", dr.left + 40, dr.top + 8, "#f97316");
+    }
+
+    // 触发 Dario 封号必杀读条
+    function triggerBanUltimate() {
+      if (muyuState.ultActive || muyuState.surrendered || muyuState.appealOpen) return;
+      muyuState.ultActive = true;
+      muyuState.ultDeadline = Date.now() + 2800;
+      muyuState.activeHazard = null;
+      document.getElementById("hazard-clue-slot").innerHTML = "";
+      document.getElementById("dario-ult-banner").classList.add("show");
+      updateDarioVisual(true, "“怒气满溢！我要签发 403 account_banned 封号必杀了！”");
+      renderSkillBar();
+
+      const step = () => {
+        if (!muyuState.ultActive || muyuState.appealOpen || muyuState.surrendered) return;
+        const rem = muyuState.ultDeadline - Date.now();
+        if (rem <= 0) {
+          muyuState.ultActive = false;
+          document.getElementById("dario-ult-banner").classList.remove("show");
+          openSecondAppeal();
+          return;
+        }
+        document.getElementById("dario-ult-sec").textContent = `${(rem / 1000).toFixed(1)}s`;
+        document.getElementById("dario-ult-fill").style.width = `${(rem / 2800) * 100}%`;
+        muyuState.ultRaf = requestAnimationFrame(step);
+      };
+      muyuState.ultRaf = requestAnimationFrame(step);
+    }
+
+    // 二次申诉接招机制 & 复盘卡
+    function openSecondAppeal() {
+      const overlay = document.getElementById("appeal-overlay");
+      const card = document.getElementById("appeal-card");
+      const titleEl = document.getElementById("appeal-title");
+      const timerEl = document.getElementById("appeal-timer");
+      const chargeEl = document.getElementById("appeal-charge");
+      const hintEl = document.getElementById("appeal-hint");
+      const recapEl = document.getElementById("appeal-recap-list");
+      const actionsEl = document.getElementById("appeal-actions");
+
+      if (muyuState.appealUsed) {
+        showBanRecap("二次申诉次数已耗尽，本账号已被 403 永久锁定。");
+        return;
+      }
+
+      muyuState.appealOpen = true;
+      const sample = muyuState.triggeredClueLog.length > 0
+        ? HAZARD_CLUES.find((h) => h.title === muyuState.triggeredClueLog[muyuState.triggeredClueLog.length - 1]) || HAZARD_CLUES[0]
+        : HAZARD_CLUES[Math.floor(Math.random() * HAZARD_CLUES.length)];
+      muyuState.appealTargetSkill = sample.counterSkill;
+
+      card.classList.remove("is-recap");
+      titleEl.textContent = "⚠️ 命中 403 account_banned · 触发「二次申诉」绝地接招（每局限 1 次）";
+      timerEl.style.display = "inline-block";
+      chargeEl.textContent = sample.appealCharge;
+      hintEl.textContent = "请在下方 [1]~[5] FD 防护技能中，选择刚好能应对此指控的技能完成申诉！（选错则申诉驳回）";
+      hintEl.style.display = "block";
+      recapEl.style.display = "none";
+      actionsEl.innerHTML = "";
+      overlay.classList.add("show");
+      renderSkillBar();
+
+      const deadline = Date.now() + 9000;
+      const tick = () => {
+        if (!muyuState.appealOpen) return;
+        const rem = deadline - Date.now();
+        if (rem <= 0) {
+          muyuState.appealUsed = true;
+          muyuState.appealOpen = false;
+          showBanRecap("二次申诉倒计时结束，系统自动发送官方拒绝模板信件。");
+          return;
+        }
+        timerEl.textContent = `${(rem / 1000).toFixed(1)}s`;
+        muyuState.appealTimerRaf = requestAnimationFrame(tick);
+      };
+      muyuState.appealTimerRaf = requestAnimationFrame(tick);
+    }
+
+    function resolveAppealSkill(skillId) {
+      if (!muyuState.appealOpen) return;
+      cancelAnimationFrame(muyuState.appealTimerRaf);
+      muyuState.appealUsed = true;
+      muyuState.appealOpen = false;
+
+      if (skillId === muyuState.appealTargetSkill) {
+        document.getElementById("appeal-overlay").classList.remove("show");
+        muyuState.rage = 25;
+        muyuState.stress = Math.min(100, muyuState.stress + 24);
+        const dr = document.getElementById("dario-avatar-wrap").getBoundingClientRect();
+        spawnSparkleBurst(dr.left + 70, dr.top + 60, 26, 24, ["#10b981", "#3b93fa", "#fde047"]);
+        floatMeritText("✅ 二次申诉成功！绝地翻盘 +24%", dr.left + 50, dr.top + 10, "#10b981");
+        showToast("二次申诉翻盘成功！", "精准拿出 FD 防护证据链打脸风控模型，Dario 怒气降至 25%！");
+        updateDarioVisual(true, "“可恶！证据链无懈可击，只能给你解封了！”");
+        handleSurrenderCheck();
+      } else {
+        const rightSk = FD_SKILLS.find((s) => s.id === muyuState.appealTargetSkill);
+        showBanRecap(`技能未对症下药（该指控需用 [${rightSk.key}] ${rightSk.icon} ${rightSk.name}），官方退回模板拒信且不予退款。`);
+      }
+    }
+
+    function showBanRecap(reasonText) {
+      const overlay = document.getElementById("appeal-overlay");
+      const card = document.getElementById("appeal-card");
+      const titleEl = document.getElementById("appeal-title");
+      const timerEl = document.getElementById("appeal-timer");
+      const chargeEl = document.getElementById("appeal-charge");
+      const hintEl = document.getElementById("appeal-hint");
+      const recapEl = document.getElementById("appeal-recap-list");
+      const actionsEl = document.getElementById("appeal-actions");
+
+      card.classList.add("is-recap");
+      titleEl.textContent = "💀 模拟封号复盘 · 本局踩中了以下高危封禁线索";
+      timerEl.style.display = "none";
+      chargeEl.textContent = reasonText;
+      hintEl.style.display = "none";
+
+      recapEl.innerHTML = "";
+      const logs = muyuState.triggeredClueLog.length > 0 ? muyuState.triggeredClueLog : ["🔌 Clash 断连触发 onQuitCleanup", "📍 IPv6 / WebRTC / 北京时区泄露"];
+      [...new Set(logs)].forEach((t) => {
+        const info = HAZARD_CLUES.find((h) => h.title === t);
+        const sk = info ? FD_SKILLS.find((s) => s.id === info.counterSkill) : FD_SKILLS[4];
+        const row = document.createElement("div");
+        row.className = "appeal-recap-item";
+        row.innerHTML = `<span>${t}</span><span style="color:var(--primary);flex-shrink:0;">防线: ${sk.icon} ${sk.name}</span>`;
+        recapEl.appendChild(row);
+      });
+      recapEl.style.display = "flex";
+
+      actionsEl.innerHTML = '<button type="button" class="guard-btn-primary" onclick="resetRound()"><span>🧹 原子清理污染目录 · 重新挑战</span></button>';
+      overlay.classList.add("show");
+      renderSkillBar();
+    }
+
+    // 主动释放 FD 5 大防护技能
+    function useFdSkill(skillId) {
+      const sk = FD_SKILLS.find((s) => s.id === skillId);
+      if (!sk) return;
+      const now = Date.now();
+      if ((muyuState.skillCooldownUntil[sk.id] || 0) > now) return;
+
+      // 若在二次申诉阶段，直接用来接招
+      if (muyuState.appealOpen) {
+        muyuState.skillCooldownUntil[sk.id] = now + sk.cdMs;
+        resolveAppealSkill(sk.id);
+        return;
+      }
+      if (muyuState.surrendered) return;
+
+      muyuState.skillCooldownUntil[sk.id] = now + sk.cdMs;
+      const dr = document.getElementById("dario-avatar-wrap").getBoundingClientRect();
+
+      // 1. ⚡ 四层熔断：优先打断封号必杀！
+      if (sk.id === "kill_switch" && muyuState.ultActive) {
+        muyuState.ultActive = false;
+        cancelAnimationFrame(muyuState.ultRaf);
+        document.getElementById("dario-ult-banner").classList.remove("show");
+        muyuState.rage = 0;
+        muyuState.stress = Math.min(100, muyuState.stress + 20);
+        spawnSparkleBurst(dr.left + 70, dr.top + 60, 24, 24, ["#38bdf8", "#fde047", "#ffffff"]);
+        floatMeritText("⚡ 四层熔断打断必杀！+20%", dr.left + 50, dr.top + 8, "#38bdf8");
+        showToast("⚡ 四层热熔断救命成功！", "Clash 掐流 + 防火墙封锁 + 强杀跳过 onQuitCleanup，彻底截断封号回传！");
+        updateDarioVisual(true, "“卧槽？！强杀进程还清光遥测，这封号请求根本发不出去！”");
+        handleSurrenderCheck();
+        return;
+      }
+
+      // 2. 🌐 同区热备：优先秒破 CF 入口盾！
+      if (sk.id === "geo_hot" && muyuState.cfShieldHp > 0) {
+        muyuState.cfShieldHp = 0;
+        muyuState.stress = Math.min(100, muyuState.stress + 14);
+        muyuState.rage = Math.max(0, muyuState.rage - 8);
+        spawnSparkleBurst(dr.left + 35, dr.top + 60, 20, 18, ["#f97316", "#38bdf8", "#fde047"]);
+        floatMeritText("🌐 同区 ISP 热备 · 一击碎盾 +14%", dr.left + 45, dr.top + 10, "#38bdf8");
+        updateDarioVisual(true, "“切到干净同区 ISP 热备？我的 CF 入口盾脆得跟纸一样！”");
+        handleSurrenderCheck();
+        return;
+      }
+
+      // 3. 精准拆除当前机制雷区卡片
+      if (resolveActiveHazardBySkill(sk.id)) return;
+
+      // 4. 🧊 冷静降噪：直接浇灭 24h 敏感期
+      if (sk.id === "calm_denoise" && Date.now() < muyuState.sensitiveUntil) {
+        muyuState.sensitiveUntil = 0;
+        muyuState.rage = Math.max(0, muyuState.rage - 22);
+        muyuState.stress = Math.min(100, muyuState.stress + 12);
+        spawnSparkleBurst(dr.left + 65, dr.top + 55, 16, 16, ["#38bdf8", "#a7f3d0", "#ffffff"]);
+        floatMeritText("🧊 冷静保护镇压敏感期！-22% 怒", dr.left + 55, dr.top + 10, "#38bdf8");
+        updateDarioVisual(true, "“4/4 隐私降噪全关还老实静默…24h 复审找不到把柄了！”");
+        handleSurrenderCheck();
+        return;
+      }
+
+      // 5. 常规主动防守收益（小降怒 + 小破防）
+      muyuState.rage = Math.max(0, muyuState.rage - 10);
+      muyuState.stress = Math.min(100, muyuState.stress + 5);
+      floatMeritText(`${sk.icon} ${sk.name} · 护盾加固 -10% 怒`, dr.left + 55, dr.top + 12, "#3b93fa");
+      updateDarioVisual(false);
+      handleSurrenderCheck();
+    }
+
+    function handleSurrenderCheck() {
+      if (muyuState.stress >= 100 && !muyuState.surrendered) {
+        muyuState.surrendered = true;
+        muyuState.cfShieldHp = 0;
+        muyuState.ultActive = false;
+        muyuState.activeHazard = null;
+        document.getElementById("hazard-clue-slot").innerHTML = "";
+        document.getElementById("dario-ult-banner").classList.remove("show");
+
+        muyuState.subdueCount += 1;
+        document.getElementById("subdue-pill").style.display = "inline-flex";
+        document.getElementById("subdue-count").textContent = String(muyuState.subdueCount);
+        const titleName = SUBDUE_TITLES[Math.min(SUBDUE_TITLES.length - 1, muyuState.subdueCount - 1)];
+        document.getElementById("subdue-title").textContent = titleName;
+        document.getElementById("btn-dario-rematch").classList.add("show");
+
+        const dr = document.getElementById("dario-avatar-wrap").getBoundingClientRect();
+        spawnSparkleBurst(dr.left + dr.width * 0.5, dr.top + dr.height * 0.4, 28, 30);
+        showToast(`成功降服 Dario！解锁称号「${titleName}」`, "多层防护 + 道具锤皮肤完美拿捏风控模型，点「放他一马」开启下一轮！");
+      }
+    }
+
+    function resetRound() {
+      cancelAnimationFrame(muyuState.ultRaf);
+      cancelAnimationFrame(muyuState.appealTimerRaf);
+      muyuState.surrendered = false;
+      muyuState.stress = 0;
+      muyuState.rage = 0;
+      muyuState.cfShieldHp = 0;
+      muyuState.sensitiveUntil = 0;
+      muyuState.sensitiveUsed = false;
+      muyuState.phase2 = false;
+      muyuState.activeHazard = null;
+      muyuState.ultActive = false;
+      muyuState.appealUsed = false;
+      muyuState.appealOpen = false;
+      muyuState.appealTargetSkill = null;
+      muyuState.resolvedClues = 0;
+      muyuState.triggeredClueLog = [];
+      muyuState.recentKnockTimes = [];
+      muyuState.skillCooldownUntil = {};
+      document.getElementById("hazard-clue-slot").innerHTML = "";
+      document.getElementById("dario-ult-banner").classList.remove("show");
+      document.getElementById("appeal-overlay").classList.remove("show");
+      document.getElementById("btn-dario-rematch").classList.remove("show");
+      updateDarioVisual(true, "“哼…刚才只是大意了，再来一轮风控对决！”");
+    }
+
+    // 节奏禅环收缩计时
+    function startRhythmRing() {
+      muyuState.rhythmActive = true;
+      muyuState.rhythmStartTs = performance.now();
+      const ringEl = document.getElementById("muyu-rhythm-ring");
+      if (muyuState.rhythmRaf) cancelAnimationFrame(muyuState.rhythmRaf);
+
+      const step = (now) => {
+        if (!muyuState.rhythmActive) return;
+        const t = (now - muyuState.rhythmStartTs) / 1100;
+        muyuState.rhythmProgress = t;
+        if (t >= 1) {
+          muyuState.rhythmActive = false;
+          ringEl.style.opacity = "0";
+          ringEl.classList.remove("is-sweet");
+          return;
+        }
+        const scale = 1.48 - t * 0.68;
+        ringEl.style.transform = `translate(-50%, -50%) scale(${scale.toFixed(3)})`;
+        ringEl.style.opacity = t < 0.15 ? String((t / 0.15) * 0.85) : String((1 - t) * 0.9);
+        ringEl.classList.toggle("is-sweet", t >= 0.48 && t <= 0.8);
+        muyuState.rhythmRaf = requestAnimationFrame(step);
+      };
+      muyuState.rhythmRaf = requestAnimationFrame(step);
+    }
+
+    // Dario 反击红球（封号前摇/风控弹幕，点击可弹反）
+    function spawnDarioCounterOrb() {
+      if (muyuState.stress < 22 || muyuState.surrendered || muyuState.ultActive || muyuState.appealOpen) return;
+      const stageCard = document.getElementById("muyu-stage-card");
+      if (stageCard.querySelector(".dario-attack-orb")) return;
+
+      const stageRect = stageCard.getBoundingClientRect();
+      const darioRect = document.getElementById("dario-avatar-wrap").getBoundingClientRect();
+      const fishRect = document.getElementById("muyu-svg-wrap").getBoundingClientRect();
+
+      const orb = document.createElement("button");
+      orb.type = "button";
+      orb.className = "dario-attack-orb";
+      const labels = ["封号飞锤!", "Portal KYC", "403 len=130"];
+      const orbLabel = labels[Math.floor(Math.random() * labels.length)];
+      orb.textContent = `💀 ${orbLabel}`;
+      stageCard.appendChild(orb);
+
+      const startX = darioRect.left - stageRect.left + 16;
+      const startY = darioRect.top - stageRect.top + darioRect.height * 0.52;
+      const targetX = fishRect.left - stageRect.left + fishRect.width * 0.55;
+      const targetY = fishRect.top - stageRect.top + fishRect.height * 0.48;
+
+      let parried = false;
+      const pStart = performance.now();
+      const duration = 2400;
+
+      orb.onclick = (ev) => {
+        ev.stopPropagation();
+        if (parried) return;
+        parried = true;
+        orb.style.background = "linear-gradient(135deg, #3b93fa, #10b981)";
+        orb.textContent = "🛡️ 弹反!";
+
+        const curX = parseFloat(orb.style.left);
+        const curY = parseFloat(orb.style.top);
+        const rStart = performance.now();
+        const retStep = (now) => {
+          const u = Math.min(1, (now - rStart) / 320);
+          const ease = u * u;
+          orb.style.left = (curX + (startX - curX) * ease) + "px";
+          orb.style.top = (curY + (startY - curY) * ease - Math.sin(u * Math.PI) * 30) + "px";
+          if (u < 1) {
+            requestAnimationFrame(retStep);
+          } else {
+            orb.remove();
+            muyuState.stress = Math.min(100, muyuState.stress + 15);
+            muyuState.rage = Math.max(0, muyuState.rage - 12);
+            const av = document.getElementById("dario-avatar-wrap");
+            av.classList.remove("is-jolted");
+            void av.offsetWidth;
+            av.classList.add("is-jolted");
+            spawnSparkleBurst(darioRect.left + 65, darioRect.top + 60, 18, 18, ["#3b93fa", "#fbbf24", "#ffffff"]);
+            floatMeritText("🛡️ 弹反封号飞锤！+15% 破防", darioRect.left + 60, darioRect.top + 8, "#3b93fa");
+            updateDarioVisual(true, `“哎哟！我自己的 ${orbLabel} 怎么弹回来了？！”`);
+            handleSurrenderCheck();
+          }
+        };
+        requestAnimationFrame(retStep);
+      };
+
+      const flyStep = (now) => {
+        if (parried || !orb.isConnected || muyuState.surrendered || muyuState.appealOpen) {
+          if (orb.isConnected && (muyuState.surrendered || muyuState.appealOpen)) orb.remove();
+          return;
+        }
+        const t = Math.min(1, (now - pStart) / duration);
+        orb.style.left = (startX + (targetX - startX) * t) + "px";
+        orb.style.top = (startY + (targetY - startY) * t - Math.sin(t * Math.PI) * 34) + "px";
+        if (t < 1) {
+          requestAnimationFrame(flyStep);
+        } else {
+          orb.remove();
+          const btn = document.getElementById("muyu-btn");
+          btn.classList.add("is-stunned");
+          setTimeout(() => btn.classList.remove("is-stunned"), 680);
+          addRage(18);
+          muyuState.stress = Math.max(0, muyuState.stress - 6);
+          updateDarioVisual(true, `“哈哈！成功砸中你一记 ${orbLabel}，怒气飙升！”`);
+        }
+      };
+      requestAnimationFrame(flyStep);
+    }
+
+    function launchChantWaveToDario(skin, isCrit) {
+      const fishRect = document.getElementById("muyu-svg-wrap").getBoundingClientRect();
+      const darioRect = document.getElementById("dario-avatar-wrap").getBoundingClientRect();
+      const glyphs = skin.glyphs || ["✦", "念", "✨"];
+      const count = isCrit ? 2 : 1;
+      for (let i = 0; i < count; i++) {
+        const el = document.createElement("span");
+        el.className = "chant-projectile";
+        el.textContent = glyphs[Math.floor(Math.random() * glyphs.length)];
+        el.style.color = skin.color || "#3b93fa";
+        const sx = fishRect.right - 22;
+        const sy = fishRect.top + fishRect.height * (0.34 + i * 0.16);
+        const dx = (darioRect.left + darioRect.width * 0.45) - sx;
+        const dy = (darioRect.top + 36 + (i - 0.5) * 18) - sy;
+        el.style.left = sx + "px";
+        el.style.top = sy + "px";
+        document.body.appendChild(el);
+        requestAnimationFrame(() => {
+          el.style.transform = `translate(${dx}px, ${dy}px) scale(1.28)`;
+          el.style.opacity = "0";
+        });
+        setTimeout(() => el.remove(), 440);
+      }
+    }
+
+    function strikeMuyu(e) {
+      if (muyuState.appealOpen) return;
+      const btn = document.getElementById("muyu-btn");
+      const skin = getActiveSkin();
+      if (!skin) return;
+
+      const now = Date.now();
+      const inCritWindow = muyuState.rhythmActive && muyuState.rhythmProgress >= 0.48 && muyuState.rhythmProgress <= 0.8;
+
+      muyuState.totalKnocks += 1;
+      muyuState.lastKnockTs = now;
+      muyuState.prayedIds.add(skin.id);
+      muyuState.recentKnockTimes.push(now);
+      muyuState.recentKnockTimes = muyuState.recentKnockTimes.filter((ts) => now - ts <= 2500);
+
+      document.getElementById("prayed-count").textContent = String(muyuState.prayedIds.size);
+      document.getElementById("knock-total").textContent = String(muyuState.totalKnocks);
+
+      btn.classList.remove("is-hit");
+      void btn.offsetWidth;
+      btn.classList.add("is-hit");
+      clearTimeout(muyuState.hitTimer);
+      muyuState.hitTimer = setTimeout(() => btn.classList.remove("is-hit"), 100);
+
+      const rip = document.createElement("span");
+      rip.className = "muyu-ripple";
+      btn.appendChild(rip);
+      setTimeout(() => rip.remove(), 640);
+
+      const rect = btn.getBoundingClientRect();
+      const fx = e && e.clientX ? e.clientX : rect.left + rect.width * 0.46;
+      const fy = rect.top + 14;
+
+      // 判定是否被 CF 盾阻挡
+      if (muyuState.cfShieldHp > 0 && !muyuState.surrendered) {
+        muyuState.cfShieldHp -= 1;
+        muyuState.stress = Math.min(100, muyuState.stress + 1.5);
+        addRage(5);
+        playMuyuKnockSound(false, true);
+        floatMeritText(`🛡️ CF 盾格挡！(剩 ${muyuState.cfShieldHp} 层 · 按[1]破盾)`, fx, fy, "#f97316");
+        spawnSparkleBurst(rect.left + rect.width * 0.5, rect.top + rect.height * 0.45, 5, 10, ["#f97316", "#fed7aa"]);
+        startRhythmRing();
+        updateDarioVisual(muyuState.cfShieldHp === 0, muyuState.cfShieldHp === 0 ? "“切…我的 CF 403 入口盾还是被硬砸碎了！”" : "“哈哈，CF 403 入口盾把这记挡住了！这不算封号哦~”");
+        handleSurrenderCheck();
+        renderWishOptions();
+        return;
+      }
+
+      const gain = inCritWindow ? 12 : 5.2;
+      if (!muyuState.surrendered) {
+        muyuState.stress = Math.min(100, muyuState.stress + gain);
+        addRage(inCritWindow ? 8 : 5);
+      }
+
+      if (inCritWindow) {
+        const stageCard = document.getElementById("muyu-stage-card");
+        stageCard.classList.remove("is-crit-shake");
+        void stageCard.offsetWidth;
+        stageCard.classList.add("is-crit-shake");
+      }
+      spawnSparkleBurst(rect.left + rect.width * 0.5, rect.top + rect.height * 0.48, inCritWindow ? 15 : 6, inCritWindow ? 20 : 12, skin.particles || ["#3b93fa", "#fbbf24", "#ffffff"]);
+
+      const tag = skin.floatTag || skin.label;
+      floatMeritText(inCritWindow ? `✦ 禅意暴击 ×3 · ${tag}` : `${skin.skinName ? skin.skinName.split(" ")[0] : "✨"} ${tag} +1`, fx + (Math.random() - 0.5) * 26, fy, skin.color);
+
+      launchChantWaveToDario(skin, inCritWindow);
+      playMuyuKnockSound(inCritWindow, false);
+
+      const avatar = document.getElementById("dario-avatar-wrap");
+      avatar.classList.remove("is-jolted");
+      void avatar.offsetWidth;
+      avatar.classList.add("is-jolted");
+
+      startRhythmRing();
+
+      // 检查阶段跃迁与机制触发
+      if (!muyuState.sensitiveUsed && muyuState.stress >= 32 && !muyuState.surrendered) {
+        muyuState.sensitiveUsed = true;
+        muyuState.sensitiveUntil = now + 10500;
+        showToast("🔥 进入 24h 支付复审敏感期！", "Dario 怒气增速 ×2！按 [4] 🧊 冷静降噪 可提前镇压敏感期。");
+        spawnHazardClue("sensitive");
+      } else if (!muyuState.phase2 && muyuState.stress >= 55 && !muyuState.surrendered) {
+        muyuState.phase2 = true;
+        raiseCfShield("“进入二段防封审计状态！先吃我一记 Cloudflare 403 入口盾！”");
+        showToast("😈 Dario 进入二段暴走形态！", "已开启 CF 403 护盾并解锁高危组合线索（OAuth 反代 / 同机串号 / Team 连坐）。");
+      } else if (muyuState.recentKnockTimes.length >= 6 && !muyuState.activeHazard && !muyuState.surrendered) {
+        spawnHazardClue("rapid");
+      } else if (muyuState.totalKnocks > 0 && muyuState.totalKnocks % 9 === 0 && muyuState.cfShieldHp === 0 && !muyuState.surrendered) {
+        raiseCfShield();
+      } else if (!muyuState.activeHazard && Math.random() < 0.24) {
+        spawnHazardClue(muyuState.phase2 ? "phase2" : "combat");
+      }
+
+      updateDarioVisual(inCritWindow, inCritWindow ? `“嘶——这记「${skin.label}」禅意暴击震得我天灵盖冒烟！”` : undefined);
+      handleSurrenderCheck();
+      renderWishOptions();
+    }
+
+    // 定时器：技能冷却读秒 + 机制雷区超时引爆 + Dario 攻击球
+    muyuState.combatTickInterval = setInterval(() => {
+      const now = Date.now();
+      let needSkillRefresh = false;
+      for (const sk of FD_SKILLS) {
+        if ((muyuState.skillCooldownUntil[sk.id] || 0) > now - 160) {
+          needSkillRefresh = true;
+          break;
+        }
+      }
+      if (needSkillRefresh) renderSkillBar();
+
+      if (muyuState.activeHazard && !muyuState.appealOpen && !muyuState.surrendered) {
+        if (now >= muyuState.hazardDeadline) {
+          const c = muyuState.activeHazard;
+          muyuState.activeHazard = null;
+          document.getElementById("hazard-clue-slot").innerHTML = "";
+          muyuState.triggeredClueLog.push(c.title);
+          addRage(c.rageGain);
+          const dr = document.getElementById("dario-avatar-wrap").getBoundingClientRect();
+          floatMeritText(`💥 线索未处理！怒气 +${c.rageGain}%`, dr.left + 45, dr.top + 8, "#ef4444");
+          updateDarioVisual(true, `“抓到把柄：「${c.title}」！风控怒气暴涨！”`);
+        } else {
+          renderHazardClue();
+        }
+      }
+      updateBossStageBanner();
+    }, 120);
+
+    muyuState.attackTimer = setInterval(() => {
+      if (muyuState.stress >= 22 && !muyuState.surrendered && !muyuState.ultActive && !muyuState.appealOpen && Math.random() < 0.65) {
+        spawnDarioCounterOrb();
+      }
+    }, 5200);
+
+    muyuState.coolInterval = setInterval(() => {
+      const floorStress = muyuState.phase2 ? 55 : 0;
+      if (!muyuState.surrendered && !muyuState.appealOpen && muyuState.stress > floorStress && Date.now() - muyuState.lastKnockTs > 4200) {
+        muyuState.stress = Math.max(floorStress, muyuState.stress - 2.5);
+        updateDarioVisual(false);
+      }
+    }, 700);
+
+    function sanitizeAiWish(raw) {
+      const noTags = String(raw || "").replace(/<[^>]*>/g, "");
+      const cleaned = noTags.replace(/[^\u4e00-\u9fa5a-zA-Z0-9\s/+·\-]/g, "");
+      const cut = Array.from(cleaned.trimStart()).slice(0, 10).join("");
+      return { value: cut, hadUnsafe: cleaned !== noTags || noTags !== String(raw || "") };
+    }
+
+    let unsafeToastTs = 0;
+    function handleCustomWishInput() {
+      const inp = document.getElementById("custom-ai-input");
+      const res = sanitizeAiWish(inp.value);
+      if (inp.value !== res.value) {
+        inp.value = res.value;
+        const now = Date.now();
+        if (res.hadUnsafe && now - unsafeToastTs > 1800) {
+          unsafeToastTs = now;
+          showToast("安全字符过滤已生效", "已自动剔除脚本与特殊符号，仅保留纯文本（最多 10 字）。");
+        }
+      }
+      document.getElementById("custom-ai-count").textContent = `${Array.from(res.value).length}/10`;
+    }
+
+    function addCustomWishAndStrike() {
+      const inp = document.getElementById("custom-ai-input");
+      const label = sanitizeAiWish(inp.value).value.trim();
+      if (!label) {
+        showToast("请先输入想要的 AI 服务皮肤名", "支持汉字/英数字，最多 10 字。");
+        inp.focus();
+        return;
+      }
+      const exists = muyuState.items.find((x) => x.label === label);
+      if (exists) {
+        muyuState.activeId = exists.id;
+        applySkinToHammer();
+        inp.value = "";
+        handleCustomWishInput();
+        strikeMuyu();
+        return;
+      }
+      if (muyuState.customQuota <= 0) {
+        showToast("今日自定义名额已用完", "每台设备每日限添加 3 个自定义皮肤，防止灌水。");
+        return;
+      }
+      muyuState.customQuota -= 1;
+      const newItem = {
+        id: `custom_${Date.now()}`,
+        label,
+        skinName: "✨ 自定义许愿锤",
+        color: "#38bdf8",
+        glow: "rgba(56,189,248,0.45)",
+        glyphs: ["✨", label.slice(0, 2), "✦"],
+        particles: ["#38bdf8", "#a855f7", "#fde047"],
+        floatTag: label,
+        isCustom: true,
+      };
+      muyuState.items.push(newItem);
+      muyuState.activeId = newItem.id;
+      applySkinToHammer();
+      inp.value = "";
+      handleCustomWishInput();
+      strikeMuyu();
+      showToast("已装备自定义皮肤并敲响木鱼", `「${label}」已设为当前道具锤皮肤（今日剩余 ${muyuState.customQuota}/3 次）。`);
+    }
+
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        closeSettingsModal();
+        return;
+      }
+      const tag = (document.activeElement && document.activeElement.tagName || "").toUpperCase();
+      const modalOpen = document.getElementById("settings-scrim").classList.contains("open");
+      if (tag === "INPUT" || tag === "TEXTAREA" || modalOpen) return;
+
+      if (e.code === "Space") {
+        e.preventDefault();
+        strikeMuyu();
+      } else if (["1", "2", "3", "4", "5"].includes(e.key)) {
+        const sk = FD_SKILLS[Number(e.key) - 1];
+        if (sk) {
+          e.preventDefault();
+          useFdSkill(sk.id);
+        }
+      }
+    });
+
+    // 初始化默认模板与木鱼 Boss 战页面
+    setTemplate("butterfly");
+    applySkinToHammer();
+    renderWishOptions();
+    renderSkillBar();
+    updateDarioVisual(false);
+  </script>
+</body>
+</html>

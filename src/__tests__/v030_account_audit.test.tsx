@@ -1,10 +1,10 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "@/App";
+import { SettingsModal } from "@/components/SettingsModal";
 import { Sidebar } from "@/components/Sidebar";
 import { DEFAULT_CONFIG, FALLBACK_PREFLIGHT, FALLBACK_SNAPSHOT, ipc } from "@/lib/ipc";
 import { AccountAuditPage } from "@/pages/AccountAuditPage";
-import { SettingsPage } from "@/pages/SettingsPage";
 import { useGuardStore } from "@/stores/guardStore";
 
 const FORBIDDEN_DESIGN_TERMS = [
@@ -159,7 +159,7 @@ describe("v0.3.0 账户审计（v12 1:1 交互、单开互斥、云端核验与�
     expect(screen.getAllByText(/已自动降噪/).length).toBeGreaterThanOrEqual(1);
   });
 
-  it("守卫配置页支持检查更新并在发现新版本时展示更新摘要与一键安装按钮", async () => {
+  it("系统设置支持检查更新并在发现新版本时展示更新摘要与一键安装按钮", async () => {
     const checkSpy = vi.spyOn(ipc, "checkAppUpdate").mockResolvedValue({
       currentVersion: "0.3.0",
       available: true,
@@ -173,16 +173,27 @@ describe("v0.3.0 账户审计（v12 1:1 交互、单开互斥、云端核验与�
       .spyOn(ipc, "installAppUpdate")
       .mockResolvedValue("已下载并校验 v0.3.1 更新包，正在安装并重启...");
 
-    render(<SettingsPage />);
-    fireEvent.click(screen.getByTestId("btn-check-app-update"));
+    useGuardStore.setState({
+      settingsModalOpen: true,
+      settingsModalTab: "update",
+      updateInfo: {
+        currentVersion: "0.3.0",
+        available: false,
+        latestVersion: "0.3.0",
+        viaProxy: false,
+        message: "当前已是最新版本",
+      },
+    });
+    render(<SettingsModal />);
+    fireEvent.click(screen.getByTestId("btn-settings-check-update"));
 
     await waitFor(() => {
       expect(checkSpy).toHaveBeenCalledTimes(1);
-      expect(screen.getByTestId("app-updater-card")).toHaveTextContent("发现新版本 v0.3.1");
-      expect(screen.getByTestId("app-updater-card")).toHaveTextContent("修复节点抖动重测提示");
+      expect(screen.getByTestId("settings-updater-card")).toHaveTextContent("发现新版本 v0.3.1");
+      expect(screen.getByTestId("settings-updater-card")).toHaveTextContent("修复节点抖动重测提示");
     });
 
-    fireEvent.click(screen.getByTestId("btn-install-app-update"));
+    fireEvent.click(screen.getByRole("button", { name: /立即更新 v0\.3\.1/ }));
     await waitFor(() => {
       expect(installSpy).toHaveBeenCalledTimes(1);
     });

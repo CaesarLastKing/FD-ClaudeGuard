@@ -4,6 +4,7 @@ import {
   BookOpen,
   ChevronDown,
   Clock,
+  CreditCard,
   EyeOff,
   Globe,
   History,
@@ -402,9 +403,9 @@ export function AccountAuditPage() {
     const inPayWindow = !isFreePlan && subDays != null && subDays <= 1;
     const inKycWindow = kycVerified && kycHours != null && kycHours <= 72;
     const planChanged = local.desktop.planChangedHits > 0;
-    const windowAnyWarn = inNewWindow || inPayWindow || inKycWindow || planChanged || kycBlocked;
+    const windowAnyWarn = inNewWindow || inKycWindow || planChanged || kycBlocked;
     const windowMissingInfo =
-      regDays == null || (!isFreePlan && subDays == null) || isRealLocal || (!kycVerified && !kycNotReq && !kycBlocked);
+      regDays == null || isRealLocal || (!kycVerified && !kycNotReq && !kycBlocked);
 
     const gWindowStatus: AuditGroupView["status"] = windowAnyWarn
       ? "warn"
@@ -415,7 +416,7 @@ export function AccountAuditPage() {
       ? kycStatusLower === "expired"
         ? "实名已过期"
         : "待实名核验"
-      : inNewWindow || inPayWindow || inKycWindow || planChanged
+      : inNewWindow || inKycWindow || planChanged
       ? "高敏观察"
       : windowMissingInfo
       ? "待核观察"
@@ -447,10 +448,10 @@ export function AccountAuditPage() {
       icon: <Clock size={15} strokeWidth={1.45} />,
       prefix: "经验预警",
       prefixCls: "warn-exp",
-      title: "新号、支付与 KYC 后高敏观察窗",
+      title: "高敏感观察窗（新号 / KYC / 套餐跳变）",
       status: gWindowStatus,
       statusText: gWindowStatusText,
-      summary: `注册 ${regDays != null ? `${regDays} 天` : "待核"}、${subSummaryPart}、${kycSummaryPart}、${local.desktop.planChangedHits} 次套餐跳变。`,
+      summary: `注册 ${regDays != null ? `${regDays} 天` : "待核"}、${kycSummaryPart}、${local.desktop.planChangedHits} 次套餐跳变。`,
       cols: 2,
       metrics: [
         {
@@ -463,18 +464,6 @@ export function AccountAuditPage() {
               : `已注册 ${regDays} 天 · 已过观察`,
           cls: inNewWindow ? "warn" : "ok",
           boxState: inNewWindow ? "is-warn" : "",
-        },
-        {
-          k: "支付 / 升级复审窗 (<=24h)",
-          v: isFreePlan
-            ? "Free 无订阅（不适用支付复审）"
-            : subDays == null
-            ? "未读到订阅开通时间（待核验）"
-            : inPayWindow
-            ? `刚订阅 ${subDays} 天 · 24h 复审窗内`
-            : `已订阅 ${subDays} 天 · 已过复审`,
-          cls: inPayWindow ? "warn" : "ok",
-          boxState: inPayWindow ? "is-warn" : "",
         },
         {
           k: "过 KYC 后复核窗 (<=72h · 社区经验)",
@@ -501,7 +490,99 @@ export function AccountAuditPage() {
       ],
       advice: kycBlocked
         ? "当前账号已触发 Persona 实名抽检且尚未完成（或验证链接已过期），未通过前属高敏态：请锁死单一干净节点低频操作，按官方指引完成实名核验并平稳度过 72h 复核期。"
-        : "属社区经验参考（非官方明文规则）：新号(<7天)、支付/升级(<=24h)及过 KYC 前 72h 容错率偏低，期间建议锁死单一稳定节点低频使用；升级 Max 或换卡时发卡国、账单区、出口 IP 与证件地尽量一致，有助于降低复审概率。",
+        : "属社区经验参考（非官方明文规则）：新号(<7天)、过 KYC 后 72h 及刚发生套餐跳变期间容错率偏低，建议锁死单一稳定节点低频使用，避免切节点或跨设备折腾。",
+    };
+
+    // F-05 独立拆分：支付方式与账单风控
+    const activeFlags = cloudSnapshot?.activeFlagTypes ?? [];
+    const billingDangerFlags = activeFlags.filter((f) => {
+      const fl = f.toLowerCase();
+      return (
+        fl.includes("billing") ||
+        fl.includes("payment") ||
+        fl.includes("subscription_pause") ||
+        fl.includes("billable_usage_paused") ||
+        fl.includes("chargeback") ||
+        fl.includes("fraud")
+      );
+    });
+    const hasBillingFlag = billingDangerFlags.length > 0;
+    const rawChannel = cloudSnapshot?.merchantChannel || cur.merchantChannel || "";
+    const paymentChannelText = isFreePlan
+      ? "Free 无订阅 · 暂不适用支付风控"
+      : rawChannel && rawChannel !== "渠道未知"
+      ? `${cur.plan} · ${rawChannel}`
+      : `${cur.plan} · 支付渠道待核验`;
+    const gPaymentStatus: AuditGroupView["status"] = hasBillingFlag
+      ? "danger"
+      : inPayWindow
+      ? "warn"
+      : !isFreePlan && (subDays == null || isRealLocal)
+      ? "pending"
+      : "ok";
+    const gPaymentStatusText = hasBillingFlag
+      ? "账单异常"
+      : inPayWindow
+      ? "支付复审"
+      : isFreePlan
+      ? "免检正常"
+      : !isFreePlan && (subDays == null || isRealLocal)
+      ? "待核账单"
+      : "支付平稳";
+
+    const gPayment: AuditGroupView = {
+      part: "user",
+      id: "g-payment",
+      icon: <CreditCard size={15} strokeWidth={1.45} />,
+      prefix: "支付风控",
+      prefixCls: hasBillingFlag ? "redline" : "warn-exp",
+      title: "支付方式与账单风控",
+      status: gPaymentStatus,
+      statusText: gPaymentStatusText,
+      summary: isFreePlan
+        ? "Free 无订阅，暂不涉及支付渠道复审；未来升级订阅请严守一卡一号与四同原则。"
+        : hasBillingFlag
+        ? `云端检出账单/订阅受限标记（${billingDangerFlags.join(" / ")}），建议优先核实官方账单状态。`
+        : `${paymentChannelText}，${subSummaryPart}。`,
+      cols: 2,
+      metrics: [
+        {
+          k: "当前订阅与支付渠道",
+          v: paymentChannelText,
+          cls: isFreePlan ? "ok" : rawChannel && rawChannel !== "渠道未知" ? "ok" : "warn",
+          boxState: "",
+        },
+        {
+          k: "支付 / 升级复审窗 (<=24h)",
+          v: isFreePlan
+            ? "Free 无订阅（不适用支付复审）"
+            : subDays == null
+            ? "未读到订阅开通时间（待核验）"
+            : inPayWindow
+            ? `刚订阅 ${subDays} 天 · 24h 复审窗内`
+            : `已订阅 ${subDays} 天 · 已过复审`,
+          cls: inPayWindow ? "warn" : "ok",
+          boxState: inPayWindow ? "is-warn" : "",
+        },
+        {
+          k: "官方账单 / 订阅风控标",
+          v: isRealLocal
+            ? "待云端核验（本地无法直读账单标）"
+            : hasBillingFlag
+            ? `命中 ${billingDangerFlags.join(" / ")}`
+            : "0 条账单/订阅异常标记",
+          cls: hasBillingFlag ? "danger" : "ok",
+          boxState: hasBillingFlag ? "is-danger" : "",
+        },
+        {
+          k: "支付源隔离自查（人工核对）",
+          v: "严禁共享虚拟卡 BIN / 黑卡，发卡国与账单区尽量同属地",
+          cls: "ok",
+          boxState: "",
+        },
+      ],
+      advice:
+        "支付反欺诈是 Pro/Max 封号高发诱因：升级套餐或换卡后 24 小时内严禁切节点与换设备；请坚持「一卡一号 / 独立 Apple ID 礼品卡」，尽量保持发卡国、账单邮编、出口 IP 与证件归属地一致，杜绝复用已封号银行卡或万人共享虚拟卡段。",
     };
 
     const activeSchedCount =
@@ -1081,7 +1162,8 @@ export function AccountAuditPage() {
         "【遥测与降噪是什么】「遥测（Telemetry）」是 Claude Code CLI 后台自动向官方发送的使用统计、崩溃堆栈与版本检查请求，断网失败后会囤积在 ~/.claude/telemetry/ 等联网重试；开启「4 项官方降噪开关」代表通知 CLI 关闭这些非必要后台上报（减少无关设备指纹与断网回传噪音，完全不影响正常对话与登录）。补齐开关前会自动保存首次基线，随时可一键撤回；安全退出或熔断时也会自动清空待传目录。",
     };
 
-    const list = [gWindow, gAuto, gCloud, gMix, gEndpoint, gDisconnect, gTelemetry];
+    // F-05 拆分高敏观察窗与支付方式风控；F-07 按官方红线严重度重排工具可介入 5 项顺序
+    const list = [gWindow, gPayment, gAuto, gCloud, gDisconnect, gMix, gEndpoint, gTelemetry];
     if (!isViewingHistory) return list;
     return list.map((g) => ({
       ...g,
@@ -1590,7 +1672,9 @@ export function AccountAuditPage() {
                   ? `无需验证${staleTag}`
                   : "无需验证"
                 : kycBlocked
-                ? "待验证"
+                ? (snap.personaKycStatus ?? "").trim().toLowerCase() === "expired"
+                  ? "实名已过期"
+                  : "待验证"
                 : "状态正常"}
             </span>
           </div>
@@ -1598,7 +1682,9 @@ export function AccountAuditPage() {
             {kycVerified
               ? "已过实名 · 抗误杀能力提升 (+5)"
               : kycBlocked
-              ? "请保持固定干净节点完成官方核验"
+              ? (snap.personaKycStatus ?? "").trim().toLowerCase() === "expired"
+                ? "实名链接已过期，请固定干净节点重新核验"
+                : "请保持固定干净节点完成官方核验"
               : "未触发实名抽检"}
           </div>
         </div>
@@ -2149,6 +2235,7 @@ export function AccountAuditPage() {
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "space-between",
+                  gap: 10,
                   fontSize: 12,
                   fontWeight: 500,
                   color: "var(--text-strong)",
@@ -2162,6 +2249,7 @@ export function AccountAuditPage() {
                   className="tabular"
                   style={{
                     fontSize: 11,
+                    flexShrink: 0,
                     color: unreadLogsCount > 0 ? "var(--warning)" : "var(--text-3)",
                   }}
                 >
@@ -2173,13 +2261,12 @@ export function AccountAuditPage() {
                   ? `捕获 ${report.local.desktop.cookie403Hits} 条退出回传 Cookie 403 高危前兆；${report.denoisedOauth403Count} 条 OAuth 403 已降噪。`
                   : report.local.desktop.cfShield403Hits > 0
                   ? `403 消歧：${report.local.desktop.cfShield403Hits} 条 CF 入口盾（非封号）；${report.denoisedOauth403Count} 条背景 OAuth 403 已自动降噪。`
-                  : unreadLogsCount > 0 || nonDenoisedLogCount > 0
-                  ? `捕获 ${Math.max(
-                      unreadLogsCount,
-                      nonDenoisedLogCount
-                    )} 条待核异常事件（含鉴权 / 403 预警，未降噪）；另有 ${
+                  : unreadLogsCount > 0
+                  ? `捕获 ${unreadLogsCount} 条待核异常事件（含鉴权 / 403 预警，未降噪）；另有 ${
                       report.denoisedOauth403Count
                     } 条背景 OAuth 403 已静默降噪。`
+                  : nonDenoisedLogCount > 0
+                  ? `近 24 小时已确认留档 ${nonDenoisedLogCount} 条历史记录（未读已清零）；另有 ${report.denoisedOauth403Count} 条背景 OAuth 403 已静默降噪。`
                   : `近 24 小时日志平稳；${report.denoisedOauth403Count} 条背景 OAuth 403 已静默降噪。`}
               </div>
               <div style={{ fontSize: 11.5, color: "var(--primary)", fontWeight: 500 }}>

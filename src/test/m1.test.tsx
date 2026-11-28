@@ -34,7 +34,7 @@ describe("FD Claude Guard M1 核心功能与设计红线验收", () => {
     expect(screen.getByTestId("sidebar-settings-trigger")).toHaveTextContent("系统设置");
 
     await waitFor(() => {
-      expect(screen.getByText(/一键处理全部 \(12\)/)).toBeInTheDocument();
+      expect(screen.getByText(/一键处理全部 \(7\)/)).toBeInTheDocument();
     });
     expect(screen.queryByRole("button", { name: /安全启动 Claude/ })).not.toBeInTheDocument();
     // 回归 ISS-009：未通过且无自动修复按钮时绝不显示绿色通过文案，且必须保留 AI 排障包导出按钮

@@ -9,7 +9,7 @@ import {
   X,
 } from "lucide-react";
 import { DEFAULT_CONFIG, FALLBACK_SNAPSHOT, ipc, isTauriRuntime } from "@/lib/ipc";
-import { extractRegionCode } from "@/lib/protocol";
+import { extractRegionCode, formatCleanNodeName } from "@/lib/protocol";
 import type { AppConfig, GuardSnapshot, NavTab } from "@/types/guard";
 
 interface HudCardProps {
@@ -216,6 +216,11 @@ export function HudCard({ initialConfig, initialSnapshot, onGoConsole }: HudCard
         if (!mounted) return;
         if (!hasPreviewOverride) {
           document.documentElement.setAttribute("data-theme", cfg.theme);
+          try {
+            window.localStorage?.setItem("fd-guard-theme", cfg.theme);
+          } catch {
+            // 忽略受限存储异常
+          }
           setConfig(cfg);
           setSnapshot(snap);
         }
@@ -248,12 +253,28 @@ export function HudCard({ initialConfig, initialSnapshot, onGoConsole }: HudCard
       ipc.listenConfigChanged((cfg) => {
         if (!mounted) return;
         document.documentElement.setAttribute("data-theme", cfg.theme);
+        try {
+          window.localStorage?.setItem("fd-guard-theme", cfg.theme);
+        } catch {
+          // 忽略受限存储异常
+        }
         setConfig(cfg);
       })
     );
 
+    const onWindowFocusOrVisible = () => {
+      if (!mounted || hasPreviewOverride) return;
+      if (document.visibilityState === "visible") {
+        void sync();
+      }
+    };
+    window.addEventListener("focus", onWindowFocusOrVisible);
+    document.addEventListener("visibilitychange", onWindowFocusOrVisible);
+
     return () => {
       mounted = false;
+      window.removeEventListener("focus", onWindowFocusOrVisible);
+      document.removeEventListener("visibilitychange", onWindowFocusOrVisible);
       unsubs.forEach((fn) => fn());
       if (dockCloseTimerRef.current !== null) {
         window.clearTimeout(dockCloseTimerRef.current);
@@ -748,6 +769,7 @@ export function HudCard({ initialConfig, initialSnapshot, onGoConsole }: HudCard
             </div>
             <div style={{ minWidth: 0 }}>
               <div
+                title={snapshot.currentNode}
                 style={{
                   fontSize: 13,
                   fontWeight: 600,
@@ -757,7 +779,7 @@ export function HudCard({ initialConfig, initialSnapshot, onGoConsole }: HudCard
                   textOverflow: "ellipsis",
                 }}
               >
-                {snapshot.currentNode}
+                {formatCleanNodeName(snapshot.currentNode)}
               </div>
               <div
                 className="tabular"
@@ -793,8 +815,8 @@ export function HudCard({ initialConfig, initialSnapshot, onGoConsole }: HudCard
             className={`hm-tile ${logTileTone}`}
             title={
               logAnomCount > 0
-                ? `点击前往日志分析（风险 ${logWarnCount} · 异常 ${logCritCount}）`
-                : "点击前往日志分析"
+                ? `点击前往账户审计 → 实时日志（风险 ${logWarnCount} · 异常 ${logCritCount}）`
+                : "点击前往账户审计 → 实时日志"
             }
             onClick={() => handleNavigate("audit", "logs", false)}
           >
@@ -854,7 +876,7 @@ export function HudCard({ initialConfig, initialSnapshot, onGoConsole }: HudCard
             title={
               holdActive
                 ? `Kill-Hold 防复活持续盯防中（已拦 ${snapshot.killHoldBlockedCount ?? 0} 次）`
-                : "点击前往环境维护"
+                : "点击前往系统设置 → 清理恢复"
             }
             onClick={() => handleNavigate("maintain", null, false)}
           >

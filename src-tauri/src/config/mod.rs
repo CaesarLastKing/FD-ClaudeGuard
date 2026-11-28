@@ -21,10 +21,16 @@ pub struct MainWindowBounds {
     pub maximized: bool,
 }
 
+/// 当前配置模式版本（每次需要将默认护航策略一次性迁移同步时递增）
+pub const CURRENT_CONFIG_SCHEMA_VERSION: u32 = 1;
+
 /// 全局守护配置（持久化至 ~/.fd-claude-guard/config.json）
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AppConfig {
+    /// 配置迁移版本号（0=旧版未迁移，1=v0.4.1 默认护航开启迁移）
+    #[serde(default)]
+    pub config_schema_version: u32,
     /// 界面主题："dark" | "light"
     pub theme: String,
     /// 显示桌面悬浮状态窗（默认开，与主窗顶栏开关/托盘四端同步）
@@ -87,6 +93,7 @@ fn default_true() -> bool {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
+            config_schema_version: CURRENT_CONFIG_SCHEMA_VERSION,
             theme: "dark".to_string(),
             show_hud: true,
             notify_enabled: true,
@@ -261,6 +268,19 @@ pub fn should_start_hud_only(args: &[String], cfg: &AppConfig) -> bool {
     is_autostart && cfg.boot_hud_only
 }
 
+/// 一次性配置基线迁移（v0.4.1：确保未迁移旧配置恢复默认开启悬浮窗、桌面预警提醒与开机自启）
+pub fn migrate_config_if_needed(cfg: &mut AppConfig) -> bool {
+    if cfg.config_schema_version >= CURRENT_CONFIG_SCHEMA_VERSION {
+        return false;
+    }
+    cfg.show_hud = true;
+    cfg.notify_enabled = true;
+    cfg.boot_start = true;
+    cfg.boot_hud_only = true;
+    cfg.config_schema_version = CURRENT_CONFIG_SCHEMA_VERSION;
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -349,5 +369,36 @@ mod tests {
             &["fd-claude-guard.exe".into(), "--autostart".into()],
             &cfg_show_main
         ));
+    }
+
+    #[test]
+    fn v041_config_migration_resets_legacy_once_and_respects_migrated_user_choice() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.json");
+
+        // 1. 旧版配置无 configSchemaVersion，且悬浮窗/提醒/自启被关闭 -> 迁移后自动默认开启
+        fs::write(
+            &path,
+            r#"{"theme":"light","showHud":false,"notifyEnabled":false,"bootStart":false,"bootHudOnly":false}"#,
+        )
+        .unwrap();
+        let mut legacy = load_config(&path);
+        assert_eq!(legacy.config_schema_version, 0);
+        assert!(migrate_config_if_needed(&mut legacy));
+        assert_eq!(legacy.config_schema_version, CURRENT_CONFIG_SCHEMA_VERSION);
+        assert!(legacy.show_hud);
+        assert!(legacy.notify_enabled);
+        assert!(legacy.boot_start);
+        assert!(legacy.boot_hud_only);
+        assert_eq!(legacy.theme, "light");
+
+        // 2. 已迁移至 v1 后用户手动关闭悬浮窗与提醒 -> 再次启动绝不覆盖用户新选择
+        legacy.show_hud = false;
+        legacy.notify_enabled = false;
+        save_config(&path, &legacy).unwrap();
+        let mut reloaded = load_config(&path);
+        assert!(!migrate_config_if_needed(&mut reloaded));
+        assert!(!reloaded.show_hud);
+        assert!(!reloaded.notify_enabled);
     }
 }

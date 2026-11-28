@@ -1,6 +1,6 @@
 [package]
 name = "fd-claude-guard"
-version = "0.4.0"
+version = "0.4.1"
 license = "GPL-3.0"
 description = "FD Claude 安全启动器 (FD Claude Guard)"
 authors = ["FDtools"]

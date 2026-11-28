@@ -1101,6 +1101,26 @@ pub fn assemble_cloud_snapshot(
     })
 }
 
+/// 判断目标基准 URL 是否为本机回环测试地址（仅限 127.0.0.1 / localhost / [::1]，严禁匹配外域伪造前缀）
+fn is_loopback_base_url(url: &str) -> bool {
+    let lower = url.trim().to_ascii_lowercase();
+    let rest = if let Some(r) = lower.strip_prefix("http://") {
+        r
+    } else if let Some(r) = lower.strip_prefix("https://") {
+        r
+    } else {
+        return false;
+    };
+    for host in ["127.0.0.1", "localhost", "[::1]"] {
+        if let Some(after) = rest.strip_prefix(host) {
+            if after.is_empty() || after.starts_with(':') || after.starts_with('/') {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// 异步执行按需只读云端核验（明文 `sessionKey` 用完即焚，支持整段 `Copy as cURL`）
 pub async fn probe_session_key_readonly(
     raw_input: &str,
@@ -1118,6 +1138,23 @@ pub async fn probe_session_key_readonly(
         None => None,
     };
 
+    let base_url = opts
+        .base_url
+        .unwrap_or_else(|| DEFAULT_BASE_URL.to_string())
+        .trim_end_matches('/')
+        .to_string();
+
+    // 方案 A 硬防线：访问真实外部域名时强制要求本机代理非空，严禁通过本机真实公网 IP 裸连 claude.ai 发送 sessionKey
+    if validated_proxy.is_none() && !is_loopback_base_url(&base_url) {
+        zeroize_string(&mut sk);
+        return Err(CloudProbeError {
+            code: CloudProbeErrorCode::InvalidSkOrProxy,
+            http_status: 400,
+            message: "代理未在线或未提供本机代理地址，已拒绝裸连 claude.ai（严禁直接通过本机真实公网 IP 发送 sessionKey）。请先启动并确保 Clash Verge 在线后再重试。".into(),
+            retry_after_secs: None,
+        });
+    }
+
     let fingerprint = sha256_hex(sk.as_bytes());
     if !opts.bypass_cooldown {
         if let Err(err) = check_and_record_cooldown(&fingerprint) {
@@ -1126,11 +1163,6 @@ pub async fn probe_session_key_readonly(
         }
     }
 
-    let base_url = opts
-        .base_url
-        .unwrap_or_else(|| DEFAULT_BASE_URL.to_string())
-        .trim_end_matches('/')
-        .to_string();
     let timeout_secs = opts.timeout_secs.unwrap_or(15);
     let expected_org = opts.expected_org_prefix8.clone();
 

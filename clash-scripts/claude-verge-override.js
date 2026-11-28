@@ -45,7 +45,7 @@ const CLAUDE_RULES = [
   "DOMAIN-SUFFIX,clau.de,Claude-Fixed",
   "DOMAIN-SUFFIX,servd-anthropic-website.b-cdn.net,Claude-Fixed",
   "DOMAIN-SUFFIX,withpersona.com,Claude-Fixed",
-  // Cloudflare 人机盾 & Stripe 支付同源（防跨节点双 IP 串线；可在守卫配置中按需关闭）
+  // Cloudflare 人机盾 & Stripe 支付同源（防跨节点双 IP 串线；可在「系统设置 → 安全策略」中按需关闭）
   "DOMAIN-SUFFIX,challenges.cloudflare.com,Claude-Fixed",
   "DOMAIN-SUFFIX,stripe.com,Claude-Fixed",
   "DOMAIN-SUFFIX,stripe.network,Claude-Fixed",

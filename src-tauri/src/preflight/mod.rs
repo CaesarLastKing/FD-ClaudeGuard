@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use serde_json::json;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream, UdpSocket};
 use std::path::{Path, PathBuf};
@@ -137,11 +138,123 @@ pub fn scan_text_for_ban_contamination(text: &str) -> Vec<&'static str> {
     hits
 }
 
-/// 检测本地日志中是否存在「需身份验证(KYC)/无有效订阅权限(len=164)」提醒记录（仅温和提示，绝不阻断控制台）
+/// 检测本地日志中是否存在「需身份验证(KYC)/无有效订阅权限(len=164)」模糊提示记录（标黄风险，待用户核实或清理）
 pub fn scan_text_for_kyc_or_perm_notice(text: &str) -> bool {
     let lower = text.to_lowercase();
     (lower.contains("permission_error") && lower.contains("len=164"))
         || (lower.contains("fresh exchange failed") && lower.contains("auth_error"))
+}
+
+/// 检测本地日志中是否存在实锤身份认证（Persona KYC / Verification Portal）遗留特征
+pub fn scan_text_for_identity_verify_confirmed(text: &str) -> Vec<&'static str> {
+    let lower = text.to_lowercase();
+    let mut hits = Vec::new();
+    let portal_patterns = [
+        "portal.anthropic.com/verify",
+        "verification_portal",
+        "verification_required",
+        "identity_verification_required",
+    ];
+    if portal_patterns.iter().any(|p| lower.contains(p)) {
+        hits.push("portal_verification");
+    }
+    let persona_patterns = [
+        "withpersona",
+        "persona_kyc",
+        "persona_verification",
+        "persona_inquiry",
+        "kyc_required",
+        "kyc_expired",
+        "kyc_blocked",
+        "kyc_pending",
+        "\"kyc_status\":\"pending\"",
+        "\"kyc_status\":\"required\"",
+        "\"kyc_status\":\"expired\"",
+        "\"kyc_status\":\"failed\"",
+    ];
+    if persona_patterns.iter().any(|p| lower.contains(p)) {
+        hits.push("persona_kyc_verification");
+    }
+    hits
+}
+
+/// 控制台本次启动会话内的卫生确认与节点换绑状态（重启后自动重置，防呆更安全）
+#[derive(Debug, Clone, Default)]
+struct ConsoleGuardSessionState {
+    confirmed_current_account_key: Option<String>,
+    contaminated_node_name: Option<String>,
+}
+
+fn console_guard_session() -> &'static std::sync::RwLock<ConsoleGuardSessionState> {
+    static SESSION: std::sync::OnceLock<std::sync::RwLock<ConsoleGuardSessionState>> =
+        std::sync::OnceLock::new();
+    SESSION.get_or_init(|| std::sync::RwLock::new(ConsoleGuardSessionState::default()))
+}
+
+pub fn confirm_current_account_in_session(account_key: &str) {
+    let key = account_key.trim().to_ascii_lowercase();
+    if key.is_empty() {
+        return;
+    }
+    if let Ok(mut st) = console_guard_session().write() {
+        st.confirmed_current_account_key = Some(key);
+    }
+}
+
+pub fn is_current_account_confirmed_in_session(account_key: &str) -> bool {
+    let key = account_key.trim().to_ascii_lowercase();
+    if key.is_empty() {
+        return false;
+    }
+    console_guard_session()
+        .read()
+        .ok()
+        .and_then(|st| st.confirmed_current_account_key.clone())
+        .map(|confirmed| confirmed == key)
+        .unwrap_or(false)
+}
+
+pub fn acknowledge_ban_warn_in_session() {
+    if let Ok(mut st) = console_guard_session().write() {
+        st.contaminated_node_name = None;
+    }
+}
+
+pub fn reset_console_session_on_cleanup() {
+    if let Ok(mut st) = console_guard_session().write() {
+        st.confirmed_current_account_key = None;
+    }
+}
+
+pub fn record_contaminated_node_in_session(node_name: &str) {
+    let trimmed = node_name.trim();
+    if trimmed.is_empty() || trimmed == "未连接" || trimmed == "正在探测" {
+        return;
+    }
+    if let Ok(mut st) = console_guard_session().write() {
+        st.contaminated_node_name = Some(trimmed.to_string());
+    }
+}
+
+pub fn clear_contaminated_node_if_switched(new_node: &str) {
+    let trimmed = new_node.trim();
+    if trimmed.is_empty() || trimmed == "未连接" || trimmed == "正在探测" {
+        return;
+    }
+    if let Ok(mut st) = console_guard_session().write() {
+        if let Some(ref old) = st.contaminated_node_name {
+            if old != trimmed {
+                st.contaminated_node_name = None;
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+pub fn reset_all_console_session_for_test() {
+    if let Ok(mut st) = console_guard_session().write() {
+        *st = ConsoleGuardSessionState::default();
+    }
 }
 
 pub fn parse_ntp_drift_seconds(packet: &[u8], now_unix_secs: f64) -> Result<f64, String> {
@@ -359,8 +472,8 @@ pub async fn run_all_preflight_checks(cfg: &AppConfig, bg_claude_procs: u32) -> 
         probe_ipv6_windows_only(),
         probe_system_proxy_and_env(mixed_port),
         probe_windows_location_privacy(),
-        probe_local_ban_contamination(),
-        probe_single_account_lock(cfg.bound_primary_org_id.as_deref()),
+        probe_local_ban_contamination(&current_node),
+        probe_single_account_lock(),
         probe_claude_official_endpoint(),
         probe_claude_privacy_settings(),
         async {
@@ -916,7 +1029,7 @@ fn probe_group_and_rules(
                     )
                 }
             } else {
-                "已在守卫配置关闭同步锁定".to_string()
+                "已在「系统设置 → 安全策略」关闭同步锁定".to_string()
             };
 
             let cross_conflict_line = if audit.cross_group_conflicts.is_empty() {
@@ -1506,7 +1619,7 @@ async fn probe_exit_geo(
             } else if landing_drifted {
                 "同一节点 24 小时内落地 IP 发生静默漂移（机场后台换了出口 IP）。若确认新 IP 已稳定可点击下方重置漂移基准，或前往「节点流量」更换更稳定的静态/ISP 节点。".into()
             } else if has_advisory_cross_ip {
-                "你当前在「守卫配置」关闭了 CF 盾与 Stripe 同步锁定，但浏览器访问这些域名的主代理组节点与 Claude-Fixed 不一致。建议在 Clash 将主组选到同一节点，或前往「守卫配置」重新开启同步锁定（本提示不阻断启动）。".into()
+                "你当前在「系统设置 → 安全策略」关闭了 CF 盾与 Stripe 同步锁定，但浏览器访问这些域名的主代理组节点与 Claude-Fixed 不一致。建议在 Clash 将主组选到同一节点，或前往「系统设置 → 安全策略」重新开启同步锁定（本提示不阻断启动）。".into()
             } else if web_cf_challenge {
                 "Anthropic API 畅通且不阻断启动，但 claude.ai 网页登录入口触发了 Cloudflare 人机盾；如频繁弹验证可前往「节点流量」更换无弹盾节点。".into()
             } else {
@@ -2520,7 +2633,7 @@ fn fix_system_proxy_and_env(expected_port: u16) -> Result<String, String> {
         return Err(err);
     }
 
-    Ok("已先备份并清理冲突代理环境变量 / 校准 WinINET 端口与物理网卡 DNS（可随时在环境维护撤回）。".into())
+    Ok("已先备份并清理冲突代理环境变量 / 校准 WinINET 端口与物理网卡 DNS（可随时在「系统设置 → 清理恢复」撤回）。".into())
 }
 
 /// 纯函数判定 Windows 定位隐私隔离状态（供探针与单元测试共用）
@@ -2736,7 +2849,7 @@ fn fix_windows_location_privacy() -> Result<String, String> {
         );
         crate::rollback::run_ps_elevated_checked(ps_inner, "关闭 Windows 设备定位权限与禁用 lfsvc")?;
     }
-    Ok("已将系统/用户/桌面应用定位权限设为 Deny，并停止禁用 Windows 地理定位服务 lfsvc（可随时在环境维护一键撤回）。".into())
+    Ok("已将系统/用户/桌面应用定位权限设为 Deny，并停止禁用 Windows 地理定位服务 lfsvc（可随时在「系统设置 → 清理恢复」一键撤回）。".into())
 }
 
 /// 判断网卡是否属于 Clash / Mihomo 动态创建的 TUN 虚拟网卡（每次开关 TUN/重载都会被系统重建并默认勾选 ms_tcpip6）
@@ -2885,29 +2998,34 @@ fn ensure_clash_verge_service_ready() -> Result<bool, String> {
     match inspect_clash_verge_service_state() {
         ClashServiceState::Running => Ok(false),
         ClashServiceState::Stopped => {
-            // 进程本身在 Release 下已是管理员，先直接 sc start；若失败再尝试提权启动
+            // 进程本身在 Release 下已是管理员，先直接 sc start；若失败再走统一提权 helper 捕获真实拒绝/错误原因
             let direct_ok = Command::new("sc")
                 .creation_flags(CREATE_NO_WINDOW)
                 .args(["start", "clash_verge_service"])
                 .status()
                 .map(|s| s.success())
                 .unwrap_or(false);
+            let mut launch_err: Option<String> = None;
             if !direct_ok {
-                let _ = Command::new("powershell")
-                    .creation_flags(CREATE_NO_WINDOW)
-                    .args([
-                        "-NoProfile",
-                        "-Command",
-                        "Start-Process sc.exe -ArgumentList 'start clash_verge_service' -Verb RunAs -WindowStyle Hidden -Wait",
-                    ])
-                    .status();
+                if let Err(err) = crate::rollback::run_ps_elevated_checked(
+                    "sc.exe start clash_verge_service | Out-Null",
+                    "启动 Clash Verge TUN 系统服务",
+                ) {
+                    launch_err = Some(err);
+                }
             }
-            std::thread::sleep(Duration::from_millis(800));
-            if inspect_clash_verge_service_state() == ClashServiceState::Running {
-                Ok(true)
-            } else {
-                Err("检测到 Clash Verge TUN 系统服务已安装但处于停止状态，且自动拉起未成功；请打开 Clash Verge「设置 → 服务模式」重新启动服务后再开启 TUN。".into())
+            for _ in 0..10 {
+                if inspect_clash_verge_service_state() == ClashServiceState::Running {
+                    return Ok(true);
+                }
+                std::thread::sleep(Duration::from_millis(250));
             }
+            Err(match launch_err {
+                Some(err) => format!(
+                    "检测到 Clash Verge TUN 系统服务已安装但未启动，尝试启动失败：{err}"
+                ),
+                None => "检测到 Clash Verge TUN 系统服务已安装但处于停止状态，且 2.5s 内未就绪；请打开 Clash Verge「设置 → 服务模式」重新启动服务后再开启 TUN。".into(),
+            })
         }
         ClashServiceState::NotInstalled => Err(
             "检测到本机尚未安装 Clash Verge TUN 系统服务（clash_verge_service）。为避免版本不兼容导致反复报错，本工具不会强行盲装服务；请先打开 Clash Verge → 左侧「设置」→「服务模式」点击安装并等待生效，随后返回此处一键开启 TUN。"
@@ -3096,38 +3214,105 @@ async fn probe_dns_fake_ip(mihomo_cfg: Option<&MihomoConfigs>) -> PreflightItem 
     }
 }
 
-async fn probe_local_ban_contamination() -> (PreflightItem, bool) {
-    let (scanned_files, hits, has_kyc_notice) =
-        tokio::task::spawn_blocking(scan_claude_logs_for_ban)
-            .await
-            .unwrap_or_else(|_| (0, Vec::new(), false));
-
-    let passed = hits.is_empty();
-    let summary = if passed {
-        if has_kyc_notice {
-            format!("已扫描 {scanned_files} 份本地日志，0 确认封号残留（另有身份验证/权限暂限记录，详见日志分析）")
-        } else if scanned_files == 0 {
-            "未发现本地 Claude Desktop 日志污染残留（0 封号记录）".into()
-        } else {
-            format!("已扫描 {scanned_files} 份本地日志，0 封号污染残留")
+/// 评估「本地封号与身份验证残留审查（claude_ban）」纯逻辑（仅凭实锤拦截；模糊 len=164 不拦截，仅在说明提示）
+pub fn evaluate_local_ban_contamination(
+    scanned_files: usize,
+    ban_hits: &[String],
+    verify_hits: &[String],
+    has_kyc_notice: bool,
+    current_node: &str,
+    contaminated_node: Option<&str>,
+) -> (PreflightItem, bool) {
+    let mut all_fail_hits: Vec<String> = Vec::new();
+    for h in ban_hits {
+        if !all_fail_hits.contains(h) {
+            all_fail_hits.push(h.clone());
         }
-    } else {
-        format!("[{FD_ERR_LOG_POLLUTE}] 检测到本地确认封号/地区封锁污染残留：{}", hits.join(", "))
+    }
+    for h in verify_hits {
+        if !all_fail_hits.contains(h) {
+            all_fail_hits.push(h.clone());
+        }
+    }
+
+    let has_ban_or_verify_fail = !all_fail_hits.is_empty();
+    let has_portal = verify_hits.iter().any(|h| h.contains("portal"));
+    let has_persona = verify_hits.iter().any(|h| h.contains("persona"));
+    let verify_tag = match (has_persona, has_portal) {
+        (true, true) => "Persona / Portal",
+        (false, true) => "Portal",
+        (true, false) => "Persona",
+        (false, false) => "身份认证",
     };
 
-    let evidence = format!(
-        "Scanned Log Files: {scanned_files} (Electron + MSIX LocalCache)\nConfirmed Ban / Region Contamination Hits: {}\nKYC / Permission-Pending (len=164) Notice: {}",
-        if hits.is_empty() {
-            "0 (Clean)".into()
+    let trimmed_node = current_node.trim();
+    let node_still_contaminated = match contaminated_node {
+        Some(cn) if !cn.trim().is_empty() && !trimmed_node.is_empty() => cn.trim() == trimmed_node,
+        _ => false,
+    };
+
+    let (status, summary, guide, fix_label, evidence) = if has_ban_or_verify_fail {
+        let sum = if !verify_hits.is_empty() && ban_hits.is_empty() {
+            format!("检出身份认证遗留（{verify_tag}），需清理账户记录并更换节点")
+        } else if !verify_hits.is_empty() {
+            format!("检出封号与身份认证（{verify_tag}）遗留，需清理账户记录并更换节点")
         } else {
-            format!("{} ({FD_ERR_LOG_POLLUTE})", hits.join(", "))
-        },
-        if has_kyc_notice {
-            "存在身份验证/权限暂限记录（非封号，不阻断启动，详见日志分析）"
+            "检出本地封号/禁区污染残留，需清理账户记录并更换节点".to_string()
+        };
+        let gd = if !verify_hits.is_empty() {
+            "存在 Persona / Portal 身份认证遗留，仅重登无法消除关联。请先清理账户记录，再前往「节点流量」更换干净节点。".to_string()
         } else {
-            "无"
-        }
-    );
+            "存在确认封号或禁区污染残留。请先清理账户记录（清理前强制 ZIP 备份），再前往「节点流量」更换干净节点。".to_string()
+        };
+        let ev = format!(
+            "日志扫描: {scanned_files} 份\n封号 / 禁区: {}\n身份认证: {}\n处置要求: 清记录 + 换节点",
+            if ban_hits.is_empty() {
+                "0 命中".to_string()
+            } else {
+                ban_hits.join(", ")
+            },
+            if verify_hits.is_empty() {
+                "无".to_string()
+            } else {
+                format!("{verify_tag} 实锤")
+            }
+        );
+        (
+            CheckStatus::Fail,
+            sum,
+            gd,
+            Some("清理账户记录（备份）".to_string()),
+            ev,
+        )
+    } else if node_still_contaminated {
+        (
+            CheckStatus::Warn,
+            "记录已清理，请前往「节点流量」更换节点".to_string(),
+            "本地账户记录已清理，但当前仍锁定触发验证时的旧节点。请前往「节点流量」更换其他干净节点，更换后自动通过。".to_string(),
+            Some("前往「节点流量」更换节点".to_string()),
+            format!(
+                "日志扫描: {scanned_files} 份\n封号 / 禁区: 0 命中\n身份认证: 无\n当前节点: 仍为上次污染节点（请更换）"
+            ),
+        )
+    } else {
+        // 模糊权限提示（如 len=164 / fresh exchange failed）绝不拦截启动，仅在说明里客观提示
+        let gd = if has_kyc_notice {
+            "本地目录无确认封号、禁区或 Persona / Portal 身份认证实锤。日志中另见 OAuth 权限提示（非封号与验证实锤，不拦截启动，可按需前往「账户审计 → 实时日志」查看）。".to_string()
+        } else {
+            "本地目录纯净，未检出封号、禁区或身份认证遗留。".to_string()
+        };
+        (
+            CheckStatus::Ok,
+            if scanned_files == 0 {
+                "未发现本地封号或身份认证残留".to_string()
+            } else {
+                format!("已扫描 {scanned_files} 份本地日志，0 封号与身份认证残留")
+            },
+            gd,
+            None,
+            format!("日志扫描: {scanned_files} 份\n封号 / 禁区: 0 命中\n身份认证: 无"),
+        )
+    };
 
     (
         PreflightItem {
@@ -3135,41 +3320,57 @@ async fn probe_local_ban_contamination() -> (PreflightItem, bool) {
             part: CheckPart::Must,
             cat: "3. Claude 本机卫生（改 Claude）".into(),
             icon: "ban".into(),
-            mode: "自动一键".into(),
-            title: "本地封号污染残留审查".into(),
-            status: if passed {
-                CheckStatus::Ok
+            mode: if has_ban_or_verify_fail || status == CheckStatus::Warn {
+                "清理与换点".into()
             } else {
-                CheckStatus::Fail
+                "自动一键".into()
             },
+            title: "本地封号污染残留审查".into(),
+            status,
             summary,
             evidence,
-            guide: if passed {
-                if has_kyc_notice {
-                    "本地未检出确认封号记录；日志中存在身份验证（KYC）或 OAuth 权限暂限（len=164）提示，请前往「日志分析」查看详情，或按需到「环境维护」退出登录并清理目录。".into()
-                } else {
-                    "本地 Claude 目录纯净，未发现确认封号、强制吊销或地区封锁污染残留。".into()
-                }
-            } else {
-                "点击下方打开「透明分项清理确认弹窗」，可逐项勾选需备份并清理的 Cookie / 日志 / 缓存（默认保留 MCP 配置与 VM 镜像），清理一次即可同时消除封号残留与混号记录。".into()
-            },
-            fix_label: if passed {
-                None
-            } else {
-                Some("预览并分项清理（备份）本地目录".into())
-            },
+            guide,
+            fix_label,
             is_kill_item: false,
             is_failover: false,
         },
-        !passed,
+        has_ban_or_verify_fail,
     )
 }
 
-fn scan_claude_logs_for_ban() -> (usize, Vec<String>, bool) {
+async fn probe_local_ban_contamination(current_node: &str) -> (PreflightItem, bool) {
+    let (scanned_files, ban_hits, verify_hits, has_kyc_notice) =
+        tokio::task::spawn_blocking(scan_claude_logs_for_ban)
+            .await
+            .unwrap_or_else(|_| (0, Vec::new(), Vec::new(), false));
+
+    if !ban_hits.is_empty() || !verify_hits.is_empty() {
+        record_contaminated_node_in_session(current_node);
+    } else {
+        clear_contaminated_node_if_switched(current_node);
+    }
+
+    let contaminated_node = console_guard_session()
+        .read()
+        .ok()
+        .and_then(|st| st.contaminated_node_name.clone());
+
+    evaluate_local_ban_contamination(
+        scanned_files,
+        &ban_hits,
+        &verify_hits,
+        has_kyc_notice,
+        current_node,
+        contaminated_node.as_deref(),
+    )
+}
+
+fn scan_claude_logs_for_ban() -> (usize, Vec<String>, Vec<String>, bool) {
     // 统一复用 watchdog 的目录发现（已覆盖 Classic + MSIX + Claude-Data），消除多套路径口径不一致
     let log_files = crate::watchdog::discover_claude_log_files();
     let mut scanned = 0usize;
-    let mut hit_set: Vec<String> = Vec::new();
+    let mut ban_hits: Vec<String> = Vec::new();
+    let mut verify_hits: Vec<String> = Vec::new();
     let mut has_kyc_notice = false;
 
     for path in log_files {
@@ -3185,41 +3386,104 @@ fn scan_claude_logs_for_ban() -> (usize, Vec<String>, bool) {
                 has_kyc_notice = true;
             }
             for hit in scan_text_for_ban_contamination(&text) {
-                if !hit_set.iter().any(|x| x == hit) {
-                    hit_set.push(hit.to_string());
+                if !ban_hits.iter().any(|x| x == hit) {
+                    ban_hits.push(hit.to_string());
+                }
+            }
+            for hit in scan_text_for_identity_verify_confirmed(&text) {
+                if !verify_hits.iter().any(|x| x == hit) {
+                    verify_hits.push(hit.to_string());
                 }
             }
         }
     }
 
-    (scanned, hit_set, has_kyc_notice)
+    // 仅当本机仍存在活跃登录态时，联合检查当前账号云端核验缓存中的 Persona / Portal 实锤状态
+    let ctx = crate::account_audit::local_scan::ProfileContext::default_local(None, None, None);
+    let local_audit = crate::account_audit::local_scan::scan_local_profile(&ctx);
+    let has_active_local_account = !local_audit.desktop.org_id_prefixes.is_empty()
+        || local_audit.claude_json.org_uuid_prefix8.is_some();
+    if has_active_local_account {
+        if let Some(cache) = crate::account_audit::load_profile_cloud_cache_for_local(
+            &crate::account_audit::default_audit_cache_path(),
+            "default",
+            &local_audit,
+        ) {
+            if let Some(ref snap) = cache.last_snapshot {
+                if snap.portal_hold
+                    || matches!(
+                        snap.portal_state.trim().to_ascii_lowercase().as_str(),
+                        "hold" | "verify" | "required" | "blocked"
+                    )
+                {
+                    if !verify_hits.iter().any(|x| x == "portal_verification") {
+                        verify_hits.push("portal_verification".to_string());
+                    }
+                }
+                if let Some(ref kyc) = snap.persona_kyc_status {
+                    let kyc_l = kyc.trim().to_ascii_lowercase();
+                    if matches!(
+                        kyc_l.as_str(),
+                        "pending" | "required" | "expired" | "failed" | "blocked"
+                    ) && !verify_hits.iter().any(|x| x == "persona_kyc_verification")
+                    {
+                        verify_hits.push("persona_kyc_verification".to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    (scanned, ban_hits, verify_hits, has_kyc_notice)
 }
 
-/// 增量 16：单号卫生锁（防混号与跨 orgId 竞态；仅当实测检出多个不同账号/跨号竞态时拦截，绝不因单号 KYC/auth_error 误杀）
-async fn probe_single_account_lock(bound_primary_org: Option<&str>) -> (PreflightItem, bool, Option<String>) {
-    // 与账户审计 100% 同源：同步联合扫描 Desktop 日志与 ~/.claude.json + 历史备份
-    let (audit, local_audit, known_accounts) = tokio::task::spawn_blocking(|| {
-        let log_audit = crate::watchdog::audit_claude_logs_for_accounts();
-        let ctx = crate::account_audit::local_scan::ProfileContext::default_local(None, None, None);
-        let acc_audit = crate::account_audit::local_scan::scan_local_profile(&ctx);
-        let known = crate::account_audit::load_known_accounts_map(
-            &crate::account_audit::default_audit_cache_path(),
-        );
-        (log_audit, acc_audit, known)
-    })
-    .await
-    .unwrap_or_default();
+fn split_console_account_label(raw: &str) -> (String, String) {
+    let trimmed = raw.trim();
+    if let Some((head, tail)) = trimmed.split_once('（') {
+        let short_id = head.trim().to_string();
+        let meta = tail.trim_end_matches('）').trim();
+        let normalized_meta = if let Some((plan, src)) = meta.split_once(" · ") {
+            format!("{} · {}", src.trim(), plan.trim())
+        } else {
+            meta.to_string()
+        };
+        (
+            if short_id.is_empty() {
+                "当前已登录账号".into()
+            } else {
+                short_id
+            },
+            if normalized_meta.is_empty() {
+                "本机".into()
+            } else {
+                normalized_meta
+            },
+        )
+    } else if trimmed == "桌面端已登录账号" {
+        (trimmed.to_string(), "桌面端".to_string())
+    } else if trimmed == "CLI 已登录账号" {
+        (trimmed.to_string(), "CLI".to_string())
+    } else {
+        (trimmed.to_string(), "本机".to_string())
+    }
+}
 
-    let fmt_org = |o: &str| -> String {
-        crate::account_audit::format_org_account_label(o, &local_audit, &known_accounts)
+/// 评估「单号卫生锁（claude_acct）」纯逻辑（严格三态：0 号绿 / 1 号未确认黄 / 确认后绿 / ≥2 号红；全量禁止出现组织号与「主号」）
+pub fn evaluate_single_account_lock(
+    audit: &crate::watchdog::AccountLogAudit,
+    local_audit: &crate::account_audit::local_scan::LocalAccountAudit,
+    known_accounts: &HashMap<String, crate::account_audit::KnownAccountMeta>,
+    confirmed_account_key: Option<&str>,
+) -> (PreflightItem, bool, Option<String>) {
+    let fmt_console = |o: &str| -> String {
+        crate::account_audit::format_org_account_label_for_console(o, local_audit, known_accounts)
     };
 
-    // 100% 单一真源：与账户审计共享同一套 6 态拓扑引擎，彻底消除“桌面端已清空却谎报两端一致”
     let topology = crate::account_audit::evaluate_account_topology(
-        &local_audit,
+        local_audit,
         &audit.restricted_org_ids,
         audit.cross_account_hits.len(),
-        &known_accounts,
+        known_accounts,
     );
 
     let mut merged_orgs: Vec<String> = audit.unique_org_ids.clone();
@@ -3235,152 +3499,163 @@ async fn probe_single_account_lock(bound_primary_org: Option<&str>) -> (Prefligh
     }
 
     let cli_org = local_audit.claude_json.org_uuid_prefix8.clone();
-    // 主力候选不强行绑定 CLI：优先桌面端活跃组织，若无再回退 CLI 或最近观测组织
     let latest_org = local_audit
         .desktop
-        .org_id_prefixes
-        .first()
-        .cloned()
+        .latest_active_org_prefix
+        .clone()
+        .or_else(|| local_audit.desktop.org_id_prefixes.first().cloned())
         .or_else(|| cli_org.clone())
         .or_else(|| merged_orgs.last().cloned());
-    let multi_orgs = matches!(
-        topology.hygiene_state,
-        crate::account_audit::AccountHygieneState::CrossSurfaceMix
-            | crate::account_audit::AccountHygieneState::HighRiskBanContamination
-    ) || merged_orgs.len() > 1
-        || audit.unique_account_ids.len() > 1;
-    let bound_mismatch = match (bound_primary_org, latest_org.as_deref()) {
-        (Some(bound), Some(cur)) if !bound.is_empty() && !bound.eq_ignore_ascii_case(cur) => true,
-        _ => false,
-    };
+
     let has_cross_race =
         !audit.cross_account_hits.is_empty() || local_audit.desktop.cross_org_404_hits > 0;
-    let has_restricted_mix =
-        topology.hygiene_state == crate::account_audit::AccountHygieneState::HighRiskBanContamination;
-    let cli_stale_warn = topology.hygiene_state
-        == crate::account_audit::AccountHygieneState::SingleSurfaceStaleOrPolluted;
+    let multi_account_detected = merged_orgs.len() > 1
+        || audit.unique_account_ids.len() > 1
+        || has_cross_race
+        || local_audit.cross_client_org_mismatch
+        || local_audit.claude_json.internal_account_mismatch
+        || matches!(
+            topology.hygiene_state,
+            crate::account_audit::AccountHygieneState::CrossSurfaceMix
+                | crate::account_audit::AccountHygieneState::HighRiskBanContamination
+        );
 
-    let conflict = multi_orgs || bound_mismatch || has_cross_race;
+    let detected_count = merged_orgs
+        .len()
+        .max(audit.unique_account_ids.len())
+        .max(if latest_org.is_some() { 1 } else { 0 });
 
-    let bound_raw = bound_primary_org
-        .filter(|s| !s.is_empty())
-        .or(latest_org.as_deref());
-    let bound_display = bound_raw.map(&fmt_org).unwrap_or_else(|| "尚未登录".into());
+    let desktop_short_labels: Vec<String> = local_audit
+        .desktop
+        .org_id_prefixes
+        .iter()
+        .map(|o| split_console_account_label(&fmt_console(o)).0)
+        .collect();
+    let cli_short_label: Option<String> = cli_org
+        .as_deref()
+        .map(|o| split_console_account_label(&fmt_console(o)).0);
 
-    let restricted_labels: Vec<String> = audit.restricted_org_ids.iter().map(|o| fmt_org(o)).collect();
-    let desktop_labels = topology.desktop_accounts.clone();
-    let merged_labels: Vec<String> = merged_orgs.iter().map(|o| fmt_org(o)).collect();
-
-    let summary = if !conflict {
-        if cli_stale_warn {
-            format!("[CLI 残留预警] {}", topology.headline)
-        } else {
-            topology.headline.clone()
+    let mut merged_short_labels: Vec<String> = Vec::new();
+    for o in &merged_orgs {
+        let short_id = split_console_account_label(&fmt_console(o)).0;
+        if !merged_short_labels.contains(&short_id) {
+            merged_short_labels.push(short_id);
         }
-    } else if has_cross_race {
-        format!(
-            "[{FD_ERR_LOG_POLLUTE}] 检出跨账号 orgId 竞态请求（{}），高危连坐风险！需二选一确认处理",
-            merged_labels.join(" / ")
-        )
-    } else if has_restricted_mix {
-        format!(
-            "[{FD_ERR_LOG_POLLUTE}] 最高危连坐预警：本机混登 {} 个账号且包含已受限/待验证号（{}），极易拖累主力号触发同款审核！",
-            merged_orgs.len().max(audit.unique_account_ids.len()).max(1),
-            if restricted_labels.is_empty() {
-                merged_labels.join(" / ")
-            } else {
-                restricted_labels.join(" / ")
-            }
-        )
-    } else if local_audit.cross_client_org_mismatch {
-        format!(
-            "[{FD_ERR_LOG_POLLUTE}] {}",
-            topology.headline
-        )
-    } else if multi_orgs {
-        format!(
-            "[{FD_ERR_LOG_POLLUTE}] 同一本机检出多账号混登（{}），需二选一确认",
-            merged_labels.join(" / ")
-        )
-    } else {
-        format!(
-            "[{FD_ERR_LOG_POLLUTE}] 当前账号 [{}] 与已绑定主号 [{}] 不一致，需二选一确认",
-            latest_org.as_deref().map(&fmt_org).unwrap_or_else(|| "未知".into()),
-            bound_primary_org.map(&fmt_org).unwrap_or_else(|| "未知".into())
-        )
+    }
+
+    let current_confirmed = match (confirmed_account_key, latest_org.as_deref()) {
+        (Some(conf), Some(cur)) => !conf.is_empty() && conf.eq_ignore_ascii_case(cur),
+        _ => false,
     };
 
-    let mut ev_lines = vec![
-        format!("Topology Hygiene State: {:?}", topology.hygiene_state),
-        format!("Scanned Claude Log Files: {}", audit.scanned_files),
-        format!(
-            "Desktop Accounts: {}",
-            if desktop_labels.is_empty() {
-                "Empty (桌面端已清空/未登录)".into()
-            } else {
-                desktop_labels.join(" | ")
-            }
-        ),
-        format!(
-            "CLI (~/.claude.json): {} [status={}]",
-            topology.cli_account.as_deref().unwrap_or("未登录"),
-            topology.cli_status
-        ),
-        format!("Bound Primary Account: {bound_display}"),
-        format!(
-            "Primary Candidate Label: {}",
-            latest_org.as_deref().map(&fmt_org).unwrap_or_else(|| "未检测到".into())
-        ),
-        format!(
-            "Observed Unique orgIds ({}): {}",
-            merged_orgs.len(),
-            if merged_orgs.is_empty() {
-                "None".into()
-            } else {
-                merged_orgs.join(", ")
-            }
-        ),
-        format!(
-            "Observed Unique accountIds ({}): {}",
-            audit.unique_account_ids.len(),
-            if audit.unique_account_ids.is_empty() {
-                "None".into()
-            } else {
-                audit.unique_account_ids.join(", ")
-            }
-        ),
-        format!(
-            "Cross-orgId Race Hits: {}",
-            audit.cross_account_hits.len() + local_audit.desktop.cross_org_404_hits
-        ),
-    ];
-    if !topology.cli_stale_reasons.is_empty() {
-        ev_lines.push(format!(
-            "CLI Stale / Cross-Polluted Reasons: {}",
-            topology.cli_stale_reasons.join(" | ")
-        ));
-    }
-    if !topology.session_dir_orphans.is_empty() {
-        ev_lines.push(format!(
-            "Claude-Data Session Dir Orphans: {}",
-            topology.session_dir_orphans.join(", ")
-        ));
-    }
-    if !restricted_labels.is_empty() {
-        ev_lines.push(format!(
-            "Restricted / Portal-Verify Accounts: {}",
-            restricted_labels.join(" | ")
-        ));
-    }
-    if !audit.auth_403_hits.is_empty() {
-        ev_lines.push(format!(
-            "Single-Account KYC/Auth Notice (不计为混号冲突): {} 条，详见账户审计日志流",
-            audit.auth_403_hits.len()
-        ));
-    }
-    if let Some(sample) = audit.cross_account_hits.first() {
-        ev_lines.push(format!("Latest Cross-Account Sample: {sample}"));
-    }
+    let has_orphan_residue = !local_audit.desktop.session_dir_org_prefixes.is_empty()
+        || !topology.cli_stale_reasons.is_empty();
+    let cli_status_text = cli_short_label
+        .as_deref()
+        .unwrap_or("未登录");
+    let race_count = audit.cross_account_hits.len() + local_audit.desktop.cross_org_404_hits;
+
+    let (status, summary, guide, fix_label, ev_lines) = if multi_account_detected {
+        let desc_list = if merged_short_labels.is_empty() {
+            "多个账号记录".to_string()
+        } else {
+            merged_short_labels.join(" / ")
+        };
+        let has_restricted = !audit.restricted_org_ids.is_empty()
+            || topology.hygiene_state
+                == crate::account_audit::AccountHygieneState::HighRiskBanContamination;
+        let sum = if has_restricted {
+            format!(
+                "[{FD_ERR_LOG_POLLUTE}] 检出多账号遗留且含受限账号（{desc_list}），请清理登录状态"
+            )
+        } else if has_cross_race {
+            format!(
+                "[{FD_ERR_LOG_POLLUTE}] 检出跨账号混合请求（{desc_list}），请清理登录状态"
+            )
+        } else {
+            format!(
+                "[{FD_ERR_LOG_POLLUTE}] 检出 {detected_count} 个账号遗留或混登（{desc_list}），请清理登录状态"
+            )
+        };
+        let mut lines = vec![
+            "状态: 检出多账号遗留（需清理）".to_string(),
+            format!("检出账号数: {detected_count} 个"),
+            format!(
+                "桌面端: {}",
+                if desktop_short_labels.is_empty() {
+                    "未登录".to_string()
+                } else {
+                    desktop_short_labels.join(" / ")
+                }
+            ),
+            format!("CLI: {cli_status_text}"),
+        ];
+        if race_count > 0 {
+            lines.push(format!("跨号冲突: {race_count} 项"));
+        } else if local_audit.claude_json.internal_account_mismatch {
+            lines.push("终端交叉残留: 是".to_string());
+        }
+        (
+            CheckStatus::Fail,
+            sum,
+            "当前仅支持单账号安全登录。本机检出多个账号遗留或混登记录，必须清理登录状态后再仅登录单一健康账号。".to_string(),
+            Some("清理登录状态（先备份）".to_string()),
+            lines,
+        )
+    } else if let Some(ref cur_org) = latest_org {
+        let (short_id, surface_plan) = split_console_account_label(&fmt_console(cur_org));
+        if current_confirmed {
+            (
+                CheckStatus::Ok,
+                format!("已确认继续使用当前号（{short_id}），单号环境纯净"),
+                "你已确认继续使用当前号，未检出其他账号遗留或混登风险。".to_string(),
+                None,
+                vec![
+                    "状态: 已确认继续使用当前号".to_string(),
+                    format!("当前号: {short_id}"),
+                    format!("登录端: {surface_plan}"),
+                    format!("CLI: {cli_status_text}"),
+                ],
+            )
+        } else {
+            (
+                CheckStatus::Warn,
+                format!("已检出当前号（{short_id}），请确认是否继续使用"),
+                "若即将登录的仍是该当前号，点「确认继续使用当前号」即可通过；若准备换号，请先清理登录状态。".to_string(),
+                Some("确认继续使用当前号".to_string()),
+                vec![
+                    "状态: 待确认当前号".to_string(),
+                    format!("当前号: {short_id}"),
+                    format!("登录端: {surface_plan}"),
+                    format!("CLI: {cli_status_text}"),
+                ],
+            )
+        }
+    } else if has_orphan_residue {
+        (
+            CheckStatus::Warn,
+            "存在旧凭据或历史会话目录残留，请清理后继续".to_string(),
+            "未检出活跃登录号，但本机仍有过期凭据或历史会话残留，建议先清理后再使用。".to_string(),
+            Some("清理登录状态（先备份）".to_string()),
+            vec![
+                "状态: 存在旧凭据或会话残留".to_string(),
+                "桌面端: 未登录".to_string(),
+                format!("CLI: {cli_status_text}"),
+            ],
+        )
+    } else {
+        (
+            CheckStatus::Ok,
+            "本机暂无已登录账号，单号环境纯净".to_string(),
+            "桌面端与终端均无登录态与旧号残留，可放心登录单个健康账号。".to_string(),
+            None,
+            vec![
+                "状态: 未登录（环境纯净）".to_string(),
+                "桌面端: 未登录".to_string(),
+                "CLI: 未登录".to_string(),
+            ],
+        )
+    };
 
     (
         PreflightItem {
@@ -3389,37 +3664,70 @@ async fn probe_single_account_lock(bound_primary_org: Option<&str>) -> (Prefligh
             cat: "3. Claude 本机卫生（改 Claude）".into(),
             icon: "userLock".into(),
             mode: "引导确认".into(),
-            title: "单号卫生锁（防混号与跨 orgId）".into(),
-            status: if conflict {
-                CheckStatus::Fail
-            } else if cli_stale_warn {
-                CheckStatus::Warn
-            } else {
-                CheckStatus::Ok
-            },
+            title: "单号卫生锁（防多号混登）".into(),
+            status,
             summary,
             evidence: ev_lines.join("\n"),
-            guide: if has_restricted_mix {
-                "最高危连坐警告：同一本机安装目录（含经典 Electron、微软商店 MSIX 与 CLI）内曾登录已触发验证限制/受限的旧号，极易触发同机连坐！强烈建议立即点击下方分项备份清理污染目录，清理干净后再仅登录单一健康主力号。".into()
-            } else if conflict {
-                "检测到多账号混登或 CLI 与桌面端组织不一致，绝不擅自乱删你的账号目录。点击下方二选一确认：① 打开透明分项清单备份清理桌面端或 CLI 残留（默认双端全清，可取消勾选保留单端）；② 明确永久更换主力新号且环境干净 → 更新绑定主号。".into()
-            } else if cli_stale_warn {
-                topology.detail.clone()
-            } else {
-                topology.detail.clone()
-            },
-            fix_label: if conflict {
-                Some("引导处理单号冲突（二选一确认）".into())
-            } else if cli_stale_warn {
-                Some("打开分项清理清单（清除 CLI 旧号残留）".into())
-            } else {
-                None
-            },
+            guide,
+            fix_label,
             is_kill_item: false,
             is_failover: false,
         },
-        conflict,
+        multi_account_detected,
         latest_org,
+    )
+}
+
+/// 扫描当前唯一活跃账号内部键，供控制台点击「确认继续使用当前号」校验与写入会话确认
+pub fn confirm_single_current_account_from_disk() -> Result<String, String> {
+    let audit = crate::watchdog::audit_claude_logs_for_accounts();
+    let ctx = crate::account_audit::local_scan::ProfileContext::default_local(None, None, None);
+    let local_audit = crate::account_audit::local_scan::scan_local_profile(&ctx);
+    let known = crate::account_audit::load_known_accounts_map(
+        &crate::account_audit::default_audit_cache_path(),
+    );
+    let (item, multi_conflict, latest_org) =
+        evaluate_single_account_lock(&audit, &local_audit, &known, None);
+    if multi_conflict {
+        return Err("检测到多个账号遗留或混登记录，无法直接确认放行，请先清理登录状态。".into());
+    }
+    let Some(org_key) = latest_org else {
+        return Err("当前未检测到已登录账号，无需确认。".into());
+    };
+    confirm_current_account_in_session(&org_key);
+    let label = crate::account_audit::format_org_account_label_for_console(
+        &org_key,
+        &local_audit,
+        &known,
+    );
+    let _ = item;
+    Ok(format!("已确认继续使用当前号（{label}）。"))
+}
+
+/// 增量 16：单号卫生锁（防多号混登；0 号绿 / 1 号未确认黄需确认 / ≥2 号红需清理）
+async fn probe_single_account_lock() -> (PreflightItem, bool, Option<String>) {
+    let (audit, local_audit, known_accounts) = tokio::task::spawn_blocking(|| {
+        let log_audit = crate::watchdog::audit_claude_logs_for_accounts();
+        let ctx = crate::account_audit::local_scan::ProfileContext::default_local(None, None, None);
+        let acc_audit = crate::account_audit::local_scan::scan_local_profile(&ctx);
+        let known = crate::account_audit::load_known_accounts_map(
+            &crate::account_audit::default_audit_cache_path(),
+        );
+        (log_audit, acc_audit, known)
+    })
+    .await
+    .unwrap_or_default();
+
+    let confirmed_key = console_guard_session()
+        .read()
+        .ok()
+        .and_then(|st| st.confirmed_current_account_key.clone());
+
+    evaluate_single_account_lock(
+        &audit,
+        &local_audit,
+        &known_accounts,
+        confirmed_key.as_deref(),
     )
 }
 
@@ -4389,8 +4697,9 @@ pub async fn execute_fix_item(
         }
         "claude_ban" => {
             let info = backup_and_clean_claude_dirs()?;
+            reset_console_session_on_cleanup();
             message = format!(
-                "已先原子备份至 {}（{}）并清理本地污染目录，正在重扫验收。",
+                "已先原子备份至 {}（{}）并清理本地污染目录，请同时前往节点流量更换节点。",
                 info.file_name, info.size_label
             );
         }
@@ -4399,9 +4708,9 @@ pub async fn execute_fix_item(
             message = fix_system_proxy_and_env(port)?;
         }
         "claude_acct" => {
-            // 绝不擅自乱删：交由前端引导二选一确认弹窗（备份清理目录 或 确认绑定新主号）
+            // 绝不擅自乱删：交由前端引导确认当前号或清理登录状态
             requires_manual_step = true;
-            message = "请通过二选一确认框选择「备份并重置污染目录」或「确认永久更换绑定主号」。".into();
+            message = "请在控制台确认继续使用当前号，或点击清理全部登录状态。".into();
         }
         "node_group" => {
             let mut quick_actions: Vec<String> = Vec::new();
@@ -4600,7 +4909,7 @@ pub async fn execute_fix_item(
             );
             match ipv6_res {
                 Ok(_) => {
-                    message = "已禁用 Windows 网卡 ms_tcpip6 绑定并设置 IPv4 优先（可随时在环境维护一键撤回）。".into();
+                    message = "已禁用 Windows 网卡 ms_tcpip6 绑定并设置 IPv4 优先（可随时在「系统设置 → 清理恢复」一键撤回）。".into();
                 }
                 Err(err) => {
                     requires_manual_step = true;
@@ -7838,5 +8147,145 @@ rules:
                 }
             }
         }
+    }
+
+    #[test]
+    fn v041_m103_identity_verify_confirmed_blocks_and_fuzzy_164_never_blocks() {
+        assert!(scan_text_for_identity_verify_confirmed("redirect to https://portal.anthropic.com/verify").contains(&"portal_verification"));
+        assert!(scan_text_for_identity_verify_confirmed("withpersona inquiry kyc_required").contains(&"persona_kyc_verification"));
+        assert!(scan_text_for_identity_verify_confirmed("oauth failed: permission_error len=164").is_empty());
+        assert!(scan_text_for_kyc_or_perm_notice("oauth failed: permission_error len=164"));
+
+        // 1) 实锤 Persona/Portal -> Fail，并提示清理+换节点
+        let (fail_item, fail_flag) = evaluate_local_ban_contamination(
+            4,
+            &[],
+            &["portal_verification".into()],
+            false,
+            "US-Node-01",
+            None,
+        );
+        assert!(fail_flag);
+        assert_eq!(fail_item.status, CheckStatus::Fail);
+        assert_eq!(fail_item.fix_label.as_deref(), Some("清理账户记录（备份）"));
+
+        // 2) 已清记录但未换污染节点 -> Warn 提醒换节点
+        let (node_warn_item, node_warn_flag) = evaluate_local_ban_contamination(
+            0,
+            &[],
+            &[],
+            false,
+            "US-Node-01",
+            Some("US-Node-01"),
+        );
+        assert!(!node_warn_flag);
+        assert_eq!(node_warn_item.status, CheckStatus::Warn);
+        assert_eq!(node_warn_item.fix_label.as_deref(), Some("前往「节点流量」更换节点"));
+
+        // 3) 换了不同节点 -> Ok
+        let (switched_ok, _) = evaluate_local_ban_contamination(
+            0,
+            &[],
+            &[],
+            false,
+            "US-Node-02",
+            None,
+        );
+        assert_eq!(switched_ok.status, CheckStatus::Ok);
+
+        // 4) 模糊 len=164 -> 绝不拦截，保持 Ok，仅在说明中提示
+        let (fuzzy_ok, fuzzy_flag) = evaluate_local_ban_contamination(
+            3,
+            &[],
+            &[],
+            true,
+            "US-Node-02",
+            None,
+        );
+        assert!(!fuzzy_flag);
+        assert_eq!(fuzzy_ok.status, CheckStatus::Ok);
+        assert!(fuzzy_ok.guide.contains("不拦截启动"));
+    }
+
+    #[test]
+    fn v041_m104_single_account_lock_three_states_and_zero_org_id() {
+        let mut known = HashMap::new();
+        known.insert(
+            "0ffb0302".to_string(),
+            crate::account_audit::KnownAccountMeta {
+                org_prefix8: "0ffb0302".into(),
+                email_masked: Some("star***at@outlook.com".into()),
+                plan: Some("Free".into()),
+                source: "云端核验".into(),
+                updated_at_ms: 1_700_000_000_000,
+            },
+        );
+        known.insert(
+            "a4722ea6".to_string(),
+            crate::account_audit::KnownAccountMeta {
+                org_prefix8: "a4722ea6".into(),
+                email_masked: Some("jaso***11@gmail.com".into()),
+                plan: Some("Pro".into()),
+                source: "云端核验".into(),
+                updated_at_ms: 1_700_000_000_000,
+            },
+        );
+
+        let assert_no_org_or_primary = |item: &PreflightItem| {
+            let joined = format!(
+                "{}\n{}\n{}\n{}\n{}",
+                item.title,
+                item.summary,
+                item.evidence,
+                item.guide,
+                item.fix_label.as_deref().unwrap_or("")
+            );
+            assert!(!joined.contains("0ffb0302"), "控制台严禁出现组织号: {joined}");
+            assert!(!joined.contains("a4722ea6"), "控制台严禁出现组织号: {joined}");
+            assert!(!joined.contains("orgId"), "控制台严禁出现 orgId: {joined}");
+            assert!(!joined.contains("主号"), "控制台严禁出现主号: {joined}");
+        };
+
+        // 1) 0 账号 -> Ok
+        let empty_audit = crate::watchdog::AccountLogAudit::default();
+        let empty_local = crate::account_audit::local_scan::LocalAccountAudit::default();
+        let (zero_item, zero_conflict, zero_org) =
+            evaluate_single_account_lock(&empty_audit, &empty_local, &known, None);
+        assert!(!zero_conflict);
+        assert!(zero_org.is_none());
+        assert_eq!(zero_item.status, CheckStatus::Ok);
+        assert_no_org_or_primary(&zero_item);
+
+        // 2) 1 账号未确认 -> Warn，引导确认继续使用当前号
+        let mut one_local = crate::account_audit::local_scan::LocalAccountAudit::default();
+        one_local.desktop.org_id_prefixes = vec!["0ffb0302".into()];
+        one_local.desktop.latest_active_org_prefix = Some("0ffb0302".into());
+        let (one_warn, one_conflict, one_org) =
+            evaluate_single_account_lock(&empty_audit, &one_local, &known, None);
+        assert!(!one_conflict);
+        assert_eq!(one_org.as_deref(), Some("0ffb0302"));
+        assert_eq!(one_warn.status, CheckStatus::Warn);
+        assert_eq!(one_warn.fix_label.as_deref(), Some("确认继续使用当前号"));
+        assert!(one_warn.summary.contains("star***at@outlook.com"));
+        assert_no_org_or_primary(&one_warn);
+
+        // 3) 1 账号在本次会话确认后 -> Ok
+        let (one_ok, one_ok_conflict, _) =
+            evaluate_single_account_lock(&empty_audit, &one_local, &known, Some("0ffb0302"));
+        assert!(!one_ok_conflict);
+        assert_eq!(one_ok.status, CheckStatus::Ok);
+        assert_no_org_or_primary(&one_ok);
+
+        // 4) 2 账号遗留 -> Fail，只能清理登录状态
+        let mut two_local = one_local.clone();
+        two_local.claude_json.org_uuid_prefix8 = Some("a4722ea6".into());
+        two_local.claude_json.email_masked = Some("jaso***11@gmail.com".into());
+        two_local.cross_client_org_mismatch = true;
+        let (two_fail, two_conflict, _) =
+            evaluate_single_account_lock(&empty_audit, &two_local, &known, Some("0ffb0302"));
+        assert!(two_conflict);
+        assert_eq!(two_fail.status, CheckStatus::Fail);
+        assert_eq!(two_fail.fix_label.as_deref(), Some("清理登录状态（先备份）"));
+        assert_no_org_or_primary(&two_fail);
     }
 }

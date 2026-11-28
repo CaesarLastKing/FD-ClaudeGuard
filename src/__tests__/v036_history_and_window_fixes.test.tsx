@@ -117,12 +117,33 @@ describe("v0.3.6 账户审计多历史切换删除、观察窗/KYC联动与未�
     expect(winGroup.textContent).toContain("实名已过期");
     expect(winGroup.textContent).not.toContain("已过观察");
 
-    // 展开第 1 项，验证子格文案完整联动更新
+    // 展开第 1 项（高敏感观察窗），验证 KYC 过期子格文案联动更新
     const toggleBtn = winGroup.querySelector(".audit-row") as HTMLElement;
     fireEvent.click(toggleBtn);
     expect(winGroup.textContent).toContain("实名验证已过期（待重新完成 KYC · 未通过前属高敏态）");
-    expect(winGroup.textContent).toContain("Free 无订阅（不适用支付复审）");
     expect(winGroup.textContent).not.toContain("当前无实名复核观察记录");
+
+    // F-05：展开独立拆分后的「支付方式与账单风控」，验证 Free 无订阅联动更新
+    const payGroup = screen.getByTestId("audit-group-g-payment");
+    expect(payGroup.textContent).toContain("支付方式与账单风控");
+    expect(payGroup.textContent).toContain("免检正常");
+    fireEvent.click(payGroup.querySelector(".audit-row") as HTMLElement);
+    expect(payGroup.textContent).toContain("Free 无订阅（不适用支付复审）");
+
+    // F-07（Q3）：验证「二、工具可介入防御与修复」5 项按新优先级顺序排列
+    const allGroupIds = Array.from(document.querySelectorAll("[data-testid^='audit-group-']")).map(
+      (el) => el.getAttribute("data-testid")
+    );
+    expect(allGroupIds).toEqual([
+      "audit-group-g-window",
+      "audit-group-g-payment",
+      "audit-group-g-auto",
+      "audit-group-g-cloud",
+      "audit-group-g-disconnect",
+      "audit-group-g-mix",
+      "audit-group-g-endpoint",
+      "audit-group-g-telemetry",
+    ]);
   });
 
   it("支持多历史账号点击切换查看历史评分与状态，以及用户手动确认删除", async () => {

@@ -1340,7 +1340,8 @@ body.hud-window-body,
 }
 .c-kv-row {
   display: flex;
-  align-items: center;
+  flex-shrink: 0;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
   min-height: 31px;
@@ -1354,27 +1355,31 @@ body.hud-window-body,
 }
 .c-kv-k {
   color: var(--text-2);
-  flex: 1 1 auto;
+  flex: 0 1 44%;
   min-width: 0;
-  max-width: 64%;
-  word-break: keep-all;
+  max-width: 48%;
+  word-break: break-word;
 }
 .c-kv-v {
-  color: var(--text-strong);
-  font-weight: 500;
+  color: var(--text-1);
+  font-weight: 400;
   text-align: right;
   word-break: break-word;
-  flex-shrink: 0;
-  max-width: 56%;
+  flex: 1 1 52%;
+  min-width: 0;
+  max-width: 58%;
 }
 .c-kv-v.is-bad {
   color: var(--bad-fg);
+  font-weight: 500;
 }
 .c-kv-v.is-warn {
   color: var(--warning-fg);
+  font-weight: 500;
 }
 .c-kv-v.is-ok {
-  color: var(--ok-fg);
+  color: var(--text-1);
+  font-weight: 400;
 }
 
 /* 账户审计页手风琴展开轻过渡 */
@@ -1497,7 +1502,7 @@ body.hud-window-body,
 }
 .s-modal-shell {
   width: min(980px, calc(100vw - 36px));
-  height: min(688px, calc(100vh - 44px));
+  height: min(776px, calc(100vh - 36px));
   border-radius: var(--r-hud);
   background: var(--bg-canvas);
   border: 1px solid var(--divider-strong);
@@ -1625,10 +1630,10 @@ body.hud-window-body,
   text-overflow: ellipsis;
 }
 .s-modal-body {
-  padding: 15px 20px 20px;
+  padding: 12px 20px 16px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 11px;
 }
 .s-modal-body > * {
   flex-shrink: 0;
@@ -1639,7 +1644,7 @@ body.hud-window-body,
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 7px;
+  margin-bottom: 5px;
   padding: 0 2px;
 }
 .s-sec-title {
@@ -1664,7 +1669,7 @@ body.hud-window-body,
 }
 
 .s-row {
-  padding: 10px 14px;
+  padding: 8.5px 14px;
   display: flex;
   align-items: center;
   justify-content: space-between;

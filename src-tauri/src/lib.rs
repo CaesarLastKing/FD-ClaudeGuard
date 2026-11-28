@@ -50,7 +50,7 @@ use crate::protocol::{
     EVENT_DEDUP_WINDOW_MS, FD_ERR_KILL_SWITCH, FULL_AUDIT_INTERVAL_MS,
 };
 use crate::rollback::{
-    inspect_rollback_status, rollback_all_changes, rollback_single_item,
+    inspect_rollback_status_cached, rollback_all_changes, rollback_single_item,
     run_network_emergency_rescue, NetworkRescueReport, RollbackActionReport, RollbackBatchReport,
     RollbackOverview,
 };
@@ -1387,6 +1387,7 @@ async fn switch_locked_node(
     let _ = crate::preflight::sync_clash_selection_everywhere(&ep, &name).await;
     // 用户在软件内主动点击「切换锁定」时，同步更新主力节点基线、清空旧 IP 基线并校准新节点漂移历史（绝不把切节点算成漂移）
     crate::mihomo::reset_node_drift_history(&name);
+    crate::preflight::clear_contaminated_node_if_switched(&name);
     tokio::time::sleep(Duration::from_millis(350)).await;
     let mut cfg_updated = cfg.clone();
     cfg_updated.locked_node_for_ip = Some(name.clone());
@@ -2631,6 +2632,90 @@ async fn confirm_primary_org_binding(
 }
 
 #[tauri::command]
+async fn confirm_current_account(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<PreflightReport, String> {
+    let _gate = state.preflight_gate.lock().await;
+    let confirm_msg = tokio::task::spawn_blocking(
+        crate::preflight::confirm_single_current_account_from_disk,
+    )
+    .await
+    .map_err(|e| format!("确认当前账号调度失败: {e}"))??;
+    logger::log_event(
+        "INFO",
+        "preflight",
+        "current_account_confirmed",
+        None,
+        confirm_msg,
+        None,
+    );
+    let cfg = state
+        .config
+        .read()
+        .map_err(|_| "读取配置锁失败".to_string())?
+        .clone();
+    let bg_procs = tokio::task::spawn_blocking(|| list_claude_processes().len() as u32)
+        .await
+        .unwrap_or(0);
+    let mut bundle = run_all_preflight_checks(&cfg, bg_procs).await;
+    merge_killswitch_and_log_triggers(&state, &mut bundle.snapshot);
+    if let Ok(mut rep) = state.last_report.write() {
+        *rep = bundle.report.clone();
+    }
+    if let Ok(mut ts) = state.last_preflight_at.write() {
+        *ts = Some(Instant::now());
+    }
+    state.initial_preflight_done.store(true, Ordering::Release);
+    if let Ok(mut snap) = state.snapshot.write() {
+        *snap = bundle.snapshot.clone();
+    }
+    let _ = app.emit("guard://preflight-updated", bundle.report.clone());
+    let _ = app.emit("guard://snapshot", bundle.snapshot);
+    Ok(bundle.report)
+}
+
+#[tauri::command]
+async fn acknowledge_ban_warn_session(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<PreflightReport, String> {
+    let _gate = state.preflight_gate.lock().await;
+    crate::preflight::acknowledge_ban_warn_in_session();
+    logger::log_event(
+        "INFO",
+        "preflight",
+        "ban_warn_acknowledged",
+        None,
+        "用户已在当前会话核实本地审查风险提示并放行",
+        None,
+    );
+    let cfg = state
+        .config
+        .read()
+        .map_err(|_| "读取配置锁失败".to_string())?
+        .clone();
+    let bg_procs = tokio::task::spawn_blocking(|| list_claude_processes().len() as u32)
+        .await
+        .unwrap_or(0);
+    let mut bundle = run_all_preflight_checks(&cfg, bg_procs).await;
+    merge_killswitch_and_log_triggers(&state, &mut bundle.snapshot);
+    if let Ok(mut rep) = state.last_report.write() {
+        *rep = bundle.report.clone();
+    }
+    if let Ok(mut ts) = state.last_preflight_at.write() {
+        *ts = Some(Instant::now());
+    }
+    state.initial_preflight_done.store(true, Ordering::Release);
+    if let Ok(mut snap) = state.snapshot.write() {
+        *snap = bundle.snapshot.clone();
+    }
+    let _ = app.emit("guard://preflight-updated", bundle.report.clone());
+    let _ = app.emit("guard://snapshot", bundle.snapshot);
+    Ok(bundle.report)
+}
+
+#[tauri::command]
 async fn list_backups() -> Result<Vec<BackupInfo>, String> {
     tokio::task::spawn_blocking(|| list_backups_in(&backups_dir()))
         .await
@@ -2695,8 +2780,9 @@ async fn backup_and_clean_claude(
     // T-031：清理事务完成后立即释放事务锁，不再强挂 45 秒长盯防拦用户重新打开 Claude 登录
     release_kill_hold_tx(&app, &state, None);
     let info = res?;
-    // T-046：勾选清理登录态或日志后，自动解除旧主号绑定与旧云端主档案缓存，重登新号自动重新绑定（免手工换绑）
+    // T-046：勾选清理登录态或日志后，自动重置会话确认态与云端主档案缓存
     if should_reset_primary_org {
+        crate::preflight::reset_console_session_on_cleanup();
         crate::account_audit::invalidate_profile_cloud_cache(
             &crate::account_audit::default_audit_cache_path(),
             "default",
@@ -2706,7 +2792,7 @@ async fn backup_and_clean_claude(
                 cfg.bound_primary_org_id = None;
                 let _ = save_config(&state.config_path, &cfg);
                 let _ = app.emit("guard://config-changed", cfg.clone());
-                logger::log_info("maintenance", "清理登录态/日志后已自动重置旧 bound_primary_org_id 与主档案缓存");
+                logger::log_info("maintenance", "清理登录态/日志后已自动重置旧会话确认态与缓存");
             }
         }
     }
@@ -2900,12 +2986,7 @@ fn persist_baseline_if_needed(
                 }
             }
         }
-        if let Some(org) = org_id {
-            if cfg.bound_primary_org_id.is_none() && !org.is_empty() {
-                cfg.bound_primary_org_id = Some(org.to_string());
-                changed = true;
-            }
-        }
+        let _ = org_id;
         if changed {
             let _ = save_config(&state.config_path, &cfg);
         }
@@ -3480,27 +3561,52 @@ fn spawn_background_engines(app: AppHandle) {
     // 1.0A 零轮询内核句柄守望者：OpenProcess + WaitForSingleObject 监听 Clash / Mihomo 退出，<10ms 唤醒熔断检查
     {
         let wake_proc = instant_radar_wake.clone();
-        std::thread::spawn(move || loop {
-            let pids = crate::process::find_clash_kernel_pids();
-            if let Some((pid, name)) = pids.first() {
-                logger::log_info(
-                    "radar",
-                    format!("内核退出守望者已挂载至代理进程 {name} (PID={pid})，0 轮询等待退出事件"),
-                );
-                let exited = crate::process::wait_for_process_exit_blocking(*pid);
-                if exited {
-                    logger::log_warn(
-                        "radar",
-                        format!("内核守望者 <10ms 捕获代理进程 {name} (PID={pid}) 退出，立即唤醒热熔断检查！"),
-                    );
-                    wake_proc.notify_one();
-                    // 短暂避让 250ms 等待新内核或防止退出瞬间重复挂载
-                    std::thread::sleep(Duration::from_millis(250));
+        std::thread::spawn(move || {
+            let mut warned_unattachable_pid: Option<u32> = None;
+            loop {
+                let pids = crate::process::find_clash_kernel_pids();
+                if let Some((pid, name)) = pids.first() {
+                    let pid_val = *pid;
+                    let name_cloned = name.clone();
+                    let outcome = crate::process::watch_process_exit_blocking(pid_val, || {
+                        warned_unattachable_pid = None;
+                        logger::log_info(
+                            "radar",
+                            format!(
+                                "内核退出守望者已挂载至代理进程 {name_cloned} (PID={pid_val})，0 轮询等待退出事件"
+                            ),
+                        );
+                    });
+                    if outcome == crate::process::ProcessExitWatchOutcome::Exited {
+                        warned_unattachable_pid = None;
+                        logger::log_warn(
+                            "radar",
+                            format!(
+                                "内核守望者 <10ms 捕获代理进程 {name} (PID={pid_val}) 退出，立即唤醒热熔断检查！"
+                            ),
+                        );
+                        wake_proc.notify_one();
+                        // 短暂避让 250ms 等待新内核或防止退出瞬间重复挂载
+                        std::thread::sleep(Duration::from_millis(250));
+                        continue;
+                    }
+                    // 非管理员态遇到高权限 Clash 服务进程导致 OpenProcess 拒访时：仅首记 1 条降级日志并降频休眠，杜绝 2s 刷屏
+                    if warned_unattachable_pid != Some(pid_val) {
+                        warned_unattachable_pid = Some(pid_val);
+                        logger::log_info(
+                            "radar",
+                            format!(
+                                "代理进程 {name} (PID={pid_val}) 需要管理员句柄挂载内核守望，已自动降级由 1s 策略雷达持续守护"
+                            ),
+                        );
+                    }
+                    std::thread::sleep(Duration::from_secs(10));
                     continue;
                 }
+                warned_unattachable_pid = None;
+                // 未发现运行中的 Clash 进程时每 2 秒低频探测上线后再挂载零轮询句柄
+                std::thread::sleep(Duration::from_secs(2));
             }
-            // 未发现运行中的 Clash 进程时每 2 秒低频探测上线后再挂载零轮询句柄
-            std::thread::sleep(Duration::from_secs(2));
         });
     }
 
@@ -3795,7 +3901,7 @@ fn spawn_background_engines(app: AppHandle) {
                             "FD Claude Guard 日志提醒"
                         },
                         &format!(
-                            "新增 {} 条{}：{}（点击日志分析查看详情与处理建议）",
+                            "新增 {} 条{}：{}（点击「账户审计 → 实时日志」查看详情与处理建议）",
                             new_anomalies.len(),
                             if has_critical { "日志异常" } else { "日志风险提醒" },
                             latest_title
@@ -4642,8 +4748,8 @@ async fn clean_claude_cli_credentials_with_backup(
 }
 
 #[tauri::command]
-async fn inspect_rollback_status_cmd() -> Result<RollbackOverview, String> {
-    Ok(inspect_rollback_status().await)
+async fn inspect_rollback_status_cmd(force: Option<bool>) -> Result<RollbackOverview, String> {
+    Ok(inspect_rollback_status_cached(force.unwrap_or(false)).await)
 }
 
 /// 单项精准撤回本工具对系统或 Clash 的改动（用户随时有权还原自己电脑）
@@ -4817,9 +4923,16 @@ pub fn run() {
     logger::cleanup_old_logs();
     let config_path = default_config_path();
     let existed = config_path.exists();
-    let initial_cfg = load_config(&config_path);
-    if !existed {
+    let mut initial_cfg = load_config(&config_path);
+    let migrated = crate::config::migrate_config_if_needed(&mut initial_cfg);
+    if !existed || migrated {
         let _ = save_config(&config_path, &initial_cfg);
+        if migrated {
+            logger::log_info(
+                "config",
+                "已完成 v0.4.1 默认护航配置迁移（开启桌面悬浮窗、预警消息提醒与开机自启）",
+            );
+        }
     }
 
     let args: Vec<String> = std::env::args().collect();
@@ -4886,6 +4999,8 @@ pub fn run() {
                     if let Ok(mut ts) = st.last_preflight_at.write() {
                         *ts = Some(Instant::now());
                     }
+                    // R1 修复：冷启动首轮体检完成后立即激活 500ms 防裸奔自动接管雷达，消灭前 15 分钟失明期
+                    st.initial_preflight_done.store(true, Ordering::Release);
                     if let Ok(mut snap) = st.snapshot.write() {
                         *snap = bundle.snapshot.clone();
                     }
@@ -4893,6 +5008,34 @@ pub fn run() {
                     let _ = bg_handle.emit("guard://snapshot", bundle.snapshot);
                 }
             });
+
+            // B1 修复：启动时在后台线程幂等对齐 boot_start 配置与真实 Windows 计划任务，消灭开关与检查割裂
+            {
+                let autostart_handle = handle.clone();
+                let desired_boot = initial_cfg.boot_start;
+                std::thread::spawn(move || {
+                    let task_now = is_windows_autostart_task_enabled();
+                    if desired_boot != task_now {
+                        match sync_windows_autostart_task(desired_boot) {
+                            Ok(()) => {
+                                logger::log_info(
+                                    "autostart",
+                                    format!("启动期已自动对齐 Windows 开机自启计划任务: enabled={desired_boot}"),
+                                );
+                            }
+                            Err(err) => {
+                                logger::log_warn(
+                                    "autostart",
+                                    format!("启动期同步 Windows 开机自启计划任务失败（不假绿）: {err}"),
+                                );
+                            }
+                        }
+                    }
+                    let real_boot = is_windows_autostart_task_enabled();
+                    let audit = audit_windows_startup_items(real_boot);
+                    let _ = autostart_handle.emit("guard://startup-audit-updated", audit);
+                });
+            }
 
             spawn_background_engines(handle.clone());
             spawn_smart_update_scheduler(handle.clone());
@@ -5035,6 +5178,8 @@ pub fn run() {
             submit_anonymous_feedback_report_cmd,
             cleanup_all_guard_firewall_rules_cmd,
             confirm_primary_org_binding,
+            confirm_current_account,
+            acknowledge_ban_warn_session,
             list_backups,
             inspect_claude_data_roots,
             preview_claude_cleanup_plan_cmd,

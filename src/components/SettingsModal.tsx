@@ -67,6 +67,10 @@ const TAB_META: Record<SettingsModalTab, { title: string; sub: string }> = {
 };
 
 const STARTUP_ADVICE_MAP: Record<string, { rec: string; fallback: string }> = {
+  "Clash Verge Rev": {
+    rec: "建议开启 · ",
+    fallback: "让代理早于 Claude 启动，避免开机直连",
+  },
   "Clash Verge": {
     rec: "建议开启 · ",
     fallback: "让代理早于 Claude 启动，避免开机直连",
@@ -74,6 +78,10 @@ const STARTUP_ADVICE_MAP: Record<string, { rec: string; fallback: string }> = {
   "Claude Desktop": {
     rec: "建议关闭 · ",
     fallback: "防止早于代理抢跑启动导致真实 IP 暴露",
+  },
+  "FD Claude Guard": {
+    rec: "建议开启 · ",
+    fallback: "随系统后台静默守护，第一时间拦截风险",
   },
   "FD Claude 安全启动器": {
     rec: "建议开启 · ",
@@ -111,14 +119,17 @@ export function SettingsModal() {
   const openRiskModal = useGuardStore((s) => s.openRiskModal);
   const openCleanModal = useGuardStore((s) => s.openCleanModal);
   const refreshPreflight = useGuardStore((s) => s.refreshPreflight);
+  const refreshStartupAudit = useGuardStore((s) => s.refreshStartupAudit);
   const pushToast = useGuardStore((s) => s.pushToast);
   const networkRescueAlert = useGuardStore((s) => s.networkRescueAlert);
   const setNetworkRescueAlert = useGuardStore((s) => s.setNetworkRescueAlert);
+  const cachedOverview = useGuardStore((s) => s.rollbackOverview);
+  const setCachedOverview = useGuardStore((s) => s.setRollbackOverview);
 
   const [popover, setPopover] = useState<PopoverState | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [copiedX, setCopiedX] = useState(false);
-  const [overview, setOverview] = useState<RollbackOverview | null>(null);
+  const [overview, setOverview] = useState<RollbackOverview | null>(() => cachedOverview);
   const [overviewLoading, setOverviewLoading] = useState(false);
   const [overviewError, setOverviewError] = useState<string | null>(null);
   const [rescueReport, setRescueReport] = useState<NetworkRescueReport | null>(null);
@@ -132,7 +143,10 @@ export function SettingsModal() {
   const autoUpdateCheckedRef = useRef(false);
 
   const loadRecoveryData = useCallback(async () => {
-    setOverviewLoading(true);
+    const hasCache = Boolean(useGuardStore.getState().rollbackOverview);
+    if (!hasCache) {
+      setOverviewLoading(true);
+    }
     setOverviewError(null);
     try {
       const [ov, baks, roots] = await Promise.all([
@@ -145,6 +159,7 @@ export function SettingsModal() {
         })),
       ]);
       setOverview(ov);
+      setCachedOverview(ov);
       setBackups(baks);
       setRootsSummary(roots);
       const hasLoopbackDns = (ov.loopbackDnsAdapters?.length ?? 0) > 0;
@@ -155,20 +170,28 @@ export function SettingsModal() {
     } finally {
       setOverviewLoading(false);
     }
-  }, [setNetworkRescueAlert]);
+  }, [setCachedOverview, setNetworkRescueAlert]);
 
   useEffect(() => {
     if (!open) {
       setPopover(null);
       return;
     }
-    if (tab === "recovery") {
+    if (tab === "general") {
+      void refreshStartupAudit();
+    } else if (tab === "recovery") {
+      const cached = useGuardStore.getState().rollbackOverview;
+      if (cached) {
+        setOverview((prev) => prev ?? cached);
+      }
       void loadRecoveryData();
     } else if (tab === "update" && !autoUpdateCheckedRef.current && !updateInfo && !updateChecking && !updateError) {
       autoUpdateCheckedRef.current = true;
       void checkForAppUpdate(true);
     }
-  }, [open, tab, loadRecoveryData, updateInfo, updateChecking, updateError, checkForAppUpdate]);
+    // 仅在弹窗打开或切换 tab 时触发拉取，避免 overview 自身更新造成重入循环
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, tab]);
 
   // Esc 仅在无上层弹窗（SupportModal / CleanConfirmModal / RiskModal / PlaybookDrawer）打开时关闭系统设置
   useEffect(() => {
@@ -189,7 +212,7 @@ export function SettingsModal() {
 
   const busy = busyKey !== null;
   const appVersionLabel =
-    typeof __APP_VERSION__ === "string" && __APP_VERSION__ ? `v${__APP_VERSION__}` : "v0.4.0";
+    typeof __APP_VERSION__ === "string" && __APP_VERSION__ ? `v${__APP_VERSION__}` : "v0.4.1";
 
   const showPopover = (el: HTMLElement, title: string, body: string) => {
     const rect = el.getBoundingClientRect();
@@ -630,10 +653,21 @@ export function SettingsModal() {
       data-testid="settings-modal"
       className="s-modal-scrim"
       onClick={(e) => {
-        if (e.target === e.currentTarget) close();
+        if (e.target === e.currentTarget) {
+          if (popover) {
+            setPopover(null);
+          } else {
+            close();
+          }
+        }
       }}
     >
-      <div className="s-modal-shell">
+      <div
+        className="s-modal-shell"
+        onClick={() => {
+          if (popover) setPopover(null);
+        }}
+      >
         {/* 左栏 204px（扁平 4 项、去大分类标题、去平时数字角标） */}
         <aside className="s-modal-aside">
           <div>
@@ -778,7 +812,7 @@ export function SettingsModal() {
                         desc: "桌面常驻小卡片看节点与流量，支持拖拽和靠右贴边",
                         fullDesc:
                           "开启后在桌面显示轻量悬浮状态窗，实时查看出口节点、日志与流量异常；支持任意位置拖拽、靠右贴边隐藏和双击顶栏折叠，与主窗口顶栏及托盘开关实时同步。",
-                        badge: { text: "推荐开启", tone: "ok" },
+                        badge: config.showHud ? { text: "已开启", tone: "ok" } : { text: "建议开启", tone: "warn" },
                         checked: config.showHud,
                       })}
                       {renderSwitchRow({
@@ -787,7 +821,7 @@ export function SettingsModal() {
                         desc: "悬浮窗隐藏时发系统通知提醒，危急熔断不受静音影响",
                         fullDesc:
                           "当悬浮窗隐藏或贴边收起时，通过 Windows 原生通知推送预警；关闭此开关仅静音普通预警，遇到防火墙熔断或防裸奔拦截仍会强制强提醒。",
-                        badge: { text: "推荐开启", tone: "ok" },
+                        badge: config.notifyEnabled ? { text: "已开启", tone: "ok" } : { text: "建议开启", tone: "warn" },
                         checked: config.notifyEnabled,
                       })}
                       {renderSwitchRow({
@@ -796,7 +830,7 @@ export function SettingsModal() {
                         desc: "随系统开机在后台静默启动，先于 Claude 建立代理保护",
                         fullDesc:
                           "通过 Windows 高权限计划任务随开机静默启动守护引擎，确保在打开 Claude 之前就已建立防裸奔与网络监听。",
-                        badge: { text: "推荐开启", tone: "ok" },
+                        badge: config.bootStart ? { text: "已开启", tone: "ok" } : { text: "建议开启", tone: "warn" },
                         checked: config.bootStart,
                       })}
                       {renderSwitchRow({
@@ -805,7 +839,7 @@ export function SettingsModal() {
                         desc: config.bootStart
                           ? "开机不弹出大窗口，只在桌面安静显示悬浮状态卡（依赖开机自启）"
                           : "需先开启上方「开机自动启动」后才可配置此项",
-                        badge: { text: "推荐开启", tone: "ok" },
+                        badge: config.bootHudOnly ? { text: "已开启", tone: "ok" } : { text: "建议开启", tone: "warn" },
                         checked: config.bootHudOnly,
                         disabled: !config.bootStart,
                       })}
@@ -820,10 +854,12 @@ export function SettingsModal() {
                     <div className="guard-card">
                       {startupAudit.entries.map((entry) => {
                         const advice = STARTUP_ADVICE_MAP[entry.app];
+                        const rawDetail = entry.detail || advice?.fallback || "";
+                        const skipRec = entry.enabled || rawDetail.startsWith("建议") || rawDetail.startsWith("已通过");
                         const descText = advice
-                          ? entry.detail?.startsWith("建议")
-                            ? entry.detail
-                            : `${advice.rec}${entry.detail || advice.fallback}`
+                          ? skipRec
+                            ? rawDetail
+                            : `${advice.rec}${rawDetail}`
                           : entry.detail;
                         const pillCls =
                           entry.riskLevel === "ok"
@@ -2002,7 +2038,7 @@ export function SettingsModal() {
                         <span>
                           开源透明，所有诊断日志导出均先做本地脱敏，严禁采集对话、代码与账号密钥。
                         </span>
-                        <span className="guard-chip guard-chip-neutral">MIT 开源</span>
+                        <span className="guard-chip guard-chip-neutral">GPL-3.0 开源</span>
                       </div>
                     </div>
                   </div>

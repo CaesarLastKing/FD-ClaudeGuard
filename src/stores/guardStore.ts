@@ -19,6 +19,7 @@ import type {
   NodeReport,
   PreflightReport,
   RiskModalState,
+  RollbackOverview,
   SettingsModalTab,
   StartupAuditReport,
   ToastAction,
@@ -63,6 +64,7 @@ interface GuardStore {
   settingsModalOpen: boolean;
   settingsModalTab: SettingsModalTab;
   networkRescueAlert: boolean;
+  rollbackOverview: RollbackOverview | null;
   checking: boolean;
   fixing: boolean;
   fixingItemId: string | null;
@@ -115,6 +117,8 @@ interface GuardStore {
   setActiveTab: (tab: NavTab) => void;
   setAuditSubTab: (sub: AuditSubTab) => void;
   setNodesSubTab: (sub: "quality" | "traffic") => void;
+  refreshStartupAudit: () => Promise<void>;
+  setStartupAudit: (report: StartupAuditReport) => void;
   refreshAccountAudit: (silent?: boolean) => Promise<void>;
   setAccountAudit: (report: AccountAuditReport) => void;
   setSelectedCheckId: (id: string) => void;
@@ -145,6 +149,7 @@ interface GuardStore {
   toggleSettingsModal: () => void;
   setSettingsModalTab: (tab: SettingsModalTab) => void;
   setNetworkRescueAlert: (alert: boolean) => void;
+  setRollbackOverview: (overview: RollbackOverview | null) => void;
   hydrateCachedUpdateInfo: () => Promise<AppUpdateInfo | null>;
   setUpdateInfo: (info: AppUpdateInfo | null) => void;
   checkForAppUpdate: (silent?: boolean) => Promise<AppUpdateInfo | null>;
@@ -162,6 +167,13 @@ interface GuardStore {
 function applyThemeToDom(theme: "dark" | "light") {
   if (typeof document !== "undefined") {
     document.documentElement.setAttribute("data-theme", theme);
+  }
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      window.localStorage.setItem("fd-guard-theme", theme);
+    }
+  } catch {
+    // 忽略无痕/受限环境下的 localStorage 异常
   }
 }
 
@@ -190,6 +202,7 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
   settingsModalOpen: false,
   settingsModalTab: "general",
   networkRescueAlert: false,
+  rollbackOverview: null,
   checking: false,
   fixing: false,
   fixingItemId: null,
@@ -227,19 +240,21 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
     set({ checking: true });
     try {
       let auditErr: string | null = null;
-      const [config, preflight, startupAudit, nodeReport, deepAudit, accountAudit] =
-        await Promise.all([
-          ipc.getConfig(),
-          ipc.runPreflightChecks(false),
-          ipc.auditStartupItems(),
-          ipc.getNodesAndQuality(),
-          ipc.getDeepAuditStatus(),
-          ipc.auditAccountLocal().catch((e) => {
-            auditErr = String(e);
-            return null;
-          }),
-        ]);
-      const snapshot = await ipc.getSnapshot();
+      const [config, preflight, startupAudit, nodeReport, deepAudit] = await Promise.all([
+        ipc.getConfig(),
+        ipc.runPreflightChecks(false),
+        ipc.auditStartupItems(),
+        ipc.getNodesAndQuality(),
+        ipc.getDeepAuditStatus(),
+      ]);
+      // 等 runPreflightChecks 就绪后再拉取账户审计与快照，消除冷启动未读数/拓扑竞态错乱
+      const [accountAudit, snapshot] = await Promise.all([
+        ipc.auditAccountLocal().catch((e) => {
+          auditErr = String(e);
+          return null;
+        }),
+        ipc.getSnapshot(),
+      ]);
       applyThemeToDom(config.theme);
       const firstFail =
         preflight.items.find((x) => x.part === "must" && x.status !== "ok") ??
@@ -594,8 +609,25 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
     set({ networkRescueAlert: alert });
   },
 
+  setRollbackOverview(overview) {
+    set({ rollbackOverview: overview });
+  },
+
   setAuditSubTab(sub) {
     set({ auditSubTab: sub });
+  },
+
+  async refreshStartupAudit() {
+    try {
+      const startupAudit = await ipc.auditStartupItems();
+      set({ startupAudit });
+    } catch {
+      // 忽略瞬态检测异常
+    }
+  },
+
+  setStartupAudit(report) {
+    set({ startupAudit: report });
   },
 
   async refreshAccountAudit(silent = false) {
@@ -795,12 +827,17 @@ export const useGuardStore = create<GuardStore>((set, get) => ({
     const geoChanged =
       prevGeo?.status !== nextGeo?.status || prevGeo?.summary !== nextGeo?.summary;
     set({ preflight: report });
-    // 后台 15 分钟全量巡检或节点事件触发出口状态变更时，同步静默刷新节点表，保证控制台与节点流量页同源
+    // 后台 15 分钟全量巡检或节点事件触发出口状态变更时，同步静默刷新节点表与账户审计，保证全局徽标实时同源
     if (get().initialized && (geoChanged || get().activeTab === "nodes")) {
       void ipc
         .getNodesAndQuality(false)
         .then((nodeReport) => set({ nodeReport }))
-        .catch(() => {});
+        .catch((err) => {
+          void ipc.logFrontendEvent("WARN", "guardStore", `刷新节点质量列表失败: ${String(err)}`);
+        });
+    }
+    if (get().initialized && geoChanged) {
+      void get().refreshAccountAudit(true);
     }
   },
 

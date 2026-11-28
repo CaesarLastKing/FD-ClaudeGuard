@@ -1,8 +1,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { SettingsModal } from "@/components/SettingsModal";
 import { DEFAULT_CONFIG, FALLBACK_PREFLIGHT, FALLBACK_SNAPSHOT, FALLBACK_STARTUP_AUDIT, ipc } from "@/lib/ipc";
 import { NodesTrafficPage } from "@/pages/NodesTrafficPage";
-import { SettingsPage } from "@/pages/SettingsPage";
 import { useGuardStore } from "@/stores/guardStore";
 import type { ClaudeConn } from "@/types/guard";
 
@@ -48,10 +48,14 @@ describe("v0.3.5 Clash 分流深度加固与守卫配置开关回归", () => {
     vi.spyOn(ipc, "getSnapshot").mockResolvedValue({ ...FALLBACK_SNAPSHOT });
     vi.spyOn(ipc, "auditAccountLocal").mockResolvedValue(null as never);
 
-    render(<SettingsPage />);
+    useGuardStore.setState({
+      settingsModalOpen: true,
+      settingsModalTab: "policy",
+    });
+    render(<SettingsModal />);
 
     const toggle = screen.getByRole("switch", {
-      name: "同步锁定 Cloudflare 人机盾与 Stripe 支付至 Claude-Fixed",
+      name: "同步锁定人机盾与 Stripe 支付至 Claude-Fixed",
     });
     expect(toggle).toHaveAttribute("aria-checked", "true");
 

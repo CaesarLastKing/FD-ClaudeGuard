@@ -14,7 +14,7 @@ use chrono::Utc;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 static UPDATE_INSTALL_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
@@ -26,8 +26,11 @@ pub const UPDATE_STARTUP_DELAY_SECS: u64 = 180;
 pub const UPDATE_WAKE_RECOVERY_DELAY_SECS: u64 = 60;
 /// 手动点击「检查更新」防连点短时单飞保护（15 秒）
 const UPDATE_CHECK_CACHE_TTL_SECS: u64 = 15;
+/// R3：非强制检查失败后的内存退避冷却期（10 分钟），防止断网时反复重试刷屏 WARN
+const UPDATE_FAILURE_BACKOFF_SECS: u64 = 600;
 static UPDATE_CHECK_SINGLEFLIGHT: OnceLock<tokio::sync::Mutex<Option<(Instant, AppUpdateInfo)>>> =
     OnceLock::new();
+static LAST_UPDATE_FAILURE_AT: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
 
 /// 持久化更新状态文件结构（`%LOCALAPPDATA%\FDClaudeGuard\update-state.json`，零敏感信息）
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,9 +96,15 @@ pub fn save_persisted_update_state(
         via_proxy: info.via_proxy,
         message: info.message.clone(),
     };
+    static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let body = serde_json::to_string_pretty(&state)
         .map_err(|e| format!("序列化更新状态失败: {e}"))?;
-    let tmp = path.with_extension("json.tmp");
+    let seq = TMP_SEQ.fetch_add(1, Ordering::Relaxed);
+    let file_name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "update-state.json".to_string());
+    let tmp = path.with_file_name(format!("{file_name}.tmp.{}.{seq}", std::process::id()));
     fs::write(&tmp, &body).map_err(|e| format!("写入更新状态临时文件失败: {e}"))?;
     if fs::rename(&tmp, path).is_err() {
         fs::write(path, &body).map_err(|e| format!("保存更新状态文件失败: {e}"))?;
@@ -242,7 +251,15 @@ pub fn should_reuse_cached_update(checked_at: Instant, now: Instant) -> bool {
     now.saturating_duration_since(checked_at) < Duration::from_secs(UPDATE_CHECK_CACHE_TTL_SECS)
 }
 
-/// 检查 GitHub Releases 最新版本（优先代理、失败回退直连；静默模式严格遵守 4h 持久化节流，手动模式强制穿透刷新）
+/// 纯函数：判断静默自动检查是否处于最近一次失败的 10 分钟退避冷却期内
+pub fn is_in_failure_backoff(last_failed_at: Option<Instant>, now: Instant) -> bool {
+    match last_failed_at {
+        Some(prev) => now.saturating_duration_since(prev) < Duration::from_secs(UPDATE_FAILURE_BACKOFF_SECS),
+        None => false,
+    }
+}
+
+/// 检查 GitHub Releases 最新版本（优先代理、失败回退直连；静默模式严格遵守 4h 持久化节流与 10m 失败退避，手动模式强制穿透刷新）
 pub async fn check_for_app_update(
     app: &AppHandle,
     clash_port: Option<u16>,
@@ -255,7 +272,7 @@ pub async fn check_for_app_update(
     let now_inst = Instant::now();
     let now_ms = Utc::now().timestamp_millis();
 
-    // 1. 静默模式优先命中 4 小时持久化节流缓存（未满 4h 直接复用本地状态，零网络请求、不刷日志）
+    // 1. 静默模式优先命中 4 小时持久化节流缓存 + 10 分钟失败退避保护
     if !force {
         let persisted = load_persisted_update_state(&state_path);
         let (cached_opt, need_network) =
@@ -264,6 +281,27 @@ pub async fn check_for_app_update(
             if let Some(cached) = cached_opt {
                 return Ok(cached);
             }
+        }
+        let in_backoff = LAST_UPDATE_FAILURE_AT
+            .get_or_init(|| Mutex::new(None))
+            .lock()
+            .ok()
+            .and_then(|g| *g)
+            .map(|ts| is_in_failure_backoff(Some(ts), now_inst))
+            .unwrap_or(false);
+        if in_backoff {
+            if let Some(cached) = cached_opt {
+                return Ok(cached);
+            }
+            return Ok(AppUpdateInfo {
+                current_version: current_version.clone(),
+                available: false,
+                latest_version: Some(current_version.clone()),
+                published_at: None,
+                notes: None,
+                via_proxy: false,
+                message: format!("更新检查处于网络退避冷却中（当前 v{current_version}）。"),
+            });
         }
     } else if let Some((checked_at, cached)) = cache_guard.as_ref() {
         // 2. 手动点击模式穿透 4h 缓存，但保留 15s 并发/连点防抖保护
@@ -315,7 +353,20 @@ pub async fn check_for_app_update(
         (direct_updater.check().await.map_err(|e| e.to_string()), false)
     };
 
-    let update_opt = check_res.map_err(|e| format!("检查 GitHub Releases 更新失败：{e}"))?;
+    let update_opt = match check_res {
+        Ok(v) => {
+            if let Ok(mut g) = LAST_UPDATE_FAILURE_AT.get_or_init(|| Mutex::new(None)).lock() {
+                *g = None;
+            }
+            v
+        }
+        Err(e) => {
+            if let Ok(mut g) = LAST_UPDATE_FAILURE_AT.get_or_init(|| Mutex::new(None)).lock() {
+                *g = Some(Instant::now());
+            }
+            return Err(format!("检查 GitHub Releases 更新失败：{e}"));
+        }
+    };
     let info = match update_opt {
         Some(update) => {
             let latest = update.version.clone();
@@ -501,6 +552,19 @@ pub async fn download_and_install_app_update(
                     env!("CARGO_PKG_VERSION")
                 ));
             };
+            if direct_update.version != target_ver {
+                logger::log_warn(
+                    "updater",
+                    format!(
+                        "直连回退检测到线上最新版本已变更为 v{}（与已确认版本 v{} 不一致），已中止自动下载",
+                        direct_update.version, target_ver
+                    ),
+                );
+                return Err(format!(
+                    "直连回退检测到线上已发布更新版本 v{}（与此前确认的 v{} 不一致），为安全起见已取消本次下载，请重新点击「检查更新」查看新版说明后再更新。",
+                    direct_update.version, target_ver
+                ));
+            }
             let app_for_direct_finish = app.clone();
             direct_update
                 .download_and_install(emit_progress_cb(app.clone()), move || {
@@ -658,5 +722,14 @@ mod tests {
         let (c_back, need_back) = evaluate_persisted_update_state(Some(&loaded), "0.3.7", t0 - 60_000);
         assert!(c_back.is_none());
         assert!(need_back);
+    }
+
+    #[test]
+    fn v041_r3_updater_failure_backoff_enforces_10_minutes() {
+        let t0 = Instant::now();
+        assert!(!is_in_failure_backoff(None, t0));
+        assert!(is_in_failure_backoff(Some(t0), t0 + Duration::from_secs(120)));
+        assert!(is_in_failure_backoff(Some(t0), t0 + Duration::from_secs(599)));
+        assert!(!is_in_failure_backoff(Some(t0), t0 + Duration::from_secs(600)));
     }
 }

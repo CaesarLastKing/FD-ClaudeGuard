@@ -62,6 +62,7 @@ export function Sidebar() {
   const openSettingsModal = useGuardStore((s) => s.openSettingsModal);
   const networkRescueAlert = useGuardStore((s) => s.networkRescueAlert);
   const setNetworkRescueAlert = useGuardStore((s) => s.setNetworkRescueAlert);
+  const setRollbackOverview = useGuardStore((s) => s.setRollbackOverview);
   const preflight = useGuardStore((s) => s.preflight);
   const snapshot = useGuardStore((s) => s.snapshot);
   const accountAudit = useGuardStore((s) => s.accountAudit);
@@ -80,7 +81,9 @@ export function Sidebar() {
   const defaultHoldSecs = config.killHoldSeconds ?? 45;
 
   const mustAll = preflight.items.filter((x) => x.part === "must");
-  const mustFail = mustAll.filter((x) => x.status !== "ok").length;
+  const mustPending = mustAll.filter((x) => x.status !== "ok").length;
+  const mustHardFail = mustAll.filter((x) => x.status === "fail").length;
+  const mustFail = mustPending;
 
   // 节点流量侧边栏角标双重兜底
   const nodeGeoItem = preflight.items.find((x) => x.id === "node_geo");
@@ -98,6 +101,7 @@ export function Sidebar() {
       .inspectRollbackStatus()
       .then((overview) => {
         if (cancelled) return;
+        setRollbackOverview(overview);
         const hasLoopbackDns = (overview.loopbackDnsAdapters?.length ?? 0) > 0;
         const hasResidualFw = Boolean(overview.activeFirewallRules) && !snapshot.killSwitchActive;
         const nextAlert = hasLoopbackDns || hasResidualFw;
@@ -105,11 +109,13 @@ export function Sidebar() {
           setNetworkRescueAlert(nextAlert);
         }
       })
-      .catch(() => {});
+      .catch((err) => {
+        void ipc.logFrontendEvent("WARN", "Sidebar", `检测撤回基线状态失败: ${String(err)}`);
+      });
     return () => {
       cancelled = true;
     };
-  }, [snapshot.killSwitchActive, setNetworkRescueAlert]);
+  }, [snapshot.killSwitchActive, setNetworkRescueAlert, setRollbackOverview]);
 
   const [interceptFlash, setInterceptFlash] = useState(false);
   const prevBlockedRef = useRef(holdBlocked);
@@ -136,7 +142,7 @@ export function Sidebar() {
   }, []);
 
   const appVersionLabel =
-    typeof __APP_VERSION__ === "string" && __APP_VERSION__ ? `v${__APP_VERSION__}` : "v0.4.0";
+    typeof __APP_VERSION__ === "string" && __APP_VERSION__ ? `v${__APP_VERSION__}` : "v0.4.1";
 
   return (
     <aside
@@ -172,11 +178,21 @@ export function Sidebar() {
                   className="tabular"
                   style={{
                     ...navBadgeStyle,
-                    background: mustFail > 0 ? "var(--bad-bg)" : "var(--ok-bg)",
-                    color: mustFail > 0 ? "var(--bad-fg)" : "var(--ok-fg)",
+                    background:
+                      mustHardFail > 0
+                        ? "var(--bad-bg)"
+                        : mustPending > 0
+                        ? "var(--warning-soft)"
+                        : "var(--ok-bg)",
+                    color:
+                      mustHardFail > 0
+                        ? "var(--bad-fg)"
+                        : mustPending > 0
+                        ? "var(--warning-fg)"
+                        : "var(--ok-fg)",
                   }}
                 >
-                  {mustFail > 0 ? mustFail : "OK"}
+                  {mustPending > 0 ? mustPending : "OK"}
                 </span>
               )}
 
@@ -243,7 +259,7 @@ export function Sidebar() {
         })}
       </nav>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         {/* Claude 进程雷达 & Kill-Hold 防复活持续盯防卡 */}
         <div
           data-testid="sidebar-proc-card"
@@ -569,8 +585,8 @@ export function Sidebar() {
           </div>
         </div>
 
-        {/* 左下角「系统设置」触发项（marginTop 10px 与上方 Clash 卡片拉开呼吸距；分割线以下 10+38+12=61px 保持与右侧虚线框 0px 齐平） */}
-        <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--divider)" }}>
+        {/* 左下角「系统设置」触发项（拉开上方两卡间距 16px，收紧 Clash 卡到底部分割线与设置按钮间距） */}
+        <div style={{ marginTop: -10, paddingTop: 7, borderTop: "1px solid var(--divider)" }}>
           <button
             type="button"
             data-testid="sidebar-settings-trigger"

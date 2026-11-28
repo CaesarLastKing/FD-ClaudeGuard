@@ -121,7 +121,9 @@ export function CleanConfirmModal() {
     try {
       const info = await ipc.backupAndCleanClaude(selectedIds);
       const onCompleted = modal.onCompleted;
-      const fromMaintain = modal.sourceLabel?.includes("环境维护");
+      const fromMaintain = Boolean(
+        modal.sourceLabel?.includes("清理恢复") || modal.sourceLabel?.includes("环境维护")
+      );
       close();
       pushToast(
         "已完成原子备份并按勾选项清理",
@@ -239,7 +241,7 @@ export function CleanConfirmModal() {
                 )}
               </div>
               <div style={{ fontSize: 12, color: "var(--text-2)", marginTop: 3, lineHeight: 1.48 }}>
-                默认同时勾选<span style={{ color: "var(--text-strong)", fontWeight: 500 }}>桌面端与 CLI 登录态</span>以保障本机环境彻底干净；如需保留某端账号，直接取消勾选对应项即可。带「先备份 ZIP」标记的数据将原子打包后删除，随时可在环境维护页一键还原。
+                默认同时勾选<span style={{ color: "var(--text-strong)", fontWeight: 500 }}>桌面端与 CLI 登录态</span>以保障本机环境彻底干净；如需保留某端账号，直接取消勾选对应项即可。带「先备份 ZIP」标记的数据将原子打包后删除，随时可在「系统设置 → 清理恢复」一键还原。
               </div>
             </div>
           </div>

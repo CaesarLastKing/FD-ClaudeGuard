@@ -1,8 +1,8 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WindowChrome } from "@/components/WindowChrome";
+import { SettingsModal } from "@/components/SettingsModal";
 import { ipc } from "@/lib/ipc";
-import { SettingsPage } from "@/pages/SettingsPage";
 import { useGuardStore } from "@/stores/guardStore";
 
 describe("v0.3.8 顶栏极简更新微标、消除副标题双悬浮与取消静默更新 Toast 回归", () => {
@@ -69,9 +69,8 @@ describe("v0.3.8 顶栏极简更新微标、消除副标题双悬浮与取消静
     expect(useGuardStore.getState().settingsModalTab).toBe("update");
   });
 
-  it("静默检查发现新版本绝不再弹出 Toast，仅更新全局状态；进入守卫配置仅零网络读缓存不自动刷接口", async () => {
-    const cachedSpy = vi.spyOn(ipc, "getCachedAppUpdate").mockResolvedValue(null);
-    const checkSpy = vi.spyOn(ipc, "checkAppUpdate").mockResolvedValue({
+  it("静默检查发现新版本绝不再弹出 Toast，仅更新全局状态；读缓存与打开更新页不重复刷接口", async () => {
+    const cachedInfo = {
       currentVersion: "0.3.7",
       available: true,
       latestVersion: "0.3.8",
@@ -79,7 +78,9 @@ describe("v0.3.8 顶栏极简更新微标、消除副标题双悬浮与取消静
       notes: "智能更新调度",
       viaProxy: true,
       message: "发现新版本 v0.3.8",
-    });
+    };
+    const cachedSpy = vi.spyOn(ipc, "getCachedAppUpdate").mockResolvedValue(cachedInfo);
+    const checkSpy = vi.spyOn(ipc, "checkAppUpdate").mockResolvedValue(cachedInfo);
 
     // 1. 静默检查发现新版 -> force=false 且 0 个 Toast 弹窗
     await act(async () => {
@@ -89,10 +90,13 @@ describe("v0.3.8 顶栏极简更新微标、消除副标题双悬浮与取消静
     expect(useGuardStore.getState().updateInfo?.available).toBe(true);
     expect(useGuardStore.getState().toasts.length).toBe(0);
 
-    // 2. 重置状态打开 SettingsPage -> 仅调用 getCachedAppUpdate，不重复触发网络 checkAppUpdate
+    // 2. 启动期零网络读缓存后打开 SettingsModal（已有 updateInfo）-> 不重复触发网络 checkAppUpdate
     checkSpy.mockClear();
-    useGuardStore.setState({ updateInfo: null });
-    render(<SettingsPage />);
+    useGuardStore.setState({ updateInfo: null, settingsModalOpen: true, settingsModalTab: "update" });
+    await act(async () => {
+      await useGuardStore.getState().hydrateCachedUpdateInfo();
+    });
+    render(<SettingsModal />);
     expect(cachedSpy).toHaveBeenCalledTimes(1);
     expect(checkSpy).not.toHaveBeenCalled();
 

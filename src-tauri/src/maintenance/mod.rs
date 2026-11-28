@@ -1588,7 +1588,18 @@ pub fn strip_oauth_account_from_claude_json(path: &Path) -> Result<bool, String>
     }
     let out =
         serde_json::to_string_pretty(&val).map_err(|e| format!("序列化 .claude.json 失败: {e}"))?;
-    fs::write(path, out).map_err(|e| format!("写回 .claude.json 失败: {e}"))?;
+    static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = TMP_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let file_name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| ".claude.json".to_string());
+    let tmp = path.with_file_name(format!("{file_name}.tmp.{}.{seq}", std::process::id()));
+    fs::write(&tmp, &out).map_err(|e| format!("写入 .claude.json 临时文件失败: {e}"))?;
+    if fs::rename(&tmp, path).is_err() {
+        fs::write(path, &out).map_err(|e| format!("写回 .claude.json 失败: {e}"))?;
+        let _ = fs::remove_file(&tmp);
+    }
     Ok(true)
 }
 

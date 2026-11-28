@@ -71,6 +71,16 @@ export function extractRegionCode(nodeName: string): string {
 }
 
 /**
+ * 清理节点名称开头的前导国旗 Emoji（修复 Windows 下退化为灰色小字母 us/cn/sg 贴字问题）
+ */
+export function formatCleanNodeName(rawName: string): string {
+  const s = (rawName || "").trim();
+  if (!s) return s;
+  const cleaned = s.replace(/^(?:[\u{1F1E6}-\u{1F1FF}]{2}\s*)+/u, "").trim();
+  return cleaned || s;
+}
+
+/**
  * 严格比对当前节点与目标节点是否属于同一地区（修复 JP -> US 误判同区热备问题）
  */
 export function isSameRegionSwitch(currentNode: string, targetNode: string): boolean {
