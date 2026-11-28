@@ -142,7 +142,7 @@ export function Sidebar() {
   }, []);
 
   const appVersionLabel =
-    typeof __APP_VERSION__ === "string" && __APP_VERSION__ ? `v${__APP_VERSION__}` : "v0.4.1";
+    typeof __APP_VERSION__ === "string" && __APP_VERSION__ ? `v${__APP_VERSION__}` : "v0.4.2";
 
   return (
     <aside
